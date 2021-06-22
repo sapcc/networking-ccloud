@@ -37,8 +37,8 @@ cc-cloud01 = 3b189848-58bb-4499-abc2-8df170a6a8ae, 4143da3e-d2a7-4077-ba80-215ec
 ```
 
 ### Object Scope and Relation
-* subnet to address-scope: 1:1
-* address-scope to vrf: 1:n
+* subnet to address-scope: n:1
+* address-scope to vrf: n:1
 * region wide subnet in 4143da3e-d2a7-4077-ba80-215ecfd016d7 -> VRF CC-CLOUD01
 * az-local(a) subnet in 4143da3e-d2a7-4077-ba80-215ecfd016d7 -> VRF CC-CLOUD01-A
 
@@ -46,8 +46,8 @@ cc-cloud01 = 3b189848-58bb-4499-abc2-8df170a6a8ae, 4143da3e-d2a7-4077-ba80-215ec
 #### Route-Targets
 Fabric originated subnets
 
-|            | regional         | a                | b                | c                | d                |
-|------------|------------------|------------------|------------------|------------------|------------------|
+|            | regional         | a                 | b                 | c                 | d                 |
+|------------|------------------|-------------------|-------------------|-------------------|-------------------|
 | CC-CLOUD01 | $base-asn$.0:101 | $base-asn$.1:1101 | $base-asn$.2:2101 | $base-asn$.3:3101 | $base-asn$.4:4101 |
 | ...        | ...              | ...               | ...               | ...               | ...               |
 | CC-CLOUD50 | $base-asn$.0:150 | $base-asn$.1:1150 | $base-asn$.2:2150 | $base-asn$.3:3150 | $base-asn$.4:4150 |
@@ -57,11 +57,17 @@ Core originated subnets
 
 ## On Device Config
 
+### Device Scale
+
+1. max VRF
+  * eOS
+  * NX-OS 
+
 Example based on Leafs in QA-DE-1a, assuming qa-de-1 has AZ's a,b,d
 
 ### Generic Pod Local Leaf
 
-#####eOS
+##### eOS
 leaf pair ID 1120 leaf a
 
 ```
@@ -106,39 +112,41 @@ router bgp
 
 
 ```
-#####NX-OS
+##### NX-OS
 ```
 
 ```
 
 ### Border Gateway
 
-#####eOS
+##### eOS
 ```
 
 ```
-#####NX-OS
+##### NX-OS
 ```
 
 ```
 
 ### Border Leaf
 
-#####eOS
+##### eOS
 ```
 
 ```
-#####NX-OS
+##### NX-OS
 ```
 
 ```
 
 ### ACI Transit Leaf
-#####eOS
+##### eOS
 ```
 
 ```
-#####NX-OS
+##### NX-OS
 ```
 
 ```
+
+## Test Cases
