@@ -154,3 +154,10 @@ An OpenStack subnet represents a CIDR and can be associated with a subnet pool
 }
 ```
 </detail>
+
+## Internal Networks
+ * no action needed until portbinding (except of internal resource allocation)
+
+
+## External Networks
+ * gateway might already need to be configured?

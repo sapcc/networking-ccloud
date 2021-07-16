@@ -23,6 +23,7 @@ vlan $vlan_bb
 interface vxlan1
     --- vxlan1 default config omitted here
     vxlan vlan $vlan_bb vni $vni_net_a
+    vxlan vrf $L2_VRF vni $L2_VRF_VNI   # in aci this is currently aci-l2-vrf
 !
 ! for each interface part of this hostgroup
 interface $eth_x

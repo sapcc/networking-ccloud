@@ -1,0 +1,15 @@
+FIXME
+    portchannels for baremetal
+    default portchannels
+    trunk groups (see LLD)
+    SVIs for external networks
+    ip address virtual on vlan $tenant_vlan_id
+
+    dhcp relay for cc-mgmt networks
+
+    DAPNets
+
+
+    ACI handover (translit leaf)
+    management networks
+        need global vni

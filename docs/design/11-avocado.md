@@ -39,7 +39,7 @@ interface vxlan1
 ! for each interface belonging to the hostgroup
 interface $eth_x
     switchport mode trunk
-    vlan translation $vlan_user $vlan_bb
+    switchport vlan translation $vlan_user $vlan_bb
     switchport allowed vlan ...
 
 ```
