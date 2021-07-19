@@ -11,6 +11,7 @@ An OpenStack subnet represents a CIDR and can be associated with a subnet pool
 
 <details>
     <summary>Example of an internal network in OpenStack (json):</summary>
+
 ```json
 {
   "admin_state_up": true,
@@ -61,12 +62,13 @@ An OpenStack subnet represents a CIDR and can be associated with a subnet pool
   ],
   "tags": [],
 }
-
 ```
+
 </details>
 
 <details>
     <summary>Example of an external network in OpenStack (json):</summary>
+
 ```json
 {
   "admin_state_up": true,
@@ -119,10 +121,12 @@ An OpenStack subnet represents a CIDR and can be associated with a subnet pool
   "tags": [],
 }
 ```
+    
 </details>
 
 <detail>
-    <summary>OpenStack external subnet
+    <summary>OpenStack external subnet</summary>
+
 ```json
 {
   "allocation_pools": [
@@ -153,6 +157,7 @@ An OpenStack subnet represents a CIDR and can be associated with a subnet pool
   "tags": [],
 }
 ```
+
 </detail>
 
 ## Internal Networks
