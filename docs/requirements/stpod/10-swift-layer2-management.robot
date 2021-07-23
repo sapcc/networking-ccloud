@@ -10,6 +10,7 @@ Documentation     Swift VM need connectivity a management VRF.
 ...               Management network is layer3, so it also needs to have a gateway.
 ...               
 Library           SSHLibrary
+Default Tags      stPod      Controlplane      Swift
 
 *** Variables ***
 ${HOST} storage0.cc.qa-de-1.cloud.sap
@@ -20,7 +21,7 @@ ${PASSWORD} test
 *** Test Cases ***
 
 Management network gateway resolution
-    Given Open Connection controlplane VM And Log In
+    Skip    Given Open Connection controlplane VM And Log In
     When ${output} = Execute Command "ping ${GATEWAY_IP}"
     Then Should Contain ${output} "64 bytes from ${GATEWAY_IP}"
 

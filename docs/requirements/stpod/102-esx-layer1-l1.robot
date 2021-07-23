@@ -6,4 +6,9 @@ Documentation     Swift node onboard L1 connectivity.
 ...               Swift node L1 need connectivity to following networks:
 ...               - aPOD Management Network (access), site-specific 
 ...               
-Library           SSHLibrary
+Default Tags      stPod      ESX     VMware
+
+*** Test Cases ***
+
+L1 connectivity
+    Skip    Not implemented

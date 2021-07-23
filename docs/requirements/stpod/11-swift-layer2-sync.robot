@@ -7,3 +7,9 @@ Documentation     Swift VMs need connectivity to each other for sync purposes.
 ...               
 ...               Controlplane and Swift VMs share the same Controlplane sync network.
 ...               
+Default Tags      stPod      Controlplane      Swift
+
+*** Test Cases ***
+
+Sync network ARP resolution
+    Skip    Not implemented

@@ -15,5 +15,11 @@ Documentation     aPod node LAG1 connectivity.
 ...               - aPOD Management Network (tagged), site-specific
 ...               - aPOD vMotion Network (tagged), site-specific
 ...               - aPOD VM Network (tagged), site-specific
-...               
-Library           SSHLibrary
+...      
+Default Tags      aPod      ESX     VMware
+
+*** Test Cases ***
+
+LAG1 connectivity
+    Skip    Not implemented
+

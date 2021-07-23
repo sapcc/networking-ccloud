@@ -20,3 +20,12 @@ Documentation     Controlplane VMs need BGP peering with upstream devices.
 ...               be routed outside of the fabric. Connectivity from other SAP networks and all CC+1 regions to
 ...               Kubernetes external subnets must be possible.
 ...               
+Default Tags      aPod      Controlplane
+
+*** Test Cases ***
+
+Traceroute to discover 2 next-hops
+    Skip    Not implemented
+
+BGP Peering
+    Skip    Not implemented

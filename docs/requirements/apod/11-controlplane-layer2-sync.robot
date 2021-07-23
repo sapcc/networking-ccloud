@@ -7,3 +7,9 @@ Documentation     Controlplane VMs need connectivity to each other for sync purp
 ...               
 ...               Controlplane and Swift VMs share the same Controlplane sync network.
 ...               
+Default Tags      aPod      Controlplane
+
+*** Test Cases ***
+
+Sync network ARP resolution
+    Skip    Not implemented

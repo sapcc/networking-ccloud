@@ -10,4 +10,9 @@ Documentation     aPod node LAG0 connectivity.
 ...               aPod node LAG0 need connectivity to Openstack tenant networks and should be 
 ...               able to set a VLAN id of any Openstack tenant network segment.
 ...               
-Library           SSHLibrary
+Default Tags      aPod      ESX
+
+*** Test Cases ***
+
+LAG0 connectivity
+    Skip    Not implemented

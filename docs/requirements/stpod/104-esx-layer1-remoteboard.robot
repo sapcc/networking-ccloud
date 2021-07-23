@@ -6,4 +6,9 @@ Documentation     Swift node onboard remoteboard connectivity.
 ...               Swift node remoteboard need connectivity to following networks:
 ...               - shared inband-mgmt (access), site-specific
 ...               
-Library           SSHLibrary
+Default Tags      stPod      ESX     VMware
+
+*** Test Cases ***
+
+remoteboard connectivity
+    Skip    Not implemented

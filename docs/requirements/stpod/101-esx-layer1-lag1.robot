@@ -16,4 +16,9 @@ Documentation     Swift node LAG1 connectivity.
 ...               - aPOD vMotion Network (tagged), site-specific
 ...               - aPOD VM Network (tagged), site-specific
 ...               
-Library           SSHLibrary
+Default Tags      stPod      ESX     VMware
+
+*** Test Cases ***
+
+LAG1 connectivity
+    Skip    Not implemented

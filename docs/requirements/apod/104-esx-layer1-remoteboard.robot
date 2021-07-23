@@ -6,4 +6,9 @@ Documentation     aPod node onboard remoteboard connectivity.
 ...               aPod node remoteboard need connectivity to following networks:
 ...               - shared inband-mgmt (access), site-specific
 ...               
-Library           SSHLibrary
+Default Tags      aPod      ESX     VMware
+
+*** Test Cases ***
+
+remoteboard connectivity
+    Skip    Not implemented

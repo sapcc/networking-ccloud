@@ -8,4 +8,9 @@ Documentation     aPod node onboard L2 connectivity.
 ...               - PX Domain 2 Service 2 Network (tagged)
 ...               - PX Domain 2 Service 3 Network (tagged)
 ...               
-Library           SSHLibrary
+Default Tags      aPod      ESX     VMware
+
+*** Test Cases ***
+
+L2 connectivity
+    Skip    Not implemented
