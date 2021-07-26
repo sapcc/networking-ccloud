@@ -5,6 +5,7 @@ Documentation     aPod node onboard remoteboard connectivity.
 ...               
 ...               aPod node remoteboard need connectivity to following networks:
 ...               - shared inband-mgmt (access), site-specific
+...                 Network role: CC Console
 ...               
 Default Tags      aPod      ESX     VMware
 

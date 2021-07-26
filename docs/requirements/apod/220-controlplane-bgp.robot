@@ -1,24 +1,22 @@
 *** Settings ***
 Documentation     Controlplane VMs need BGP peering with upstream devices.
 ...
-...               Controlplane VM uses BGP for dynamic routing with upstream devices. 
+...               Controlplane VM uses iBGP for dynamic routing with upstream devices. 
 ...               Usually it peers with 2 upstream devices for redundancy. 
 ...               
-...               Controlplane VMs should use same next-hop IP addresses within management network for 
-...               BGP peering with 2 upstream devices independant of pod.
-...               
-...               Controlplane VMs use traceroute with ttl=1 for upstream device IP address discovery 
-...               and use discovered IP addresses for their BGP next-hop configuration.
+...               Controlplane VMs must be able to discover their BGP peers.
 ...               
 ...               BGP peering is used for prefix announcement from Controlplane VMs to upstream.
 ...               
-...               Controlplane VMs advertise Kubernetes internal subnets which must not be routed outside 
+...               Controlplane VMs advertise Kubernetes internal subnets which MUST NOT be routed outside 
 ...               of the fabric. Communication between controlplane VMs and Kubernetes internal subnets 
 ...               must be possible.
 ...               
-...               Controlplane VMs advertise Kubernetes external subnets and /32 IP addresses which must
+...               Controlplane VMs advertise Kubernetes external subnets and /32 IP addresses which MUST
 ...               be routed outside of the fabric. Connectivity from other SAP networks and all CC+1 regions to
-...               Kubernetes external subnets must be possible.
+...               Kubernetes external subnets MUST be possible.
+...               
+...               Community tagging of prefixes by Controlplane VMs is an option.
 ...               
 Default Tags      aPod      Controlplane
 

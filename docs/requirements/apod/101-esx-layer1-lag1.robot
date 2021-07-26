@@ -2,6 +2,7 @@
 Documentation     aPod node LAG1 connectivity.
 ...
 ...               LAG1 currently consists of two physical interfaces connected to 2 upstream devices.
+...               The physical interfaces are bound to LAG1 in Netbox.
 ...               Link aggregation is configured using LACP protocol.
 ...               
 ...               Link aggregation must be configured in LACP Active.
@@ -9,13 +10,17 @@ Documentation     aPod node LAG1 connectivity.
 ...               Link aggregation must use Fast LACP timer.
 ...               
 ...               aPod node LAG1 need connectivity to following networks:
-...               - Controlplane management network (tagged), Netbox description: 
-...                 Region wide peering network between CP nodes and ACI fabric.
-...               - Controlplane sync network (tagged)
+...               - Controlplane transit network (tagged) 
+...                 Network role: CC Kubernetes Transit
+...               - Controlplane sync vlan (tagged)
+...                 VLAN role: tag to be created in Netbox
 ...               - aPOD Management Network (tagged), site-specific
+...                 Network role: CC Management
 ...               - aPOD vMotion Network (tagged), site-specific
+...                 Network role: CC vMotion
 ...               - aPOD VM Network (tagged), site-specific
-...      
+...                 Network role: CC Management
+...               
 Default Tags      aPod      ESX     VMware
 
 *** Test Cases ***
