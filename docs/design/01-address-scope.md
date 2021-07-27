@@ -1,6 +1,6 @@
 # Neutron address-scope
 
-Address Scopes in CCloud define the relationship of a subnet (via the indirection of subnet -> subnet poll -> address scope) to a given VRF. The scope of the subnet needs also to be taken into account.
+Address Scopes in CCloud define the relationship of a subnet (via the indirection of subnet -> subnet pool -> address scope) to a given VRF. The scope of the subnet also needs to be taken into account.
 
 
 ### Example
@@ -63,7 +63,7 @@ Core originated subnets
   * eOS
   * NX-OS 
 
-Example based on Leafs in QA-DE-1a, assuming qa-de-1 has AZ's a,b,d
+Example based on Leafs in QA-DE-1a, assuming QA-DE-1 has AZ's a,b,d
 
 ### Generic Pod Local Leaf
 

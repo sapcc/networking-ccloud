@@ -2,15 +2,15 @@
 An OpenStack network is a L2 domain with a number of subnets. External networks can also have external gateways.
 
  * A network is external if `router:external` is set to true.
- * The VXLAN id for the top segment is chosen by openstack. The range is configured via `ml2_type_vxlan.vni_ranges`.
+ * The VXLAN Network Identifier (VNI) for the top segment is chosen by OpenStack. The range is configured via `ml2_type_vxlan.vni_ranges`.
 
 An OpenStack subnet represents a CIDR and can be associated with a subnet pool
 
  * A subnet is external if `router:external` is set to true.
- * An external subnet can have a gateway, which will be set up as an anycast gateway in the fabric
+ * An external subnet can have a gateway, which will be set up as an anycast gateway in the fabric.
 
 <details>
-    <summary>Example of an internal network in OpenStack (json):</summary>
+    <summary>Example of an internal network in OpenStack (JSON):</summary>
 
 ```json
 {
@@ -67,7 +67,7 @@ An OpenStack subnet represents a CIDR and can be associated with a subnet pool
 </details>
 
 <details>
-    <summary>Example of an external network in OpenStack (json):</summary>
+    <summary>Example of an external network in OpenStack (JSON):</summary>
 
 ```json
 {
@@ -161,8 +161,8 @@ An OpenStack subnet represents a CIDR and can be associated with a subnet pool
 </detail>
 
 ## Internal Networks
- * no action needed until portbinding (except of internal resource allocation)
+ * No action needed until port binding (except of internal resource allocation)
 
 
 ## External Networks
- * gateway might already need to be configured?
+ * Gateway might already need to be configured?
