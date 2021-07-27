@@ -12,7 +12,7 @@ data the driver hands out to its agents to sync a network.
 
 ### Network Diff
 Get the current network state and ask each agent for a diff. The agent will use the sync data to generate device config,
-pull the current state off of the device and return a diff between those two. This will be retured to the API-user in a
+pull the current state off of the device and return a diff between those two. This will be returned to the API-user in a
 per-device dictionary.
 
 ### Network Sync

@@ -4,8 +4,8 @@ DC. OpenStack resources like networks and routers can live in multiple AZs, but 
 single AZ.
 
 ## Spanning Networks Across AZs
-In the new fabric we will be using Border Gateways (BGWs) to span an l2 network across multiple AZs. Although we can
-have multiple BGW pairss per AZ we will generally have only one. All networks that span AZs will need to be configured
+In the new fabric we will be using Border Gateways (BGWs) to span an L2 network across multiple AZs. Although we can
+have multiple BGW pairs per AZ we will generally have only one. All networks that span AZs will need to be configured
 on each BGW of the AZs where it should be present. AZs that do not want a network present that is present in other AZs
 just don't import its RT.
 
@@ -13,11 +13,12 @@ We have a rough limit of 2500 vlans per BGW pair, due to a platform limitation o
 past this number of networks we will need to add another BGW pair and implement network-BGW scheduling inside the
 driver (so we most likely will need to go with BGW scheduling from the start).
 
-Networks will be deployed on demand
+Networks will be deployed on demand.
 
-Note: On the BGW we can also share single subnets of a l3 network
+Note: On the BGW we can also share single subnets of a L3 network
+
 FIXME: VRFs on bordergateway - explanation why do we need it
- * vxlan vrf fooo only for external networks
+ * vxlan vrf foo only for external networks
 
 Internal networks:
 ```
@@ -50,9 +51,9 @@ router bgp <as_number>
         route-target export evpn <tenant_l3vni_id>:<tenant_l3vni_id>
 ```
 
-`tenant_vrf_name`: Each external network is associated with an address scope (via subnet -> subnetpool -> address
+`tenant_vrf_name`: Each external network is associated with an address scope (via subnet -> subnet pool -> address
                    scope). The address scope name needs then to be mapped to a VRF (e.g. cc-public to CC-CLOUD01).
-                   This mapping will be done in driver config for now. CC-CLOUD01 will be associated with an l3-vni
+                   This mapping will be done in the driver config for now. CC-CLOUD01 will be associated with an L3-VNI
                    as well.
 
 The `vrf <tenant_vrf_name>` part and `vxlan vrf ...` part could be preprovisioned.
