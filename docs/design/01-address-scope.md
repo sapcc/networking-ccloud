@@ -30,7 +30,7 @@ Address Scopes in CCloud define the relationship of a subnet (via the indirectio
 ### Driver Config
 ```
 [global]
-base-asn = 65130 # Example QA-DE-1
+base-asn = 65130 # Example qa-de-1
 [vrf-mapping]
 cc-cloud01 = 3b189848-58bb-4499-abc2-8df170a6a8ae, 4143da3e-d2a7-4077-ba80-215ecfd016d7
 
@@ -63,7 +63,7 @@ Core originated subnets
   * eOS
   * NX-OS 
 
-Example based on Leafs in QA-DE-1a, assuming QA-DE-1 has AZ's a,b,d
+Example based on Leafs in qa-de-1a, assuming qa-de-1 has AZ's a,b,d
 
 ### Generic Pod Local Leaf
 
