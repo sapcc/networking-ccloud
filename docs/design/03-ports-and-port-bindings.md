@@ -49,7 +49,7 @@ Config on NXOS leaf:
 ```
 
 
-## Bare metal on Fabric
+## Bare Metal on Fabric
 Bare metal servers are in most cases directly connected to dedicated Arista switches which will become part of our fabric.
 With this integration they will be direct-on-fabric devices. This case is similar to the Avocado-Baremetal case
 (see 11-avocado.md).
