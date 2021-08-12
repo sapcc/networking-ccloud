@@ -1,10 +1,15 @@
 import ipaddress
+from itertools import groupby
 import logging
+from operator import itemgetter
 import re
 import urllib3
 
 import pynetbox
 import requests
+
+# FIXME: make this a module import once this is a proper module
+import conftest as conf
 
 
 LOG = logging.getLogger(__name__)
@@ -30,8 +35,9 @@ class ConfigGenerator:
     netbox_switchgroup_tag = "cc-switchgroup"
     netbox_kv_tags = {netbox_switchgroup_tag}
 
-    def __init__(self, region, verbose=False, verify_ssl=False):
+    def __init__(self, region, args, verbose=False, verify_ssl=False):
         self.region = region
+        self.args = args
         self.verbose = verbose
 
         self.netbox = pynetbox.api(self.netbox_url)
@@ -63,8 +69,8 @@ class ConfigGenerator:
         # option b: get from kv_tags, if properly tagged
 
         # re matches qa-de-1-sw1234a-bb123
-        m = re.match(r"(?P<region>\w{2}-\w{2}-\d)-sw(?P<az>\d)(?P<pod>\d)(?P<switchgroup>\d{2})(?P<leaf>[ab])"
-                     r"(?:-(?P<role>\w+)",
+        m = re.match(r"^(?P<region>\w{2}-\w{2}-\d)-sw(?P<az>\d)(?P<pod>\d)(?P<switchgroup>\d{2})(?P<leaf>[ab])"
+                     r"(?:-(?P<role>[a-z0-9-]+))$",
                      device.name)
         if not m:
             raise ConfigSchemeException(f"Could not match '{device.name}' to CCloud hostname scheme "
@@ -75,42 +81,51 @@ class ConfigGenerator:
         # leaf number is calculated by enumerating the leaf chars
         leaf = ord(m.group("leaf")) - ord("a") + 1
         az_no = int(m.group('az'))
-        role = m.grou('role')
-        switchgroup = None
+        role = m.group('role')
+        switchgroup_name = None
 
         # handle role
         # FIXME: aci transit role missing
         if any(role.startswith(prefix) for prefix in ('np', 'ap', 'st', 'bb', 'bm')):
-            switchgroup = role
+            switchgroup_name = role
             role = role[:2]
+            if role == 'bb':
+                role = 'v'
+            role += "pod"
         elif role == 'bgw':
-            switchgroup = f"bgw-{az_no}{pod}{switchgroup:02d}"
+            switchgroup_name = f"bgw-{az_no}{pod}{switchgroup:02d}"
         else:
             raise ConfigSchemeException(f"Unknown / unhandled role {role} for device {device.name}")
+
+        # use nb primary address for now, later this is probably going to be loopback10
+        if not device.primary_ip:
+            raise ConfigSchemeException(f"Device {device.name} does not have a usable primary address")
+        host_ip = device.primary_ip.address.split("/")[0]
 
         data = {
             'loopback0': ipaddress.ip_address(f"{az_no}.{pod}.{switchgroup}.{leaf}"),
             'loopback1': ipaddress.ip_address(f"{az_no}.{pod}.{switchgroup}.0"),
             'asn': f"{region_asn}.{az_no}{pod}{switchgroup:02d}",
             'role': role,
-            'switchgroup': switchgroup,
+            'switchgroup': switchgroup_name,
+            'host': host_ip,
         }
         return data
 
     def get_region_asn(self, region):
-        sites = self.netbox.api.dcim.sites.filter(region=region)
+        sites = self.netbox.dcim.sites.filter(region=region)
         site_asns = {site.asn for site in sites if site.asn}
         if not site_asns:
             raise ConfigException(f"Region {region} has no ASN")
         if len(site_asns) > 1:
             raise ConfigException(f"Region {region} has multiple ASNs: {site_asns}")
-        return site_asns[0]
+        return site_asns.pop()
 
-    def get_switches(self, region_asn):
-        switch_groups = {}
+    def get_netbox_switches(self, region):
+        region_asn = self.get_region_asn(region)
         switches = []
 
-        leafs = self.netbox.dcim.devices.filter(region=self.region, role=self.leaf_role)
+        leafs = self.netbox.dcim.devices.filter(region=region, role=self.leaf_role)
         for leaf in leafs:
             # FIXME: handle non-existent devicetype or manufacturer
             switch_name = leaf.name
@@ -133,7 +148,7 @@ class ConfigGenerator:
             host_ports = {}
             ifaces = self.netbox.dcim.interfaces.filter(device_id=leaf.id)
             for iface in ifaces:
-                # FIXME: ignore management, peerling (maybe), unconnected ports
+                # FIXME: ignore management, peerlink (maybe), unconnected ports
                 if iface.connected_endpoint is None:
                     continue
 
@@ -153,33 +168,64 @@ class ConfigGenerator:
                 'ports': switch_ports,
                 'hosts': host_ports,
                 'vendor': vendor,
+                'az': leaf.site.name,
             }
-            switch.update(self.calculate_ccloud_switch_number_resources(device, kv_tags, region_asn))
+            switch.update(self.calculate_ccloud_switch_number_resources(leaf, kv_tags, region_asn))
             switches.append(switch)
             # switch_groups.setdefault(switch_group, []).append(switch_name)
 
         # FIXME: check that no hostgroup has switches from two different switchgroups
 
-        # return {
-        #     'switch_groups': switch_groups,
-        #     'switches': switches,
-        # }
         return switches
 
     def generate_switch_config(self):
-        region_asn = self.get_region_asn(self.region)
         config = {
             'switches': [],
             'switchgroups': [],
             'hostgroups': [],
         }
 
-        switches = {}
-        switchgroups = {}
-        hostgroups = {}
-        nb_switches = self.get_switches(region_asn)
-        for nb_switch in nb_switches:
-            switch = {}
+        nb_switches = self.get_netbox_switches(self.region)
+
+        def _get_single(item_set, item_name, switchgroup):
+            if len(item_set) > 1:
+                raise ConfigException(f"Inconsistent {item_name} found for switchgroup {switchgroup}: {item_set}")
+            return item_set.pop()
+
+        from pprint import pprint
+        pprint(nb_switches)
+
+        # build switchgroups
+        switchgroups = []
+        for groupname, nb_switches in groupby(nb_switches, key=itemgetter('switchgroup')):
+            switches = []
+            az = set()
+            role = set()
+            loopback1 = set()
+            asn = set()
+            for nb_switch in sorted(nb_switches, key=itemgetter('name')):
+                az.add(nb_switch['az'])
+                role.add(nb_switch['role'])
+                loopback1.add(nb_switch['loopback1'])
+                asn.add(nb_switch['asn'])
+                switch = conf.Switch(name=nb_switch['name'], host=nb_switch['host'],
+                                     ip_loopback0=nb_switch['loopback0'], vendor=nb_switch['vendor'],
+                                     user=self.args.switch_user, password=self.args.switch_password)
+
+                switches.append(switch)
+            az = _get_single(az, "AZ", groupname)
+            role = _get_single(role, "role", groupname)
+            loopback1 = _get_single(loopback1, "loopback1", groupname)
+            asn = _get_single(asn, "asn", groupname)
+            switchgroup = conf.SwitchGroup(name=groupname, members=switches, availability_zone=az, role=role,
+                                           ip_loopback1=loopback1, asn=asn)
+            switchgroups.append(switchgroup)
+
+        # build hostgroups
+        hostgroups = []
+
+        # build top config object
+        config = conf.DriverConfig(switchgroups=switchgroups, hostgroups=hostgroups)
 
         return config
 
@@ -194,10 +240,12 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("-r", "--region", required=True)
     parser.add_argument("-v", "--verbose", action="store_true")
+    parser.add_argument("-u", "--switch-user", help="Default switch user", required=True)
+    parser.add_argument("-p", "--switch-password", help="Default switch password", required=True)
 
     args = parser.parse_args()
 
-    cfggen = ConfigGenerator(args.region, args.verbose)
+    cfggen = ConfigGenerator(args.region, args, args.verbose)
     foo = cfggen.generate_switch_config()
 
     from pprint import pprint

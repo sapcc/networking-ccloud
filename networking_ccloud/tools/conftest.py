@@ -1,3 +1,4 @@
+from enum import Enum
 import ipaddress
 import re
 from typing import List, Union
@@ -36,6 +37,13 @@ class Switch(pydantic.BaseModel):
     ip_loopback0: ip46addr_type
 
 
+class RoleEnum(str, Enum):
+    vpod = "vpod"
+    stpod = "stpod"
+    apod = "apod"
+    bgw = "bgw"
+
+
 class SwitchGroup(pydantic.BaseModel):
     name: str
     members: List[Switch]
@@ -44,7 +52,8 @@ class SwitchGroup(pydantic.BaseModel):
     availability_zone: str
 
     # FIXME: get from driver consts
-    role: Union['vpod', 'stpod', 'apod', 'bgw']
+    # role: Union['vpod', 'stpod', 'apod', 'bgw']
+    role: RoleEnum
 
     # calculated from member-hostnames
     ip_loopback1: ip46addr_type
@@ -62,11 +71,12 @@ class SwitchGroup(pydantic.BaseModel):
         vendors = set(s.vendor for s in v)
         if len(vendors) > 1:
             raise ValueError("Switchgroup members need to have the same vendor! Found {}"
-                             .format(", ".join(f"{s.name} of typse {s.vendor}" for s in v)))
+                             .format(", ".join(f"{s.name} of type {s.vendor}" for s in v)))
 
         # check if the vendor is supported
         # FIXME: use ccloud_const
-        if vendors[0] not in ('arista', 'cisco'):
+        vendor = vendors.pop()
+        if vendor not in ('arista', 'cisco'):
             raise ValueError(f"Vendor {vendors[0]} is not supported by this driver (yet)")
 
         return v
@@ -74,7 +84,7 @@ class SwitchGroup(pydantic.BaseModel):
     @pydantic.validator('asn')
     def validate_asn(cls, v):
         # 65000 or 65000.123
-        m = re.match(r"^(?P<first>\d+)(?:\.(?P<second>\d+)$", v)
+        m = re.match(r"^(?P<first>\d+)(?:\.(?P<second>\d+))$", v)
         if not m:
             raise ValueError(f"asn value '{v}' is not a valid AS number")
 
@@ -85,6 +95,8 @@ class SwitchGroup(pydantic.BaseModel):
 
         if not (0 < asn < (2 ** 32)):
             raise ValueError(f"asn value '{v}' is out of range")
+
+        return v
 
 
 class SwitchPort(pydantic.BaseModel):
@@ -101,20 +113,23 @@ class SwitchPort(pydantic.BaseModel):
         return v
 
     @pydantic.root_validator
-    def check_port_name_in_lacp_mode(cls, v):
+    def check_port_name_in_lacp_mode(cls, values):
         # see FIXME above, we need a parsable portchannel id somewhere
-        pass
+        # FIXME: implement
+        return values
 
 
 class HostGroup(pydantic.BaseModel):
-    # FIXME make vlan a constant in driver
+    # FIXME: make vlan a constant in driver
+    # FIXME: model and handle metahostgroups (nova-compute-bb123)
     handover_mode: Union['vlan'] = 'vlan'
 
     binding_hosts: List[str]
 
     @pydantic.root_validator
-    def ensure_at_least_one_binding_host(cls, v):
-        pass
+    def ensure_at_least_one_binding_host(cls, values):
+        # FIXME: implement
+        return values
 
 
 class DriverConfig(pydantic.BaseModel):
@@ -123,8 +138,10 @@ class DriverConfig(pydantic.BaseModel):
 
     @pydantic.root_validator
     def check_all_ports_in_hostgroup_map_to_same_vlan_pool(cls, values):
-        pass
+        # FIXME: implement
+        return values
 
     @pydantic.root_validator
     def check_referenced_switches_exist(cls, values):
-        pass
+        # FIXME: implement
+        return values
