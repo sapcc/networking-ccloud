@@ -154,7 +154,8 @@ class SwitchPort(pydantic.BaseModel):
 
 class HostGroup(pydantic.BaseModel):
     # FIXME: make vlan a constant in driver
-    # FIXME: model and handle metahostgroups (nova-compute-bb123)
+    # FIXME: shall lacp member ports explicitly have their ports listed as single members or explicitly not
+    # FIXME: add computed value "vlan_pool" or name or anything like this
     handover_mode: Union['vlan'] = 'vlan'
 
     binding_hosts: List[str]
@@ -200,21 +201,57 @@ class DriverConfig(pydantic.BaseModel):
     hostgroups: List[HostGroup]
 
     @pydantic.root_validator
-    def check_all_members_in_hostgroup_map_to_same_vlan_pool(cls, values):
-        # FIXME: implement
-        return values
+    def check_hostgroup_references(cls, values):
+        # check that referenced switches exist
+        # check that hosts referenced by metagroups exist
+        # check all hostgroup members belong to the same vlan pool
+        if 'switchgroups' not in values or 'hostgroups' not in values:
+            return
 
-    @pydantic.root_validator
-    def check_referenced_switches_exist(cls, values):
-        # FIXME: implement
-        return values
+        # get mapping from switch to vlanpool
+        switch_vlanpool_map = {}
+        for sg in values['switchgroups']:
+            for switch in sg.members:
+                switch_vlanpool_map[switch.name] = sg.vlan_pool
 
-    @pydantic.root_validator
-    def check_hostgroup_metagroup_members_exist(cls, values):
-        # FIXME: implement
-        return values
+        all_hosts = set()
+        host_vlanpool_map = {}
+        for hg in values['hostgroups']:
+            for host in hg.binding_hosts:
+                # check that a host is not specified twice
+                if host in all_hosts:
+                    raise ValueError(f"Host {host} is bound by two hostgroups or twice in the same hostgroup")
+                all_hosts.add(host)
 
-    @pydantic.root_validator
-    def check_hostgroup_no_duplicate_binding_hosts(cls, values):
-        # FIXME: implement
+            vlan_pools = set()
+            if not hg.metagroup:
+                for port in hg.members:
+                    # check that referenced switches exist
+                    if port.switch not in switch_vlanpool_map:
+                        raise ValueError(f"Switch {port.switch} referenced by hostgroup does not exist")
+                    vlan_pools.add(switch_vlanpool_map[port.switch])
+                # check that this hostgroup has only one vlan pool
+                if len(vlan_pools) != 1:
+                    raise ValueError("Hostgroup needs to be bound to exactly one vlan pool - "
+                                     f"found {vlan_pools} for hostgroup with binding hosts {hg.binding_hosts}")
+                vlan_pool = vlan_pools.pop()
+                for host in hg.binding_hosts:
+                    host_vlanpool_map[host] = vlan_pool
+
+        # check that metagroup members actually exist and don't bind two separate vlan pools
+        for hg in values['hostgroups']:
+            if not hg.metagroup:
+                continue
+            vlan_pools = set()
+            for member in hg.members:
+                if member not in all_hosts:
+                    raise ValueError(f"Metagroup member {member} does not exist")
+                if member not in host_vlanpool_map:
+                    raise ValueError(f"Metagroup member {member} cannot be part of another metagroup")
+                vlan_pools.add(host_vlanpool_map[member])
+                # check that this meta hostgroup has only one vlan pool
+                if len(vlan_pools) != 1:
+                    raise ValueError("Hostgroup needs to be bound to exactly one vlan pool - "
+                                     f"found {vlan_pools} for hostgroup with binding hosts {hg.binding_hosts}")
+
         return values
