@@ -5,9 +5,6 @@ from typing import List, Union
 
 import pydantic
 
-ip46addr_type = Union[ipaddress.IPv4Address, ipaddress.IPv6Address]
-
-
 # FIXME: we want to have a good format for field descriptions
 #   Option a: if pydantic has something to embed it into the schema we should use it
 #   Option b: add a comment before each field so we know what it is for
@@ -20,12 +17,20 @@ ip46addr_type = Union[ipaddress.IPv4Address, ipaddress.IPv6Address]
 #   Option b:
 #       - ...unclear
 
+
+def validate_ip_address(addr: str) -> str:
+    # raises a ValueError if not a valid ip address
+    ipaddress.ip_address(addr)
+
+    return addr
+
+
 class Switch(pydantic.BaseModel):
     # netbox: dcim.devices
 
     # netbox: device.hostname
     name: str
-    host: ip46addr_type
+    host: str
 
     # netbox: device.device_types.manufacturer
     vendor: str
@@ -34,7 +39,14 @@ class Switch(pydantic.BaseModel):
     password: str
 
     # will be calculated from hostname
-    ip_loopback0: ip46addr_type
+    ip_loopback0: str
+
+    _normalize_host = pydantic.validator('host', allow_reuse=True)(validate_ip_address)
+    _normalize_ip_loopback0 = pydantic.validator('ip_loopback0')(validate_ip_address)
+
+
+# FIXME: put into consts
+roles = ["vpod", "stpod", "apod", "bgw"]
 
 
 class RoleEnum(str, Enum):
@@ -53,11 +65,20 @@ class SwitchGroup(pydantic.BaseModel):
 
     # FIXME: get from driver consts
     # role: Union['vpod', 'stpod', 'apod', 'bgw']
-    role: RoleEnum
+    # role: RoleEnum
+    role: str
 
     # calculated from member-hostnames
-    ip_loopback1: ip46addr_type
+    ip_loopback1: str
     asn: str
+
+    override_vlan_pool: str = None
+
+    _normalize_ip_loopback1 = pydantic.validator('ip_loopback1', allow_reuse=True)(validate_ip_address)
+
+    @property
+    def vlan_pool(self):
+        return self.override_vlan_pool or self.name
 
     @pydantic.validator('members')
     def validate_members(cls, v):
@@ -79,6 +100,16 @@ class SwitchGroup(pydantic.BaseModel):
         if vendor not in ('arista', 'cisco'):
             raise ValueError(f"Vendor {vendors[0]} is not supported by this driver (yet)")
 
+        return v
+
+    @pydantic.validator('availability_zone')
+    def validate_availability_zone(cls, v):
+        return v.lower()
+
+    @pydantic.validator('role')
+    def validate_role(cls, v):
+        if v not in roles:
+            raise ValueError(f"Unknown role {v}, allowed values are {roles}")
         return v
 
     @pydantic.validator('asn')
@@ -104,12 +135,14 @@ class SwitchPort(pydantic.BaseModel):
     switch: str
     name: str
     lacp: bool = False
-    members: List[str]
+    members: List[str] = None
 
     @pydantic.root_validator
     def only_allow_members_with_lacp_enabled(cls, v):
-        if v['members'] and not v.get('lacp', False):
+        if v['members'] and not v['lacp']:
             raise ValueError(f"SwitchPort {v['switch']}/{v['name']} has LACP members without LACP being enabled")
+        if not v['members'] and v['lacp']:
+            raise ValueError(f"SwitchPort {v['switch']}/{v['name']} is LACP port and has no members")
         return v
 
     @pydantic.root_validator
@@ -125,9 +158,39 @@ class HostGroup(pydantic.BaseModel):
     handover_mode: Union['vlan'] = 'vlan'
 
     binding_hosts: List[str]
+    metagroup: bool = False
+
+    # members are either switchports or other hostgroups
+    members: Union[List[SwitchPort], List[str]]
+
+    @pydantic.validator('binding_hosts')
+    def ensure_at_least_one_binding_host(cls, v):
+        if len(v) == 0:
+            raise ValueError("Hostgroup needs to have at least one binding host")
+        return v
+
+    @pydantic.validator('members')
+    def ensure_at_least_one_member(cls, v):
+        if len(v) == 0:
+            raise ValueError("Hostgroup needs to have at least one member")
+        return v
 
     @pydantic.root_validator
-    def ensure_at_least_one_binding_host(cls, values):
+    def ensure_members_and_metaflag_match(cls, values):
+        if 'members' in values:
+            metagroup = values.get('metagroup')
+            is_switchport = isinstance(values['members'][0], SwitchPort)
+            if metagroup and is_switchport:
+                raise ValueError("Metagroups can't have SwitchPorts as members")
+            if not metagroup and not is_switchport:
+                raise ValueError("Non-metagroups need to have SwitchPorts as members")
+        return values
+
+    @pydantic.root_validator
+    def check_same_port_channel_id(cls, values):
+        # NOTE: this check only works under the assumption that each group has only a single portchannel id
+        #       with this we ensure that we don't accidentally add a host with two different pc ids on a switchgroup
+        #       if this assumption breaks, we will need to remove this
         # FIXME: implement
         return values
 
@@ -137,11 +200,21 @@ class DriverConfig(pydantic.BaseModel):
     hostgroups: List[HostGroup]
 
     @pydantic.root_validator
-    def check_all_ports_in_hostgroup_map_to_same_vlan_pool(cls, values):
+    def check_all_members_in_hostgroup_map_to_same_vlan_pool(cls, values):
         # FIXME: implement
         return values
 
     @pydantic.root_validator
     def check_referenced_switches_exist(cls, values):
+        # FIXME: implement
+        return values
+
+    @pydantic.root_validator
+    def check_hostgroup_metagroup_members_exist(cls, values):
+        # FIXME: implement
+        return values
+
+    @pydantic.root_validator
+    def check_hostgroup_no_duplicate_binding_hosts(cls, values):
         # FIXME: implement
         return values

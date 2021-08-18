@@ -7,6 +7,7 @@ import urllib3
 
 import pynetbox
 import requests
+import yaml
 
 # FIXME: make this a module import once this is a proper module
 import conftest as conf
@@ -30,10 +31,11 @@ class ConfigGenerator:
     leaf_role = "evpn-leaf"
     spine_role = "evpn-spine"
     valid_vendors = {"arista", "cisco"}
-    connection_roles = {"server"}
+    connection_roles = {"server", "neutron-router"}
 
     netbox_switchgroup_tag = "cc-switchgroup"
     netbox_kv_tags = {netbox_switchgroup_tag}
+    netbox_vpod_cluster_type = "cc-vsphere-prod"
 
     def __init__(self, region, args, verbose=False, verify_ssl=False):
         self.region = region
@@ -85,7 +87,7 @@ class ConfigGenerator:
         switchgroup_name = None
 
         # handle role
-        # FIXME: aci transit role missing
+        # FIXME: aci transit role missing (tl)
         if any(role.startswith(prefix) for prefix in ('np', 'ap', 'st', 'bb', 'bm')):
             switchgroup_name = role
             role = role[:2]
@@ -103,8 +105,8 @@ class ConfigGenerator:
         host_ip = device.primary_ip.address.split("/")[0]
 
         data = {
-            'loopback0': ipaddress.ip_address(f"{az_no}.{pod}.{switchgroup}.{leaf}"),
-            'loopback1': ipaddress.ip_address(f"{az_no}.{pod}.{switchgroup}.0"),
+            'loopback0': str(ipaddress.ip_address(f"{az_no}.{pod}.{switchgroup}.{leaf}")),
+            'loopback1': str(ipaddress.ip_address(f"{az_no}.{pod}.{switchgroup}.0")),
             'asn': f"{region_asn}.{az_no}{pod}{switchgroup:02d}",
             'role': role,
             'switchgroup': switchgroup_name,
@@ -121,9 +123,10 @@ class ConfigGenerator:
             raise ConfigException(f"Region {region} has multiple ASNs: {site_asns}")
         return site_asns.pop()
 
-    def get_netbox_switches(self, region):
+    def get_netbox_data(self, region):
         region_asn = self.get_region_asn(region)
         switches = []
+        clusters = {}
 
         leafs = self.netbox.dcim.devices.filter(region=region, role=self.leaf_role)
         for leaf in leafs:
@@ -131,7 +134,7 @@ class ConfigGenerator:
             switch_name = leaf.name
 
             # vendor check!
-            vendor = leaf.device_type.manufacturer.name.lower()
+            vendor = leaf.device_type.manufacturer.slug
             if vendor not in self.valid_vendors:
                 print(f"Warning: Device {switch_name} is of vendor {vendor}, "
                       "which is not supported by the driver/config generator")
@@ -146,14 +149,14 @@ class ConfigGenerator:
 
             switch_ports = []
             host_ports = {}
-            ifaces = self.netbox.dcim.interfaces.filter(device_id=leaf.id)
+            ifaces = self.netbox.dcim.interfaces.filter(device_id=leaf.id, connection_status=True)
             for iface in ifaces:
                 # FIXME: ignore management, peerlink (maybe), unconnected ports
                 if iface.connected_endpoint is None:
                     continue
 
                 far_device = iface.connected_endpoint.device
-                if far_device.device_role.name.lower() not in self.connection_roles:
+                if far_device.device_role.slug not in self.connection_roles:
                     continue
 
                 if self.verbose:
@@ -163,6 +166,39 @@ class ConfigGenerator:
 
                 host_ports.setdefault(far_device.name, []).append(iface.name)
 
+                # cluster mgmt for far hosts
+                if far_device.cluster:
+                    cluster = far_device.cluster
+                    cname = cluster.name
+                    if cname not in clusters:
+                        binding_host = None
+                        cluster_type = cluster.type.slug
+                        # figure out cluster name
+                        if cluster_type == self.netbox_vpod_cluster_type:
+                            # FIXME: CCloud specific name generation
+                            if not cname.startswith("production"):
+                                print(f"Warning: Cluster {cname} of type {cluster_type} does not start "
+                                      "with 'production' - ignoring")
+                                continue
+                            binding_host = "nova-compute-{}".format(cname[len("production"):])
+                        else:
+                            print(f"Warning: Cluster {cname} has unknown cluster type {cluster_type} - ignoring")
+                            continue
+                        # create cluster
+                        clusters[cname] = {
+                            'id': cluster.id,
+                            'type': cluster.type.slug,
+                            'members': set(),
+                            'binding_host': binding_host,
+                        }
+                    else:
+                        # check if same cluster
+                        if clusters[cname]['id'] != cluster.id:
+                            raise ConfigException(f"Found two clustergroups with name {cname}, but different ids "
+                                                  f"({clusters[cname]['id']} vs {cluster.id}) - this needs to be "
+                                                  "resolved before we can generate a proper config")
+
+                    clusters[cname]['members'].add(far_device.name)
             switch = {
                 'name': switch_name,
                 'ports': switch_ports,
@@ -172,11 +208,13 @@ class ConfigGenerator:
             }
             switch.update(self.calculate_ccloud_switch_number_resources(leaf, kv_tags, region_asn))
             switches.append(switch)
-            # switch_groups.setdefault(switch_group, []).append(switch_name)
 
-        # FIXME: check that no hostgroup has switches from two different switchgroups
+        data = {
+            'switches': switches,
+            'clusters': clusters,
+        }
 
-        return switches
+        return data
 
     def generate_switch_config(self):
         config = {
@@ -185,25 +223,27 @@ class ConfigGenerator:
             'hostgroups': [],
         }
 
-        nb_switches = self.get_netbox_switches(self.region)
+        nb_data = self.get_netbox_data(self.region)
+        nb_switches = nb_data['switches']
 
         def _get_single(item_set, item_name, switchgroup):
+            if not item_set:
+                raise ConfigException(f"Switchgroup {switchgroup} has no entry for {item_name}")
             if len(item_set) > 1:
                 raise ConfigException(f"Inconsistent {item_name} found for switchgroup {switchgroup}: {item_set}")
             return item_set.pop()
 
-        from pprint import pprint
-        pprint(nb_switches)
-
-        # build switchgroups
+        # build switchgroups (sorted by switchgroup.name, switch.name)
         switchgroups = []
-        for groupname, nb_switches in groupby(nb_switches, key=itemgetter('switchgroup')):
+        sorted_nb_switches = sorted(nb_switches, key=itemgetter('switchgroup', 'name'))
+        for groupname, nb_switchgroup in groupby(sorted_nb_switches, key=itemgetter('switchgroup')):
             switches = []
             az = set()
             role = set()
             loopback1 = set()
             asn = set()
-            for nb_switch in sorted(nb_switches, key=itemgetter('name')):
+            nb_switchgroup = list(nb_switchgroup)
+            for nb_switch in sorted(nb_switchgroup, key=itemgetter('name')):
                 az.add(nb_switch['az'])
                 role.add(nb_switch['role'])
                 loopback1.add(nb_switch['loopback1'])
@@ -221,8 +261,38 @@ class ConfigGenerator:
                                            ip_loopback1=loopback1, asn=asn)
             switchgroups.append(switchgroup)
 
-        # build hostgroups
+        # build hostgroups (sorted by switchgroup, meta, groupname)
+        hg_map = {}
+        for nb_switch in nb_switches:
+            # FIXME: meta hostgroup based on roles
+            for host, ports in nb_switch['hosts'].items():
+                hg = hg_map.setdefault(host, dict(ports=[], switchgroups=[]))
+                for port in ports:
+                    hg['ports'].append((nb_switch['name'], port))
+                    hg['switchgroups'].append(nb_switch['switchgroup'])
+
         hostgroups = []
+        for hg_name, data in sorted(hg_map.items(), key=lambda x: (x[1]['switchgroups'][0], x[0])):
+            # build switchports (sort by port, switch)
+            switchports = []
+            for switch, port in sorted(data['ports'], key=itemgetter(1, 0)):
+                sp = conf.SwitchPort(switch=switch, name=port)
+                switchports.append(sp)
+            hg = conf.HostGroup(binding_hosts=[hg_name], members=switchports)
+            hostgroups.append(hg)
+
+        # FIXME: meta hostgroups based on device-role
+        # FIXME: check that no hostgroup has switches from two different switchgroups
+        nb_clusters = nb_data['clusters']
+        print(nb_clusters)
+
+        for cluster in nb_clusters.values():
+            print(cluster)
+            hg = conf.HostGroup(binding_hosts=[cluster['binding_host']], metagroup=True,
+                                members=list(cluster['members']))
+            hostgroups.append(hg)
+
+        # FIXME: sort hostgroups
 
         # build top config object
         config = conf.DriverConfig(switchgroups=switchgroups, hostgroups=hostgroups)
@@ -242,14 +312,29 @@ def main():
     parser.add_argument("-v", "--verbose", action="store_true")
     parser.add_argument("-u", "--switch-user", help="Default switch user", required=True)
     parser.add_argument("-p", "--switch-password", help="Default switch password", required=True)
+    parser.add_argument("-s", "--shell", action="store_true")
+    parser.add_argument("-o", "--output")
 
     args = parser.parse_args()
 
     cfggen = ConfigGenerator(args.region, args, args.verbose)
-    foo = cfggen.generate_switch_config()
+    cfg = cfggen.generate_switch_config()
 
     from pprint import pprint
-    pprint(foo)
+    pprint(cfg)
+
+    if args.output:
+        conf_data = cfg.dict(exclude_unset=True)
+        yaml_data = yaml.safe_dump(conf_data)
+        if args.output == '-':
+            print(yaml_data)
+        else:
+            with open(args.output, "w") as f:
+                f.write(yaml_data)
+
+    if args.shell:
+        import IPython
+        IPython.embed()
 
 
 if __name__ == '__main__':
