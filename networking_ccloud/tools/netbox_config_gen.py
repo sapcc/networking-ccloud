@@ -249,7 +249,7 @@ class ConfigGenerator:
                 loopback1.add(nb_switch['loopback1'])
                 asn.add(nb_switch['asn'])
                 switch = conf.Switch(name=nb_switch['name'], host=nb_switch['host'],
-                                     ip_loopback0=nb_switch['loopback0'], vendor=nb_switch['vendor'],
+                                     bgp_source_ip=nb_switch['loopback0'], vendor=nb_switch['vendor'],
                                      user=self.args.switch_user, password=self.args.switch_password)
 
                 switches.append(switch)
@@ -258,7 +258,7 @@ class ConfigGenerator:
             loopback1 = _get_single(loopback1, "loopback1", groupname)
             asn = _get_single(asn, "asn", groupname)
             switchgroup = conf.SwitchGroup(name=groupname, members=switches, availability_zone=az, role=role,
-                                           ip_loopback1=loopback1, asn=asn)
+                                           vtep_ip=loopback1, asn=asn)
             switchgroups.append(switchgroup)
 
         # build hostgroups (sorted by switchgroup, meta, groupname)

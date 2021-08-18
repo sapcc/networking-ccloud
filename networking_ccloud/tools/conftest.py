@@ -39,10 +39,10 @@ class Switch(pydantic.BaseModel):
     password: str
 
     # will be calculated from hostname
-    ip_loopback0: str
+    bgp_source_ip: str
 
     _normalize_host = pydantic.validator('host', allow_reuse=True)(validate_ip_address)
-    _normalize_ip_loopback0 = pydantic.validator('ip_loopback0')(validate_ip_address)
+    _normalize_bgp_source_ip = pydantic.validator('bgp_source_ip', allow_reuse=True)(validate_ip_address)
 
 
 # FIXME: put into consts
@@ -69,12 +69,12 @@ class SwitchGroup(pydantic.BaseModel):
     role: str
 
     # calculated from member-hostnames
-    ip_loopback1: str
+    vtep_ip: str
     asn: str
 
     override_vlan_pool: str = None
 
-    _normalize_ip_loopback1 = pydantic.validator('ip_loopback1', allow_reuse=True)(validate_ip_address)
+    _normalize_vtep_ip = pydantic.validator('vtep_ip', allow_reuse=True)(validate_ip_address)
 
     @property
     def vlan_pool(self):
