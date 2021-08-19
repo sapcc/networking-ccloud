@@ -50,6 +50,8 @@ coverage.xml
 *.py,cover
 .hypothesis/
 .pytest_cache/
+.testrepository
+.stestr
 
 # robot framework tests
 **log.html
