@@ -48,6 +48,9 @@ Config on NXOS leaf:
 
 ```
 
+## Portbinding Sanity Checks
+ * if a binding profile is used, check that all hosts in `local_link_information` refer to the same host, else fail
+
 
 ## Bare Metal on Fabric
 Bare metal servers are in most cases directly connected to dedicated Arista switches which will become part of our fabric.
