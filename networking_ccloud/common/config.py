@@ -131,7 +131,8 @@ class SwitchGroup(pydantic.BaseModel):
     @pydantic.validator('asn')
     def validate_asn(cls, v):
         # 65000 or 65000.123
-        m = re.match(r"^(?P<first>\d+)(?:\.(?P<second>\d+))$", v)
+        v = str(v)
+        m = re.match(r"^(?P<first>\d+)(?:\.(?P<second>\d+))?$", v)
         if not m:
             raise ValueError(f"asn value '{v}' is not a valid AS number")
 
