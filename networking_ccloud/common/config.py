@@ -1,9 +1,25 @@
+# Copyright 2021 SAP SE
+#
+#    Licensed under the Apache License, Version 2.0 (the "License"); you may
+#    not use this file except in compliance with the License. You may obtain
+#    a copy of the License at
+#
+#         http://www.apache.org/licenses/LICENSE-2.0
+#
+#    Unless required by applicable law or agreed to in writing, software
+#    distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+#    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
+#    License for the specific language governing permissions and limitations
+#    under the License.
+
 from enum import Enum
 import ipaddress
 import re
 from typing import List, Union
 
 import pydantic
+
+from networking_ccloud.common import constants as c_const
 
 # FIXME: we want to have a good format for field descriptions
 #   Option a: if pydantic has something to embed it into the schema we should use it
@@ -153,10 +169,10 @@ class SwitchPort(pydantic.BaseModel):
 
 
 class HostGroup(pydantic.BaseModel):
-    # FIXME: make vlan a constant in driver
+    # FIXME: proper handover mode checking (like with roles)
     # FIXME: shall lacp member ports explicitly have their ports listed as single members or explicitly not
     # FIXME: add computed value "vlan_pool" or name or anything like this
-    handover_mode: Union['vlan'] = 'vlan'
+    handover_mode: Union['vlan'] = c_const.HANDOVER_VLAN
 
     binding_hosts: List[str]
     metagroup: bool = False
