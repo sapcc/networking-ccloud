@@ -1,3 +1,17 @@
+# Copyright 2021 SAP SE
+#
+#    Licensed under the Apache License, Version 2.0 (the "License"); you may
+#    not use this file except in compliance with the License. You may obtain
+#    a copy of the License at
+#
+#         http://www.apache.org/licenses/LICENSE-2.0
+#
+#    Unless required by applicable law or agreed to in writing, software
+#    distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+#    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
+#    License for the specific language governing permissions and limitations
+#    under the License.
+
 import ipaddress
 from itertools import groupby
 import logging
@@ -9,8 +23,8 @@ import pynetbox
 import requests
 import yaml
 
-# FIXME: make this a module import once this is a proper module
-import conftest as conf
+from networking_ccloud.common import config as conf
+from networking_ccloud.common import constants as c_const
 
 
 LOG = logging.getLogger(__name__)
@@ -26,13 +40,12 @@ class ConfigSchemeException(ConfigException):
 
 class ConfigGenerator:
     # FIXME: some of these shall be imported from networking-ccloud constants
+    # FIXME: some of these should come from an external config for this tool in the future
     netbox_url = "https://netbox.global.cloud.sap"
     region = "qa-de-2"
     leaf_role = "evpn-leaf"
     spine_role = "evpn-spine"
-    valid_vendors = {"arista", "cisco"}
     connection_roles = {"server", "neutron-router"}
-
     netbox_switchgroup_tag = "cc-switchgroup"
     netbox_kv_tags = {netbox_switchgroup_tag}
     netbox_vpod_cluster_type = "cc-vsphere-prod"
@@ -130,12 +143,11 @@ class ConfigGenerator:
 
         leafs = self.netbox.dcim.devices.filter(region=region, role=self.leaf_role)
         for leaf in leafs:
-            # FIXME: handle non-existent devicetype or manufacturer
             switch_name = leaf.name
 
             # vendor check!
             vendor = leaf.device_type.manufacturer.slug
-            if vendor not in self.valid_vendors:
+            if vendor not in c_const.VENDORS:
                 print(f"Warning: Device {switch_name} is of vendor {vendor}, "
                       "which is not supported by the driver/config generator")
                 continue
