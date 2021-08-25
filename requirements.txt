@@ -5,10 +5,12 @@
 pbr>=2.0 # Apache-2.0
 
 # general requirements
+oslo.config
 pydantic
 pyyaml
 
 # driver requirements
+neutron-lib
 
 # tool requirements
 pynetbox>=6

@@ -1,0 +1,27 @@
+hostgroups:
+- binding_hosts:
+  - node003-bm206
+  members:
+  - name: Ethernet1/1
+    switch: qa-de-3-sw1111a-bb206
+  - name: Ethernet1/1
+    switch: qa-de-3-sw1111b-bb206
+switchgroups:
+- asn: '65132.1111'
+  availability_zone: qa-de-2a
+  members:
+  - bgp_source_ip: 1.1.11.1
+    host: 10.114.0.203
+    name: qa-de-3-sw1111a-bb206
+    password: bar
+    user: foo
+    vendor: arista
+  - bgp_source_ip: 1.1.11.2
+    host: 10.114.0.204
+    name: qa-de-3-sw1111b-bb206
+    password: bar
+    user: foo
+    vendor: arista
+  name: bb206
+  role: vpod
+  vtep_ip: 1.1.11.0

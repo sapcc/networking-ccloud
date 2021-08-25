@@ -12,7 +12,7 @@
 # License for the specific language governing permissions and limitations
 # under the License.
 
-from networking_ccloud.common import config
+from networking_ccloud.common.config import config_yaml as config
 from networking_ccloud.tests import base
 
 
