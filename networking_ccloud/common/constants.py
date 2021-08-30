@@ -16,3 +16,5 @@ VENDORS = ["arista", "cisco"]
 
 HANDOVER_VLAN = 'vlan'
 HANDOVER_MODES = [HANDOVER_VLAN]
+
+CC_DRIVER_NAME = 'cc-fabric'
