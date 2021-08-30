@@ -15,7 +15,8 @@
 from oslo_config import cfg
 import yaml
 
-from networking_ccloud.common.config.config_yaml import DriverConfig
+from networking_ccloud.common.config.config_driver import DriverConfig
+from networking_ccloud.common.config import config_oslo  # noqa: F401
 _FABRIC_CONF = None
 
 
