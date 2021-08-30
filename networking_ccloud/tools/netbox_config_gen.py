@@ -23,7 +23,7 @@ import pynetbox
 import requests
 import yaml
 
-from networking_ccloud.common.config import config_yaml as conf
+from networking_ccloud.common.config import config_driver as conf
 from networking_ccloud.common import constants as c_const
 
 
