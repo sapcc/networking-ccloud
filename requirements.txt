@@ -11,6 +11,7 @@ pyyaml
 
 # driver requirements
 neutron-lib
+neutron
 
 # tool requirements
 pynetbox>=6
