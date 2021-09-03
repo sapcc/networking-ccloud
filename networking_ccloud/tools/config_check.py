@@ -50,7 +50,7 @@ def main():
         print("OK - oslo.config could load driver config")
 
     # load yaml config (either via oslo config (args.yaml_file is None) or via path)
-    drv_conf = get_driver_config(path=args.yaml_file)
+    drv_conf = get_driver_config(path=args.yaml_file, cached=False)
     print("OK - could load yaml config file")
     print(f"INFO - Config has {len(drv_conf.switchgroups)} switchgroups and "
           f"{len(drv_conf.hostgroups)} hostgroups")
