@@ -30,7 +30,7 @@ def _override_driver_config(driver_config):
     _FABRIC_CONF = driver_config
 
 
-def get_driver_config(path=None):
+def get_driver_config(path=None, cached=True):
     """Get the driver config from a yaml file
 
     This method will load the config from a given path (or
@@ -39,7 +39,7 @@ def get_driver_config(path=None):
     previously parsed object from module state.
     """
     global _FABRIC_CONF
-    if _FABRIC_CONF is None:
+    if not cached or _FABRIC_CONF is None:
         if not path:
             path = cfg.CONF.ml2_cc_fabric.driver_config_path
 
