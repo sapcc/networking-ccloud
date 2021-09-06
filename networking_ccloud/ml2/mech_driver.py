@@ -18,6 +18,7 @@ from neutron_lib.plugins import directory
 from neutron_lib.plugins.ml2 import api as ml2_api
 
 from networking_ccloud.common.config import get_driver_config
+from networking_ccloud.extensions import fabricoperations
 
 LOG = logging.getLogger(__name__)
 
@@ -32,6 +33,7 @@ class CCFabricMechanismDriver(ml2_api.MechanismDriver):
         """
         self._plugin_property = None
         self.drv_conf = get_driver_config()
+        fabricoperations.register_api_extension()
         LOG.info("CC-Fabric ml2 driver initialized")
 
     @property
