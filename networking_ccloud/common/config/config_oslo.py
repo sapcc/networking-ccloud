@@ -18,7 +18,7 @@ from oslo_log import log as logging
 LOG = logging.getLogger(__name__)
 
 cc_fabric_opts = [
-    cfg.StrOpt("driver_config_path", required=True,
+    cfg.StrOpt("driver_config_path",
                help="Path to yaml config file"),
 ]
 
