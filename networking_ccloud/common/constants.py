@@ -18,3 +18,8 @@ HANDOVER_VLAN = 'vlan'
 HANDOVER_MODES = [HANDOVER_VLAN]
 
 CC_DRIVER_NAME = 'cc-fabric'
+
+# rpc topics
+CC_DRIVER_TOPIC = 'cc-fabric-driver'
+SWITCH_AGENT_ARISTA_TOPIC = 'cc-fabric-switch-agent-arista'
+SWITCH_AGENT_NXOS_TOPIC = 'cc-fabric-switch-agent-nxos'
