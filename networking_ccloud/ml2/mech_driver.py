@@ -33,6 +33,11 @@ class CCFabricMechanismDriver(ml2_api.MechanismDriver):
         """
         self._plugin_property = None
         self.drv_conf = get_driver_config()
+
+        # agent
+        self._agents = {}
+        self._setup_agent_rpc()
+
         fabricoperations.register_api_extension()
         LOG.info("CC-Fabric ml2 driver initialized")
 
@@ -41,6 +46,12 @@ class CCFabricMechanismDriver(ml2_api.MechanismDriver):
         if self._plugin_property is None:
             self._plugin_property = directory.get_plugin()
         return self._plugin_property
+
+    def _setup_agent_rpc_client(self):
+        """Setup RPC for agent communication"""
+        vendors = ['arista']
+        LOG.debug("Setting up agent communication for vendors: %s", [])
+
 
     def bind_port(self, context):
         """Attempt to bind a port.
