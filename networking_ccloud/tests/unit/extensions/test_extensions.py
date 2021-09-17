@@ -16,6 +16,7 @@ from neutron.api import extensions
 from neutron.tests.unit.api.test_extensions import setup_extensions_middleware
 import webtest
 
+from networking_ccloud.common.config import _override_driver_config
 from networking_ccloud.extensions import __path__ as fabric_ext_path
 from networking_ccloud.extensions import fabricoperations
 from networking_ccloud.tests import base
@@ -24,6 +25,7 @@ from networking_ccloud.tests import base
 class TestCustomExtension(base.TestCase):
     def setUp(self):
         super().setUp()
+        _override_driver_config(123)  # FIXME proper fake config
         self.ext_mgr = extensions.ExtensionManager(fabric_ext_path[0])
         self.app = webtest.TestApp(setup_extensions_middleware(self.ext_mgr))
 

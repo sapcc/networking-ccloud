@@ -272,3 +272,10 @@ class DriverConfig(pydantic.BaseModel):
                                      f"found {vlan_pools} for hostgroup with binding hosts {hg.binding_hosts}")
 
         return values
+
+    def get_vendors(self):
+        v = set()
+        for sg in self.switchgroups:
+            for s in sg.members:
+                v.add(s.vendor)
+        return v

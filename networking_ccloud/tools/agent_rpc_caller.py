@@ -27,11 +27,6 @@ from networking_ccloud.ml2.driver_rpc_api import CCFabricDriverRPCClient
 LOG = logging.getLogger(__name__)
 CONF = cfg.CONF
 
-AGENT_TOPIC_MAP = {
-    'arista': cc_const.SWITCH_AGENT_ARISTA_TOPIC,
-    'nxos': cc_const.SWITCH_AGENT_NXOS_TOPIC,
-}
-
 CLI_OPTS = [
     cfg.BoolOpt("driver", help="Communicate with the driver via RPC"),
     cfg.StrOpt("agent", help="Communicate with an agent via RPC, vendor needs to be specified"),
@@ -51,14 +46,14 @@ def main():
         print("Please specify either --driver or --agent")
         sys.exit(1)
 
-    if CONF.agent and CONF.agent not in AGENT_TOPIC_MAP:
-        print(f"Agent type {CONF.agent} is not available, please choose from {set(AGENT_TOPIC_MAP.keys())}")
+    if CONF.agent and CONF.agent not in cc_const.AGENT_TOPIC_MAP:
+        print(f"Agent type {CONF.agent} is not available, please choose from {set(cc_const.AGENT_TOPIC_MAP.keys())}")
 
     if cfg.CONF.driver:
         client = CCFabricDriverRPCClient()
         topic = client.topic
     else:
-        topic = AGENT_TOPIC_MAP[CONF.agent]
+        topic = cc_const.AGENT_TOPIC_MAP[CONF.agent]
         client = CCFabricSwitchAgentRPCClient(topic)
 
     print(f"Doing RPC call {CONF.method}(*{CONF.args}) with topic {topic}")
