@@ -20,10 +20,13 @@ from neutron import policy
 from neutron import wsgi
 from neutron_lib.api import extensions as api_extensions
 from neutron_lib.api import faults
+from neutron_lib import context
 from oslo_log import log as logging
 from webob import exc as web_exc
 
+from networking_ccloud.common.config import get_driver_config
 import networking_ccloud.extensions
+from networking_ccloud.ml2.agent.common.api import CCFabricSwitchAgentRPCClient
 
 LOG = logging.getLogger(__name__)
 
@@ -45,24 +48,30 @@ class Fabricoperations(api_extensions.ExtensionDescriptor):
     # class name cannot be camelcase, needs to be just capitalized
 
     @classmethod
-    def get_name(self):
+    def get_name(cls):
         return "CC Fabric Driver API"
 
     @classmethod
-    def get_alias(self):
+    def get_alias(cls):
         return "cc-fabric-api"
 
     @classmethod
-    def get_description(self):
+    def get_description(cls):
         return "CC Fabric driver API for extra driver functions"
 
     @classmethod
-    def get_updated(self):
+    def get_updated(cls):
         """The timestamp when the extension was last updated."""
         return "2021-08-25T18:18:42+02:00"
 
     @classmethod
-    def get_resources(self):
+    def _add_controller(cls, endpoints, ctrl, path):
+        res = Resource(ctrl, faults.FAULT_MAP)
+        ep = extensions.ResourceExtension(path, res)
+        endpoints.append(ep)
+
+    @classmethod
+    def get_resources(cls):
         """List of extensions.ResourceExtension extension objects.
 
         Resources define new nouns, and are accessible through URLs.
@@ -70,15 +79,9 @@ class Fabricoperations(api_extensions.ExtensionDescriptor):
         endpoints = []
         ep_name = 'cc-fabric'
 
-        # status endpoint
-        res = Resource(StatusController(), faults.FAULT_MAP)
-        status_endpoint = extensions.ResourceExtension(f'{ep_name}/status', res)
-        endpoints.append(status_endpoint)
-
-        # config endpoint
-        res = Resource(ConfigController(), faults.FAULT_MAP)
-        config_endpoint = extensions.ResourceExtension(f'{ep_name}/config', res)
-        endpoints.append(config_endpoint)
+        cls._add_controller(endpoints, StatusController(), f'{ep_name}/status')
+        cls._add_controller(endpoints, ConfigController(), f'{ep_name}/config')
+        cls._add_controller(endpoints, AgentCheckController(), f'{ep_name}/agent-check')
 
         return endpoints
 
@@ -90,7 +93,7 @@ def register_api_extension():
 
 class StatusController(wsgi.Controller):
     def __init__(self):
-        super(StatusController, self).__init__()
+        super().__init__()
 
     @check_cloud_admin
     def index(self, request, **kwargs):
@@ -103,7 +106,7 @@ class StatusController(wsgi.Controller):
 
 class ConfigController(wsgi.Controller):
     def __init__(self):
-        super(ConfigController, self).__init__()
+        super().__init__()
 
     @check_cloud_admin
     def index(self, request, **kwargs):
@@ -112,3 +115,27 @@ class ConfigController(wsgi.Controller):
     @check_cloud_admin
     def show(self, request, **kwargs):
         return "Soon"
+
+
+class AgentCheckController(wsgi.Controller):
+    def __init__(self):
+        super().__init__()
+        self.drv_conf = get_driver_config()
+
+    @check_cloud_admin
+    def index(self, request, **kwargs):
+        LOG.info("agent-check request %s kwargs %s", request, kwargs)
+        resp = []
+        ctx = context.get_admin_context()
+        for vendor in self.drv_conf.get_vendors():
+            agent_resp = dict(vendor=vendor)
+            try:
+                rpc_client = CCFabricSwitchAgentRPCClient.get_for_vendor(vendor)
+                agent_resp['response'] = rpc_client.ping_back_driver(ctx)
+                agent_resp['success'] = True
+            except Exception as e:
+                agent_resp['response'] = f"{type(e.__class__.__name__)}: {e}"
+                agent_resp['success'] = False
+            resp.append(agent_resp)
+
+        return resp

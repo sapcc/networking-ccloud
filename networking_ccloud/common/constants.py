@@ -12,6 +12,7 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
+# FIXME: cisco should be nxos, as we go by "os/api type"
 VENDORS = ["arista", "cisco"]
 
 HANDOVER_VLAN = 'vlan'
@@ -23,3 +24,8 @@ CC_DRIVER_NAME = 'cc-fabric'
 CC_DRIVER_TOPIC = 'cc-fabric-driver'
 SWITCH_AGENT_ARISTA_TOPIC = 'cc-fabric-switch-agent-arista'
 SWITCH_AGENT_NXOS_TOPIC = 'cc-fabric-switch-agent-nxos'
+
+SWITCH_AGENT_TOPIC_MAP = {
+    'arista': SWITCH_AGENT_ARISTA_TOPIC,
+    'nxos': SWITCH_AGENT_NXOS_TOPIC,
+}

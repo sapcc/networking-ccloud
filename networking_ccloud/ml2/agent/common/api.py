@@ -16,6 +16,9 @@ from neutron_lib import rpc as n_rpc
 from oslo_log import log as logging
 import oslo_messaging
 
+from networking_ccloud.common import constants as cc_const
+from networking_ccloud.ml2.driver_rpc_api import CCFabricDriverRPCClient
+
 LOG = logging.getLogger(__name__)
 
 
@@ -25,6 +28,12 @@ class CCFabricSwitchAgentAPI:
 
     def status(self, context):
         return {"agent_responding": True}
+
+    def ping_back_driver(self, context):
+        rpc_client = CCFabricDriverRPCClient()
+        return {
+            'ml2-driver-status': rpc_client.status(context),
+        }
 
 
 class CCFabricSwitchAgentRPCClient(object):
@@ -37,6 +46,10 @@ class CCFabricSwitchAgentRPCClient(object):
     https://docs.openstack.org/neutron/latest/contributor/internals/rpc_api.html
     """
 
+    @classmethod
+    def get_for_vendor(cls, vendor):
+        return cls(cc_const.SWITCH_AGENT_TOPIC_MAP[vendor])
+
     def __init__(self, topic):
         target = oslo_messaging.Target(topic=topic, version='1.0')
         self.client = n_rpc.get_client(target)
@@ -44,3 +57,7 @@ class CCFabricSwitchAgentRPCClient(object):
     def status(self, context):
         cctxt = self.client.prepare()
         return cctxt.call(context, 'status')
+
+    def ping_back_driver(self, context):
+        cctxt = self.client.prepare()
+        return cctxt.call(context, 'ping_back_driver')
