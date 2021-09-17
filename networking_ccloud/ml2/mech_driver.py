@@ -16,14 +16,17 @@ from oslo_log import log as logging
 
 from neutron_lib.plugins import directory
 from neutron_lib.plugins.ml2 import api as ml2_api
+from neutron_lib import rpc as n_rpc
 
 from networking_ccloud.common.config import get_driver_config
+from networking_ccloud.common import constants as cc_const
 from networking_ccloud.extensions import fabricoperations
+from networking_ccloud.ml2.driver_rpc_api import CCFabricDriverAPI
 
 LOG = logging.getLogger(__name__)
 
 
-class CCFabricMechanismDriver(ml2_api.MechanismDriver):
+class CCFabricMechanismDriver(ml2_api.MechanismDriver, CCFabricDriverAPI):
     def initialize(self):
         """Perform driver initialization.
 
@@ -36,9 +39,10 @@ class CCFabricMechanismDriver(ml2_api.MechanismDriver):
 
         # agent
         self._agents = {}
-        self._setup_agent_rpc()
 
         fabricoperations.register_api_extension()
+        self.start_driver_rpc()
+
         LOG.info("CC-Fabric ml2 driver initialized")
 
     @property
@@ -47,11 +51,11 @@ class CCFabricMechanismDriver(ml2_api.MechanismDriver):
             self._plugin_property = directory.get_plugin()
         return self._plugin_property
 
-    def _setup_agent_rpc_client(self):
-        """Setup RPC for agent communication"""
-        vendors = ['arista']
-        LOG.debug("Setting up agent communication for vendors: %s", [])
+    def start_driver_rpc(self):
+        self.conn = n_rpc.Connection()
+        self.conn.create_consumer(cc_const.CC_DRIVER_TOPIC, [self])
 
+        return self.conn.consume_in_threads()
 
     def bind_port(self, context):
         """Attempt to bind a port.
