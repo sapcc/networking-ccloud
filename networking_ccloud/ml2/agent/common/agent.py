@@ -17,8 +17,8 @@ import sys
 from neutron.common import config as common_config
 from neutron import manager
 from neutron import service as neutron_service
-from oslo_log import log as logging
 from oslo_config import cfg
+from oslo_log import log as logging
 from oslo_service import service
 
 from networking_ccloud.ml2.agent.common import api as cc_agent_api
