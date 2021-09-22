@@ -13,6 +13,9 @@ pyyaml
 neutron-lib
 neutron
 
+# arista agent
+pyeapi
+
 # tool requirements
 pynetbox>=6
 requests

@@ -12,8 +12,9 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
-# FIXME: cisco should be nxos, as we go by "os/api type"
-VENDORS = ["arista", "cisco"]
+VENDOR_ARISTA = "arista"
+VENDOR_NXOS = "nxos"
+VENDORS = [VENDOR_ARISTA, VENDOR_NXOS]
 
 HANDOVER_VLAN = 'vlan'
 HANDOVER_MODES = [HANDOVER_VLAN]

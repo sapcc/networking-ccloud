@@ -21,6 +21,7 @@ from oslo_config import cfg
 from oslo_log import log as logging
 from oslo_service import service
 
+from networking_ccloud.common.config import get_driver_config
 from networking_ccloud.ml2.agent.common import api as cc_agent_api
 
 LOG = logging.getLogger(__name__)
@@ -44,8 +45,27 @@ class CCFabricSwitchAgent(manager.Manager, cc_agent_api.CCFabricSwitchAgentAPI):
     def get_agent_topic(cls):
         raise NotImplementedError
 
+    def get_switch_class(cls):
+        raise NotImplementedError
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        self._switches = []
+        self.drv_conf = get_driver_config()
+
+    def _init_switches(self):
+        """Init all switches the agent manages"""
+        for switch_conf in self.drv_conf.get_switches():
+            if switch_conf.vendor != self.get_switch_class().get_vendor():
+                continue
+            switch = self.get_switch_class()(switch_conf)
+            LOG.debug("Adding switch %s with user %s to switchpool", switch, switch.user)
+            self._switches.append(switch)
+
     def init_host(self):
         LOG.error("Initializing agent %s with topic %s", self.get_binary_name(), self.get_agent_topic())
+        self._init_switches()
 
     def after_start(self):
         LOG.info("Agent started")
@@ -71,3 +91,17 @@ class CCFabricSwitchAgent(manager.Manager, cc_agent_api.CCFabricSwitchAgentAPI):
             periodic_fuzzy_delay=10,
             manager=f'{cls.__module__}.{cls.__name__}')
         service.launch(cfg.CONF, server).wait()
+
+    def get_switch_status(self, switches=None):
+        """Get status for specified or all switches this agent manages
+
+         :param list switches: List of switch names or primary addresses to filter for
+         """
+        LOG.info("Welcome to the RPC call!")
+        result = []
+        for switch in self._switches:
+            # FIXME: handle offline switches (will probably require changing the response format)
+            # FIXME: filter, if switches is set
+            LOG.info("Testing switch %s", switch)
+            result.append(switch.get_switch_status())
+        return result

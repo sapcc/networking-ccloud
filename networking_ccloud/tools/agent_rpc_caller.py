@@ -46,14 +46,15 @@ def main():
         print("Please specify either --driver or --agent")
         sys.exit(1)
 
-    if CONF.agent and CONF.agent not in cc_const.AGENT_TOPIC_MAP:
-        print(f"Agent type {CONF.agent} is not available, please choose from {set(cc_const.AGENT_TOPIC_MAP.keys())}")
+    if CONF.agent and CONF.agent not in cc_const.SWITCH_AGENT_TOPIC_MAP:
+        print(f"Agent type {CONF.agent} is not available, please choose from "
+              f"{set(cc_const.SWITCH_AGENT_TOPIC_MAP.keys())}")
 
     if cfg.CONF.driver:
         client = CCFabricDriverRPCClient()
         topic = client.topic
     else:
-        topic = cc_const.AGENT_TOPIC_MAP[CONF.agent]
+        topic = cc_const.SWITCH_AGENT_TOPIC_MAP[CONF.agent]
         client = CCFabricSwitchAgentRPCClient(topic)
 
     print(f"Doing RPC call {CONF.method}(*{CONF.args}) with topic {topic}")

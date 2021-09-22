@@ -35,8 +35,11 @@ class CCFabricSwitchAgentAPI:
             'ml2-driver-status': rpc_client.status(context),
         }
 
+    def get_switch_status(self, switches=None):
+        raise NotImplementedError
 
-class CCFabricSwitchAgentRPCClient(object):
+
+class CCFabricSwitchAgentRPCClient:
     """Client side RPC interface definition for talking to switching agents
 
     API version history:
@@ -61,3 +64,7 @@ class CCFabricSwitchAgentRPCClient(object):
     def ping_back_driver(self, context):
         cctxt = self.client.prepare()
         return cctxt.call(context, 'ping_back_driver')
+
+    def get_switch_status(self, context, switches=None):
+        cctxt = self.client.prepare()
+        return cctxt.call(context, 'get_switch_status')
