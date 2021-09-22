@@ -21,6 +21,7 @@ if not os.environ.get('DISABLE_EVENTLET_PATCHING'):
 from oslo_log import log as logging
 
 from networking_ccloud.common import constants as cc_const
+from networking_ccloud.ml2.agent.arista.switch import AristaSwitch
 from networking_ccloud.ml2.agent.common.agent import CCFabricSwitchAgent
 
 LOG = logging.getLogger(__name__)
@@ -36,6 +37,10 @@ class CCFabricAristaSwitchAgent(CCFabricSwitchAgent):
     @classmethod
     def get_agent_topic(cls):
         return cc_const.SWITCH_AGENT_ARISTA_TOPIC
+
+    @classmethod
+    def get_switch_class(cls):
+        return AristaSwitch
 
     def status(self, context):
         status = super().status(context=context)

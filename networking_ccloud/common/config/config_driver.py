@@ -279,3 +279,10 @@ class DriverConfig(pydantic.BaseModel):
             for s in sg.members:
                 v.add(s.vendor)
         return v
+
+    def get_switches(self):
+        switches = []
+        for sg in self.switchgroups:
+            for sw in sg.members:
+                switches.append(sw)
+        return switches
