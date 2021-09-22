@@ -42,6 +42,8 @@ def get_driver_config(path=None, cached=True):
     if not cached or _FABRIC_CONF is None:
         if not path:
             path = cfg.CONF.ml2_cc_fabric.driver_config_path
+            if path is None:
+                raise ValueError("Missing value for ml2_cc_fabric.driver_config_path in config")
 
         # FIXME: error handling
         with open(path) as f:
