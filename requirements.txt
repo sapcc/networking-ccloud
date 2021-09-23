@@ -16,6 +16,9 @@ neutron
 # arista agent
 pyeapi
 
+# nxos agent
+requests
+
 # tool requirements
 pynetbox>=6
 requests
