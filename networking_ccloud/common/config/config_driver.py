@@ -19,7 +19,7 @@ from typing import List, Union
 
 import pydantic
 
-from networking_ccloud.common import constants as c_const
+from networking_ccloud.common import constants as cc_const
 
 # FIXME: we want to have a good format for field descriptions
 #   Option a: if pydantic has something to embed it into the schema we should use it
@@ -113,8 +113,8 @@ class SwitchGroup(pydantic.BaseModel):
         # check if the vendor is supported
         # FIXME: use ccloud_const
         vendor = vendors.pop()
-        if vendor not in ('arista', 'cisco'):
-            raise ValueError(f"Vendor {vendors[0]} is not supported by this driver (yet)")
+        if vendor not in cc_const.VENDORS:
+            raise ValueError(f"Vendor {vendor} is not supported by this driver (yet)")
 
         return v
 
@@ -173,7 +173,7 @@ class HostGroup(pydantic.BaseModel):
     # FIXME: proper handover mode checking (like with roles)
     # FIXME: shall lacp member ports explicitly have their ports listed as single members or explicitly not
     # FIXME: add computed value "vlan_pool" or name or anything like this
-    handover_mode: Union['vlan'] = c_const.HANDOVER_VLAN
+    handover_mode: Union['vlan'] = cc_const.HANDOVER_VLAN
 
     binding_hosts: List[str]
     metagroup: bool = False
