@@ -13,13 +13,11 @@ Contents:
    :maxdepth: 2
 
    readme
+   architecture/index
    install/index
-   library/index
    contributor/index
    configuration/index
    cli/index
-   user/index
-   admin/index
    reference/index
 
 Indices and tables
