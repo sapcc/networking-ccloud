@@ -12,11 +12,11 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
-from oslo_log import log as logging
-
+from neutron import service
 from neutron_lib.plugins import directory
 from neutron_lib.plugins.ml2 import api as ml2_api
 from neutron_lib import rpc as n_rpc
+from oslo_log import log as logging
 
 from networking_ccloud.common.config import get_driver_config
 from networking_ccloud.common import constants as cc_const
@@ -41,7 +41,6 @@ class CCFabricMechanismDriver(ml2_api.MechanismDriver, CCFabricDriverAPI):
         self._agents = {}
 
         fabricoperations.register_api_extension()
-        self.start_driver_rpc()
 
         LOG.info("CC-Fabric ml2 driver initialized")
 
@@ -51,11 +50,26 @@ class CCFabricMechanismDriver(ml2_api.MechanismDriver, CCFabricDriverAPI):
             self._plugin_property = directory.get_plugin()
         return self._plugin_property
 
-    def start_driver_rpc(self):
+    def start_rpc_listeners(self):
+        """Start the RPC listeners.
+
+        Most plugins start RPC listeners implicitly on initialization.  In
+        order to support multiple process RPC, the plugin needs to expose
+        control over when this is started.
+        """
+        LOG.debug("Starting cc-fabric internal driver RPC")
         self.conn = n_rpc.Connection()
         self.conn.create_consumer(cc_const.CC_DRIVER_TOPIC, [self])
 
         return self.conn.consume_in_threads()
+
+    def get_workers(self):
+        """Get any NeutronWorker instances that should have their own process
+
+        Any driver that needs to run processes separate from the API or RPC
+        workers, can return a sequence of NeutronWorker instances.
+        """
+        return [service.RpcWorker([self], worker_process_count=0)]
 
     def bind_port(self, context):
         """Attempt to bind a port.
