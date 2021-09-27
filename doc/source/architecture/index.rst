@@ -8,4 +8,4 @@ Configuration of networking-ccloud.
     :maxdepth: 2
 
     overview.rst
-    switch_config.rst
+    switch-config.rst

@@ -5,7 +5,7 @@ Networking CCloud VXLAN Fabric service installation guide
 .. toctree::
    :maxdepth: 2
 
-   get_started.rst
+   get-started.rst
    install.rst
    verify.rst
    next-steps.rst
