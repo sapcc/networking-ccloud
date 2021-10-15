@@ -152,15 +152,29 @@ class SwitchPort(pydantic.BaseModel):
     switch: str
     name: str
     lacp: bool = False
+    portchannel_id: pydantic.conint(gt=0) = None
     members: List[str] = None
 
     @pydantic.root_validator
-    def only_allow_members_with_lacp_enabled(cls, v):
+    def only_allow_members_and_pc_id_with_lacp_enabled(cls, v):
         if v['members'] and not v['lacp']:
             raise ValueError(f"SwitchPort {v['switch']}/{v['name']} has LACP members without LACP being enabled")
         if not v['members'] and v['lacp']:
             raise ValueError(f"SwitchPort {v['switch']}/{v['name']} is LACP port and has no members")
+        if v['portchannel_id'] and not v['lacp']:
+            raise ValueError(f"SwitchPort {v['switch']}/{v['name']} has a portchannel id set without "
+                             "LACP being enabled")
         return v
+
+    @pydantic.root_validator
+    def set_portchannel_id_for_lacp(cls, values):
+        if values['lacp'] and not values['portchannel_id']:
+            m = re.match(r"^port-channel\s*(?P<pc_id>\d+)$", values['name'].lower())
+            if not m:
+                raise ValueError(f"No pc id given for {values['switch']}/{values['name']} and could not parse one "
+                                 f"from interface name")
+            values['portchannel_id'] = int(m.group('pc_id'))
+        return values
 
     @pydantic.root_validator
     def check_port_name_in_lacp_mode(cls, values):

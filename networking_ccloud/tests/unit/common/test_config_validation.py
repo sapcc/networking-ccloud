@@ -30,3 +30,26 @@ class TestConfigValidation(base.TestCase):
         self.assertRaises(ValueError, config.SwitchGroup, members=[sw1], **sg_args)
         self.assertRaises(ValueError, config.SwitchGroup, members=[sw1, sw2, sw3], **sg_args)
         config.SwitchGroup(members=[sw1, sw2], **sg_args)
+
+    def test_switchport_lacp_attr_validation(self):
+        defargs = {'switch': 'sw-seagull', 'name': 'e1/1/1/1'}
+
+        self.assertRaisesRegex(ValueError, ".*LACP members without LACP being enabled",
+                               config.SwitchPort, lacp=False, members=["foo"], **defargs)
+        self.assertRaisesRegex(ValueError, ".*is LACP port and has no members",
+                               config.SwitchPort, lacp=True, **defargs)
+        self.assertRaisesRegex(ValueError, ".*is LACP port and has no members",
+                               config.SwitchPort, lacp=True, members=[], **defargs)
+        self.assertRaisesRegex(ValueError, ".*has a portchannel id set without LACP being enabled",
+                               config.SwitchPort, lacp=False, portchannel_id=23, **defargs)
+
+    def test_switchport_pc_id_parsing(self):
+        cases = [("Port-Channel23", 23), ("port-channel42", 42), ("port-Channel 1337", 1337)]
+        for pc_name, pc_id in cases:
+            sp = config.SwitchPort(switch='sw-seagull', name=pc_name, lacp=True, members=["krakrakra"])
+            self.assertEqual(pc_id, sp.portchannel_id, f"Could not parse pc id from {pc_name}")
+
+    def test_switchport_pc_id_is_not_overridden(self):
+        sp = config.SwitchPort(switch='sw-seagull', name="Port-Channel23", portchannel_id=42, lacp=True,
+                               members=["krakrakra"])
+        self.assertEqual(42, sp.portchannel_id)
