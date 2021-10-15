@@ -192,6 +192,9 @@ class HostGroup(pydantic.BaseModel):
     binding_hosts: List[str]
     metagroup: bool = False
 
+    # direct binding means no HPB (default: true for normal groups, false for metagroups)
+    direct_binding: bool
+
     # members are either switchports or other hostgroups
     members: Union[List[SwitchPort], List[str]]
 
@@ -224,6 +227,14 @@ class HostGroup(pydantic.BaseModel):
         #       with this we ensure that we don't accidentally add a host with two different pc ids on a switchgroup
         #       if this assumption breaks, we will need to remove this
         # FIXME: implement
+        return values
+
+    @pydantic.root_validator(pre=True)
+    def set_default_for_direct_binding(cls, values):
+        v = values.get('direct_binding')
+        if v is None:
+            # default false for metagroups, true for normal groups
+            values['direct_binding'] = not values.get('metagroup', False)
         return values
 
 

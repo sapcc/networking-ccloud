@@ -53,3 +53,17 @@ class TestConfigValidation(base.TestCase):
         sp = config.SwitchPort(switch='sw-seagull', name="Port-Channel23", portchannel_id=42, lacp=True,
                                members=["krakrakra"])
         self.assertEqual(42, sp.portchannel_id)
+
+    def test_hostgroup_direct_binding_mode_default(self):
+        hg = config.HostGroup(metagroup=True, binding_hosts=["foo"], members=["foo"])
+        self.assertEqual(False, hg.direct_binding)
+
+        hg = config.HostGroup(metagroup=True, binding_hosts=["foo"], members=["foo"], direct_binding=True)
+        self.assertEqual(True, hg.direct_binding)
+
+        hg = config.HostGroup(binding_hosts=["foo"], members=[config.SwitchPort(switch="sw-cat", name="e1/1/1")])
+        self.assertEqual(True, hg.direct_binding)
+
+        hg = config.HostGroup(binding_hosts=["foo"], members=[config.SwitchPort(switch="sw-cat", name="e1/1/1")],
+                              direct_binding=False)
+        self.assertEqual(False, hg.direct_binding)
