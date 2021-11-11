@@ -20,6 +20,7 @@ HANDOVER_VLAN = 'vlan'
 HANDOVER_MODES = [HANDOVER_VLAN]
 
 CC_DRIVER_NAME = 'cc-fabric'
+VIF_TYPE_CC_FABRIC = 'cc-fabric'
 
 # rpc topics
 CC_DRIVER_TOPIC = 'cc-fabric-driver'

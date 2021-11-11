@@ -63,6 +63,12 @@ class CCFabricSwitchAgent(manager.Manager, cc_agent_api.CCFabricSwitchAgentAPI):
             LOG.debug("Adding switch %s with user %s to switchpool", switch, switch.user)
             self._switches.append(switch)
 
+    def get_switch_by_name(self, name):
+        for switch in self._switches:
+            if switch.name == name:
+                return switch
+        return None
+
     def init_host(self):
         LOG.error("Initializing agent %s with topic %s", self.get_binary_name(), self.get_agent_topic())
         self._init_switches()
@@ -104,4 +110,17 @@ class CCFabricSwitchAgent(manager.Manager, cc_agent_api.CCFabricSwitchAgentAPI):
             # FIXME: filter, if switches is set
             LOG.info("Testing switch %s", switch)
             result.append(switch.get_switch_status())
+        return result
+
+    def apply_config_update(self, config):
+        result = {}
+        for update in config:
+            switch = self.get_switch_by_name(update.switch_name)
+            if not switch:
+                result[update.switch_name] = None
+                LOG.error("Could not find switch named %s on agent, ignoring '%s' update",
+                          update.switch_name, update.operation)
+                continue
+
+            result[update.switch_name] = switch.apply_config_update(config)
         return result

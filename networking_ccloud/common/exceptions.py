@@ -18,3 +18,14 @@ from neutron_lib import exceptions as n_exc
 class MultipleBindingHostsInBindingProfile(n_exc.NeutronException):
     """An exception indicating multiple hosts found in binding profile"""
     message = "Port %(port_id)s has multiple hosts in binding profile; refusing to work with it! Hosts were: %(hosts)s"
+
+
+class UnsupportedHandoverMode(n_exc.NeutronException):
+    """Raised when a hostgroup is configured with an unsupported handover mode"""
+    message = "Hostgroup %(hostgroup_name)s has unsupported handover mode %(handover_mode)s"
+
+
+class MissingPhysnetsInNeutronConfig(n_exc.NeutronException):
+    """Raised when yaml driver config is not in sync with neutron segmentation config"""
+    message = ("Not all physical networks defined in the driver config have a vlan pool assigned in "
+               "ml2_type_vlan.network_vlan_ranges. Missing physical networks are: %(missing_physnets)s")

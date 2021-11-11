@@ -28,10 +28,10 @@ from networking_ccloud.common import helper
 LOG = logging.getLogger(__name__)
 
 
-class DbPlugin(db_base_plugin_v2.NeutronDbPluginV2,
-               address_scope_db.AddressScopeDbMixin,
-               SegmentDbMixin,
-               external_net_db.External_net_db_mixin):
+class CCDbPlugin(db_base_plugin_v2.NeutronDbPluginV2,
+                 address_scope_db.AddressScopeDbMixin,
+                 SegmentDbMixin,
+                 external_net_db.External_net_db_mixin):
     @db_api.retry_if_session_inactive()
     def get_hosts_on_segments(self, context, segment_ids=None, network_ids=None, physical_networks=None, level=1,
                               driver=None):

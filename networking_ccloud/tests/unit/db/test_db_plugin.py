@@ -19,7 +19,7 @@ from neutron.services.trunk import models as trunk_models
 from neutron.tests.unit.extensions.test_segment import SegmentTestCase
 from neutron_lib import context
 
-from networking_ccloud.db.db_plugin import DbPlugin
+from networking_ccloud.db.db_plugin import CCDbPlugin
 
 
 class TestDBPluginNetworkSyncData(SegmentTestCase):
@@ -105,7 +105,7 @@ class TestDBPluginNetworkSyncData(SegmentTestCase):
             ctx.session.add(trunk)
 
         # plugin we want to test
-        self._db = DbPlugin()
+        self._db = CCDbPlugin()
 
     def _all_hosts(self, net_hosts):
         all_hosts = set()

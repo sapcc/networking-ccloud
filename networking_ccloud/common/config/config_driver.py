@@ -14,6 +14,8 @@
 
 from enum import Enum
 import ipaddress
+from itertools import groupby
+from operator import attrgetter
 import re
 from typing import List, Union
 
@@ -59,6 +61,15 @@ class Switch(pydantic.BaseModel):
 
     _normalize_host = pydantic.validator('host', allow_reuse=True)(validate_ip_address)
     _normalize_bgp_source_ip = pydantic.validator('bgp_source_ip', allow_reuse=True)(validate_ip_address)
+    _allow_test_vendor = False  # only used by the tests
+
+    @pydantic.validator('vendor')
+    def validate_vendor(cls, v):
+        # check if the vendor is supported
+        if not (v in cc_const.VENDORS or (v == "test" and cls._allow_test_vendor)):
+            raise ValueError(f"Vendor {v} is not supported by this driver (yet)")
+
+        return v
 
 
 # FIXME: put into consts
@@ -94,6 +105,7 @@ class SwitchGroup(pydantic.BaseModel):
 
     @property
     def vlan_pool(self):
+        # FIXME: maybe, probably, we want to rename this to physnet / physical_network
         return self.override_vlan_pool or self.name
 
     @pydantic.validator('members')
@@ -109,12 +121,6 @@ class SwitchGroup(pydantic.BaseModel):
         if len(vendors) > 1:
             raise ValueError("Switchgroup members need to have the same vendor! Found {}"
                              .format(", ".join(f"{s.name} of type {s.vendor}" for s in v)))
-
-        # check if the vendor is supported
-        # FIXME: use ccloud_const
-        vendor = vendors.pop()
-        if vendor not in cc_const.VENDORS:
-            raise ValueError(f"Vendor {vendor} is not supported by this driver (yet)")
 
         return v
 
@@ -237,6 +243,33 @@ class HostGroup(pydantic.BaseModel):
             values['direct_binding'] = not values.get('metagroup', False)
         return values
 
+    def get_vlan_pool_name(self, driver_config):
+        """Find vlanpool name for this hostgroup"""
+        if self.metagroup:
+            # all metagroup members have the same vlan pool
+            hg = driver_config.get_hostgroup_by_host(self.members[0])
+            return hg.get_vlan_pool_name(driver_config)
+
+        # all interfaces of a hostgroup have the same vlan pool
+        sg = driver_config.get_switchgroup_by_switch_name(self.members[0].switch)
+        return sg.vlan_pool
+
+    def iter_switchports(self, driver_config):
+        """Iterate over all switchports, grouped by switch
+
+        For metagroups we iterate over all child-groups
+        """
+        if self.metagroup:
+            # find all childgroups
+            # children = [hg for hg in driver_config.hostgroups if hg.name in self.members]
+            children = [hg for hg in driver_config.hostgroups
+                        if not hg.metagroup and any(m in hg.binding_hosts for m in self.members)]
+            ifaces = [iface for child in children for iface in child.members]
+        else:
+            ifaces = self.members
+
+        return groupby(sorted(ifaces, key=attrgetter('switch')), key=attrgetter('switch'))
+
 
 class DriverConfig(pydantic.BaseModel):
     switchgroups: List[SwitchGroup]
@@ -265,6 +298,7 @@ class DriverConfig(pydantic.BaseModel):
                     raise ValueError(f"Host {host} is bound by two hostgroups or twice in the same hostgroup")
                 all_hosts.add(host)
 
+            # check that referenced interfaces exist and don't bind two separate vlan pools
             vlan_pools = set()
             if not hg.metagroup:
                 for port in hg.members:
@@ -299,15 +333,38 @@ class DriverConfig(pydantic.BaseModel):
         return values
 
     def get_vendors(self):
+        """Get all vendors as a set used in the given config"""
         v = set()
         for sg in self.switchgroups:
             for s in sg.members:
                 v.add(s.vendor)
         return v
 
-    def get_switches(self):
+    def get_switches(self, vendor=None):
+        """Get all switches, optionally filtered by vendor"""
         switches = []
         for sg in self.switchgroups:
             for sw in sg.members:
+                if vendor and sw.vendor != vendor:
+                    continue
                 switches.append(sw)
         return switches
+
+    def get_hostgroup_by_host(self, host):
+        for hg in self.hostgroups:
+            if host in hg.binding_hosts:
+                return hg
+        return None
+
+    def get_switchgroup_by_switch_name(self, name):
+        for sg in self.switchgroups:
+            if any(s.name == name for s in sg.members):
+                return sg
+        return None
+
+    def get_switch_by_name(self, name):
+        for sg in self.switchgroups:
+            for switch in sg.members:
+                if switch.name == name:
+                    return switch
+        return None

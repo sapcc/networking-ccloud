@@ -38,6 +38,9 @@ class CCFabricSwitchAgentAPI:
     def get_switch_status(self, switches=None):
         raise NotImplementedError
 
+    def apply_config_update(self, context, config):
+        raise NotImplementedError
+
 
 class CCFabricSwitchAgentRPCClient:
     """Client side RPC interface definition for talking to switching agents
@@ -67,4 +70,8 @@ class CCFabricSwitchAgentRPCClient:
 
     def get_switch_status(self, context, switches=None):
         cctxt = self.client.prepare()
-        return cctxt.call(context, 'get_switch_status')
+        return cctxt.call(context, 'get_switch_status', switches=switches)
+
+    def apply_config_update(self, context, config):
+        cctxt = self.client.prepare()
+        return cctxt.call(context, 'apply_config_update', config=config)

@@ -14,9 +14,17 @@
 # License for the specific language governing permissions and limitations
 # under the License.
 
+from neutron.common import config
+from oslo_config import cfg
 from oslotest import base
 
 
 class TestCase(base.BaseTestCase):
-
     """Test case base class for all unit tests."""
+
+    def setUp(self):
+        super().setUp()
+
+        # configure debug logging (see also neutron.tests.base setup_test_logging())
+        cfg.CONF.set_override('debug', True)
+        config.setup_logging()
