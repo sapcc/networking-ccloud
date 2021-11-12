@@ -332,6 +332,22 @@ class DriverConfig(pydantic.BaseModel):
 
         return values
 
+    @pydantic.validator('hostgroups')
+    def ensure_at_least_one_member(cls, v):
+        ifaces = {}
+        for hg in v:
+            if hg.metagroup:
+                continue
+            for sp in hg.members:
+                iface = (sp.switch, sp.name)
+                hg_name = ",".join(hg.binding_hosts)
+                if iface in ifaces:
+                    raise ValueError(f"Iface {sp.switch}/{sp.name} is bound two times, "
+                                     f"once by {hg_name} and once by {ifaces[iface]}")
+                ifaces[iface] = hg_name
+
+        return v
+
     def get_vendors(self):
         """Get all vendors as a set used in the given config"""
         v = set()
