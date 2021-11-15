@@ -36,21 +36,21 @@ class TestAristaConfigUpdates(base.TestCase):
         cu.add_vlan(1001, "basket")
         self.switch.apply_config_update(cu)
         self.switch._api.execute.assert_called_with(
-            ['configure', 'vlan 1000', 'name nest', '!', 'vlan 1001', 'name basket', '!', 'end'], format='json')
+            ['configure', 'vlan 1000', 'name nest', 'exit', 'vlan 1001', 'name basket', 'exit', 'end'], format='json')
 
     def test_add_everything(self):
         expected_config = [
             'configure',
             'vlan 1000',
             'name nest',
-            '!',
+            'exit',
             'vlan 1001',
             'name basket',
-            '!',
+            'exit',
             'interface Vxlan1',
             'vxlan vlan 1000 vni 232323',
             'vxlan vlan 1001 vni 424242',
-            '!',
+            'exit',
             'interface Port-channel23',
             'mlag 23',
             'switchport mode trunk',
@@ -58,7 +58,7 @@ class TestAristaConfigUpdates(base.TestCase):
             'switchport trunk allowed vlan add 1000,1001',
             'switchport vlan translation 2323 1000',
             'switchport vlan translation 1337 1001',
-            '!',
+            'exit',
             'interface Ethernet4/1',
             'channel-group 23 mode active',
             'switchport mode trunk',
@@ -66,7 +66,7 @@ class TestAristaConfigUpdates(base.TestCase):
             'switchport trunk allowed vlan add 1000,1001',
             'switchport vlan translation 2323 1000',
             'switchport vlan translation 1337 1001',
-            '!',
+            'exit',
             'interface Ethernet4/2',
             'channel-group 23 mode active',
             'switchport mode trunk',
@@ -74,11 +74,11 @@ class TestAristaConfigUpdates(base.TestCase):
             'switchport trunk allowed vlan add 1000,1001',
             'switchport vlan translation 2323 1000',
             'switchport vlan translation 1337 1001',
-            '!',
+            'exit',
             'interface Ethernet23/1',
             'switchport mode trunk',
             'switchport trunk allowed vlan add 1001',
-            '!',
+            'exit',
             'end']
 
         cu = messages.SwitchConfigUpdate(switch_name="seagull-sw1", operation=messages.OperationEnum.add)
@@ -114,32 +114,32 @@ class TestAristaConfigUpdates(base.TestCase):
             'interface Vxlan1',
             'no vxlan vlan 1000 vni 232323',
             'no vxlan vlan 1001 vni 424242',
-            '!',
+            'exit',
             'interface Port-channel23',
             'switchport mode trunk',
             'no switchport trunk native vlan',
             'switchport trunk allowed vlan remove 1000,1001',
             'no switchport vlan translation 2323 1000',
             'no switchport vlan translation 1337 1001',
-            '!',
+            'exit',
             'interface Ethernet4/1',
             'switchport mode trunk',
             'no switchport trunk native vlan',
             'switchport trunk allowed vlan remove 1000,1001',
             'no switchport vlan translation 2323 1000',
             'no switchport vlan translation 1337 1001',
-            '!',
+            'exit',
             'interface Ethernet4/2',
             'switchport mode trunk',
             'no switchport trunk native vlan',
             'switchport trunk allowed vlan remove 1000,1001',
             'no switchport vlan translation 2323 1000',
             'no switchport vlan translation 1337 1001',
-            '!',
+            'exit',
             'interface Ethernet23/1',
             'switchport mode trunk',
             'switchport trunk allowed vlan remove 1001',
-            '!',
+            'exit',
             'end']
 
         cu = messages.SwitchConfigUpdate(switch_name="seagull-sw1", operation=messages.OperationEnum.remove)
@@ -173,7 +173,7 @@ class TestAristaConfigUpdates(base.TestCase):
             'interface Ethernet23/1',
             'switchport mode trunk',
             'switchport trunk allowed vlan 1001',
-            '!',
+            'exit',
             'end'
         ]
 
@@ -200,10 +200,10 @@ class TestAristaConfigUpdates(base.TestCase):
             'no vlan 1003',
             'vlan 1000',
             'name nest',
-            '!',
+            'exit',
             'vlan 1001',
             'name basket',
-            '!',
+            'exit',
             'end'
         ]
 
@@ -233,7 +233,7 @@ class TestAristaConfigUpdates(base.TestCase):
             'no vxlan vlan 2000 vni 424242',
             'vxlan vlan 42 vni 23',
             'vxlan vlan 1337 vni 232323',
-            '!',
+            'exit',
             'end'
         ]
 
@@ -272,7 +272,7 @@ class TestAristaConfigUpdates(base.TestCase):
             'switchport mode trunk',
             'switchport vlan translation 42 23',
             'switchport vlan translation 2000 1000',
-            '!',
+            'exit',
             'end'
         ]
         cu = messages.SwitchConfigUpdate(switch_name="seagull-sw1", operation=messages.OperationEnum.replace)
@@ -294,14 +294,14 @@ class TestAristaConfigUpdates(base.TestCase):
             'switchport mode trunk',
             'switchport vlan translation 42 23',
             'switchport vlan translation 2000 1000',
-            '!',
+            'exit',
             'interface Ethernet23/1',
             'channel-group 23 mode active',
             'no switchport vlan translation 3000 2000',
             'switchport mode trunk',
             'switchport vlan translation 42 23',
             'switchport vlan translation 2000 1000',
-            '!',
+            'exit',
             'end'
         ]
 

@@ -97,7 +97,7 @@ class AristaSwitch(SwitchBase):
                     if vlan.name:
                         name = vlan.name.replace(" ", "_")
                         commands.append(f"name {name}")
-                    commands.append("!")
+                    commands.append("exit")
                 else:
                     commands.append(f"no vlan {vlan.vlan}")
 
@@ -119,7 +119,7 @@ class AristaSwitch(SwitchBase):
                     commands.append(f"vxlan vlan {vmap.vlan} vni {vmap.vni}")
                 elif config.operation == Op.remove:
                     commands.append(f"no vxlan vlan {vmap.vlan} vni {vmap.vni}")
-            commands.append("!")
+            commands.append("exit")
 
         # ifaces
         for iface in config.ifaces or []:
@@ -172,7 +172,7 @@ class AristaSwitch(SwitchBase):
                 if iface.vlan_translations and config.operation == Op.replace:
                     commands += get_removable_translations_cmds(iface.name, wanted_translations)
                 commands += generic_config
-                commands.append("!")
+                commands.append("exit")
                 normal_ifaces = iface.members or []
             else:
                 normal_ifaces = [iface.name]
@@ -184,7 +184,7 @@ class AristaSwitch(SwitchBase):
                 if iface.vlan_translations and config.operation == Op.replace:
                     commands += get_removable_translations_cmds(iface_name, wanted_translations)
                 commands += generic_config
-                commands.append("!")
+                commands.append("exit")
         commands.append('end')
 
         return commands
