@@ -267,8 +267,12 @@ class CCFabricMechanismDriver(ml2_api.MechanismDriver, CCFabricDriverAPI):
         seg_vlan = segment_1[ml2_api.SEGMENTATION_ID]
         for switch_name, switchports in hg_config.iter_switchports(self.drv_conf):
             switch = self.drv_conf.get_switch_by_name(switch_name)
-            scu = messages.SwitchConfigUpdate(switch_name=switch_name, operation=messages.OperationEnum.add)
+            sg = self.drv_conf.get_switchgroup_by_switch_name(switch.name)
 
+            bgp = messages.BGP(asn=sg.asn)
+            bgp.add_vlan(f"{switch.bgp_source_ip}:{seg_vni}", seg_vlan, seg_vni)
+
+            scu = messages.SwitchConfigUpdate(switch_name=switch_name, operation=messages.OperationEnum.add, bgp=bgp)
             scu.add_vlan(seg_vlan, network_id)
             scu.add_vxlan_map(seg_vni, seg_vlan)
             for sp in switchports:

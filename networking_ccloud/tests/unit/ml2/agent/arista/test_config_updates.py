@@ -51,6 +51,13 @@ class TestAristaConfigUpdates(base.TestCase):
             'vxlan vlan 1000 vni 232323',
             'vxlan vlan 1001 vni 424242',
             'exit',
+            'router bgp 65000',
+            'vlan 1000',
+            'route-target import 232323:232323',
+            'route-target export 232323:232323',
+            'redistribute learned',
+            'exit',
+            'exit',
             'interface Port-channel23',
             'mlag 23',
             'switchport mode trunk',
@@ -90,6 +97,10 @@ class TestAristaConfigUpdates(base.TestCase):
         cu.add_vxlan_map(232323, 1000)
         cu.add_vxlan_map(424242, 1001)
 
+        # bgp stuff / vlans
+        cu.bgp = messages.BGP(asn="65000")
+        cu.bgp.add_vlan("1.1.1.1:232323", 1000, 232323)
+
         # interfaces
         iface1 = messages.IfaceConfig(name="Port-channel23", portchannel_id=23, native_vlan=1000,
                                       members=["Ethernet4/1", "Ethernet4/2"])
@@ -114,6 +125,9 @@ class TestAristaConfigUpdates(base.TestCase):
             'interface Vxlan1',
             'no vxlan vlan 1000 vni 232323',
             'no vxlan vlan 1001 vni 424242',
+            'exit',
+            'router bgp 65000',
+            'no vlan 1000',
             'exit',
             'interface Port-channel23',
             'switchport mode trunk',
@@ -150,6 +164,10 @@ class TestAristaConfigUpdates(base.TestCase):
         # vxlan maps
         cu.add_vxlan_map(232323, 1000)
         cu.add_vxlan_map(424242, 1001)
+
+        # bgp stuff / vlans
+        cu.bgp = messages.BGP(asn="65000")
+        cu.bgp.add_vlan("1.1.1.1:232323", 1000, 232323)
 
         # interfaces
         iface1 = messages.IfaceConfig(name="Port-channel23", portchannel_id=23, native_vlan=1000,
@@ -311,6 +329,35 @@ class TestAristaConfigUpdates(base.TestCase):
         iface.add_vlan_translation(23, 42)
         iface.add_vlan_translation(1000, 2000)
         cu.add_iface(iface)
+
+        self.switch.apply_config_update(cu)
+        self.switch._api.execute.assert_called_with(expected_config, format='json')
+
+    def test_replace_bgp_vlans(self):
+        def execute(cmd, format='json'):
+            if cmd == "show bgp evpn instance":
+                return {'result': [{'bgpEvpnInstances': {
+                                    'VLAN 2323': {'rd': '1.1.11.0:44444', 'encapType': 'vxlan'}}}]}
+            return mock.DEFAULT
+        self.switch._api.execute.side_effect = execute
+
+        expected_config = [
+            'configure',
+            'router bgp 65000',
+            'no vlan 2323',
+            'vlan 1000',
+            'route-target import 232323:232323',
+            'route-target export 232323:232323',
+            'redistribute learned',
+            'exit',
+            'exit',
+            'end'
+        ]
+
+        cu = messages.SwitchConfigUpdate(switch_name="seagull-sw1", operation=messages.OperationEnum.replace)
+        # bgp vlans
+        cu.bgp = messages.BGP(asn="65000")
+        cu.bgp.add_vlan("1.1.1.1:232323", 1000, 232323)
 
         self.switch.apply_config_update(cu)
         self.switch._api.execute.assert_called_with(expected_config, format='json')

@@ -12,6 +12,7 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
+import re
 import time
 
 from oslo_log import log as logging
@@ -119,6 +120,36 @@ class AristaSwitch(SwitchBase):
                     commands.append(f"vxlan vlan {vmap.vlan} vni {vmap.vni}")
                 elif config.operation == Op.remove:
                     commands.append(f"no vxlan vlan {vmap.vlan} vni {vmap.vni}")
+            commands.append("exit")
+
+        # bgp section
+        if config.bgp and (config.bgp.vlans or config.bgp.vrfs):
+            commands.append(f"router bgp {config.bgp.asn}")
+
+            # bgp vlan sections
+            if config.bgp.vlans:
+                if config.operation == Op.replace:
+                    wanted_bgp_vlans = [bv.vlan for bv in config.bgp.vlans]
+                    vre = re.compile(r"VLAN (?P<vlan>\d+)")
+                    curr_bgp_vlans = self.send_cmd("show bgp evpn instance")['bgpEvpnInstances']
+                    for entry in curr_bgp_vlans.keys():
+                        m = vre.match(entry)
+                        if m:
+                            v = int(m.group('vlan'))
+                            # FIXME: guard vlan range, same as above
+                            if v > 1 and v < 4093 and v not in wanted_bgp_vlans:
+                                commands.append(f"no vlan {v}")
+
+                for bgp_vlan in config.bgp.vlans:
+                    if config.operation in (Op.add, Op.replace):
+                        commands.append(f"vlan {bgp_vlan.vlan}")
+                        commands.append(f"route-target import {bgp_vlan.vni}:{bgp_vlan.vni}")
+                        commands.append(f"route-target export {bgp_vlan.vni}:{bgp_vlan.vni}")
+                        commands.append("redistribute learned")
+                        commands.append("exit")
+                    else:
+                        commands.append(f"no vlan {bgp_vlan.vlan}")
+
             commands.append("exit")
 
         # ifaces

@@ -37,6 +37,26 @@ class VXLANMapping(pydantic.BaseModel):
     vlan: pydantic.conint(gt=0, lt=4094)
 
 
+class BGPVlan(pydantic.BaseModel):
+    # FIXME: validator
+    rd: str
+    vlan: pydantic.conint(gt=0, lt=4094)
+    vni: pydantic.conint(gt=0, lt=2**24)
+
+
+class BGP(pydantic.BaseModel):
+    # FIXME: validator
+    asn: str
+
+    vlans: List[BGPVlan] = None
+    vrfs: None = None
+
+    def add_vlan(self, rd, vlan, vni):
+        if not self.vlans:
+            self.vlans = []
+        self.vlans.append(BGPVlan(rd=rd, vlan=vlan, vni=vni))
+
+
 class VlanTranslation(pydantic.BaseModel):
     inside: pydantic.conint(gt=0, lt=4094)
     outside: pydantic.conint(gt=0, lt=4094)
@@ -76,6 +96,7 @@ class SwitchConfigUpdate(pydantic.BaseModel):
 
     vlans: List[Vlan] = None
     vxlan_maps: List[VXLANMapping] = None
+    bgp: BGP = None
     ifaces: List[IfaceConfig] = None  # noqa: E701 (pyflakes bug)
 
     @classmethod
