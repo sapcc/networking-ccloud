@@ -75,7 +75,7 @@ class CCDbPlugin(db_base_plugin_v2.NeutronDbPluginV2,
             query = query.filter(segment_models.NetworkSegment.physical_network.in_(physical_networks))
 
         net_hosts = {}
-        for (port_id, host, profile, segment_id, network_id, segmentation_id, physnet, driver, level,
+        for (port_id, host, profile, segment_id, network_id, segmentation_id, physnet, level, driver,
                 trunk_seg_id) in query.all():
             try:
                 host = helper.get_binding_host_from_profile(profile, port_id) or host
