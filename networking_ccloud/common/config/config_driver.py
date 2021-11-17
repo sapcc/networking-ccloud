@@ -245,6 +245,7 @@ class HostGroup(pydantic.BaseModel):
 
     def get_vlan_pool_name(self, driver_config):
         """Find vlanpool name for this hostgroup"""
+        # FIXME: prime candidate for caching, once we know what we're doing with cfg reloads / metagroups / pools
         if self.metagroup:
             # all metagroup members have the same vlan pool
             hg = driver_config.get_hostgroup_by_host(self.members[0])
@@ -254,16 +255,19 @@ class HostGroup(pydantic.BaseModel):
         sg = driver_config.get_switchgroup_by_switch_name(self.members[0].switch)
         return sg.vlan_pool
 
-    def iter_switchports(self, driver_config):
+    def iter_switchports(self, driver_config, exclude_hosts=None):
         """Iterate over all switchports, grouped by switch
 
         For metagroups we iterate over all child-groups
         """
+        if exclude_hosts and any(m in self.binding_hosts for m in exclude_hosts):
+            return []
+
         if self.metagroup:
-            # find all childgroups
-            # children = [hg for hg in driver_config.hostgroups if hg.name in self.members]
+            # find all childgroups (hgs that contain a referenced binding host and have no hosts in exclude_hosts)
             children = [hg for hg in driver_config.hostgroups
-                        if not hg.metagroup and any(m in hg.binding_hosts for m in self.members)]
+                        if not hg.metagroup and any(m in hg.binding_hosts for m in self.members) and
+                        all(m not in hg.binding_hosts for m in (exclude_hosts or []))]
             ifaces = [iface for child in children for iface in child.members]
         else:
             ifaces = self.members
@@ -371,6 +375,13 @@ class DriverConfig(pydantic.BaseModel):
             if host in hg.binding_hosts:
                 return hg
         return None
+
+    def get_hostgroups_by_hosts(self, hosts):
+        hgs = []
+        for hg in self.hostgroups:
+            if any(host in hg.binding_hosts for host in hosts):
+                hgs.append(hg)
+        return hgs
 
     def get_switchgroup_by_switch_name(self, name):
         for sg in self.switchgroups:

@@ -26,6 +26,7 @@ from networking_ccloud.common import helper
 from networking_ccloud.db.db_plugin import CCDbPlugin
 from networking_ccloud.extensions import fabricoperations
 from networking_ccloud.ml2.agent.common.api import CCFabricSwitchAgentRPCClient
+from networking_ccloud.ml2.agent.common import messages as agent_msg
 from networking_ccloud.ml2.driver_rpc_api import CCFabricDriverAPI
 
 
@@ -152,7 +153,6 @@ class CCFabricMechanismDriver(ml2_api.MechanismDriver, CCFabricDriverAPI):
         # check if host is in config, get hostgroup; if not, abort
         hg_config = self.drv_conf.get_hostgroup_by_host(binding_host)
         if hg_config is None:
-            LOG.debug("Port %s", port)
             LOG.info("Driver is not responsible for binding_host %s on port %s, ignoring it",
                      binding_host, port['id'])
             return
@@ -190,14 +190,12 @@ class CCFabricMechanismDriver(ml2_api.MechanismDriver, CCFabricDriverAPI):
         }
         next_segment = context.allocate_dynamic_segment(segment_spec)
 
-        # config update
+        # config update (direct bindings are handled in the next step)
         if not hg_config.direct_binding:
             # send rpc call to agent (FIXME: cast or call?)
             # FIXME: can we only apply new config if the binding host is bound for the first time?
-            # direct bindings on fabric will be handled in the next step
-            # FIXME: do RPC call to update agent
-            self.handle_binding_host_added(context._plugin_context, context.current['network_id'],
-                                           binding_host, hg_config, segment, next_segment)
+            self.handle_binding_host_changed(context._plugin_context, context.current['network_id'],
+                                             binding_host, hg_config, segment, next_segment)
 
         # binding
         LOG.info("Binding port %s to toplevel segment %s, next segment is %s physnet %s segmentation id %s",
@@ -219,8 +217,8 @@ class CCFabricMechanismDriver(ml2_api.MechanismDriver, CCFabricDriverAPI):
             return
 
         # FIXME: trunk ports
-        self.handle_binding_host_added(context._plugin_context, context.current['network_id'], binding_host, hg_config,
-                                       context.binding_levels[0][ml2_api.BOUND_SEGMENT], segment)
+        self.handle_binding_host_changed(context._plugin_context, context.current['network_id'], binding_host,
+                                         hg_config, context.binding_levels[0][ml2_api.BOUND_SEGMENT], segment)
 
         vif_details = {}  # no vif-details needed yet
         context.set_binding(segment['id'], cc_const.VIF_TYPE_CC_FABRIC, vif_details, nl_const.ACTIVE)
@@ -229,54 +227,139 @@ class CCFabricMechanismDriver(ml2_api.MechanismDriver, CCFabricDriverAPI):
                  segment[ml2_api.SEGMENTATION_ID])
 
     def update_port_postcommit(self, context):
-        # FIXME: Do we need to clean up the old segment if a binding host changes?
-        pass
+        """Update a port.
+
+        :param context: PortContext instance describing the new
+            state of the port, as well as the original state prior
+            to the update_port call.
+
+        Called after the transaction completes. Call can block, though
+        will block the entire process so care should be taken to not
+        drastically affect performance.  Raising an exception will
+        result in the deletion of the resource.
+
+        update_port_postcommit is called for all changes to the port
+        state. It is up to the mechanism driver to ignore state or
+        state changes that it does not know or care about.
+        """
+        # FIXME: find out if bind_port() takes precedence
+        old_host = helper.get_binding_host_from_port(context.original)
+        new_host = helper.get_binding_host_from_port(context.current)
+        if old_host != new_host:
+            LOG.debug("Port %s changed binding host from %s to %s, calling remove operations on old host",
+                      context.current['id'], old_host, new_host)
+            self.driver_handle_binding_host_removed(context._plugin_context, context, context.original,
+                                                    context.original_binding_levels[0],
+                                                    context.original_binding_levels[1],
+                                                    context.network.original['id'])
 
     def delete_port_postcommit(self, context):
-        # 1. if binding host is gone: remove config for it from switch
-        # FIXME: make sure one interface is only referenced by one hostgroup
-        # 2. if networksegment is gone: a) deallocate segment b) remove config from switch
-        # 3. if
-        pass
+        """Delete a port.
+
+        :param context: PortContext instance describing the current
+            state of the port, prior to the call to delete it.
+
+        Called after the transaction completes. Call can block, though
+        will block the entire process so care should be taken to not
+        drastically affect performance.  Runtime errors are not
+        expected, and will not prevent the resource from being
+        deleted.
+        """
+        self.driver_handle_binding_host_removed(context._plugin_context, context, context.current,
+                                                context.binding_levels[0], context.binding_levels[1],
+                                                context.network.current['id'])
+
+    def driver_handle_binding_host_removed(self, context, port_context, port, segment_0, segment_1, network_id):
+        binding_host = helper.get_binding_host_from_port(port)
+        hg_config = self.drv_conf.get_hostgroup_by_host(binding_host)
+        if hg_config is None:
+            LOG.info("Binding host %s not found in config for removal request on port %s, ignoring",
+                     binding_host, port['id'])
+            return
+
+        # 1. check if binding host is gone from network. if it's still there, nothing needs to be done
+        #    as this method is only called postcommit we can trust the contents of the DB
+        # 1.1 get info from db
+
+        hosts_on_network = set(self.db.get_hosts_on_network(context, network_id))
+        if binding_host in hosts_on_network:
+            LOG.debug("Binding host %s still present on network %s, no need to remove anything for port %s",
+                      binding_host, network_id, port['id'])
+            return
+
+        # 1.2 expand host if it's a metagroup, find out which hosts are gone
+        # only iterate over switchports not on segment
+
+        # 2. find out if physical_network is still in use
+        # get all physnets of network, get physnet of hg of binding host, see if it's still there
+        # get all binding hosts that have this physnet, see if any is
+        # option 1: get vlanpool of host that left, get vlan pool of all other hosts on network, compare
+        # option 2:
+        port_vlan_pool = hg_config.get_vlan_pool_name(self.drv_conf)
+        # import pdb; pdb.set_trace()
+
+        for hg in self.drv_conf.get_hostgroups_by_hosts(hosts_on_network):
+            if port_vlan_pool == hg.get_vlan_pool_name(self.drv_conf):
+                keep_segment = True
+                break
+        else:
+            # FIXME: should we done some extra checks for segment 1? is it owned by our driver? is it a vlan segment?
+            LOG.info("Binding host %s of port %s was last on physnet %s network %s, deallocating segment %s",
+                     binding_host, port['id'], port_vlan_pool, network_id, segment_1['id'])
+            port_context.release_dynamic_segment(segment_1['id'])
+            keep_segment = False
+
+        # 3. config updates
+        # FIXME: trunk?
+        self.handle_binding_host_changed(context, network_id, binding_host, hg_config, segment_0, segment_1,
+                                         add=False, keep_mapping=keep_segment, exclude_hosts=hosts_on_network)
 
     # ------------------ switch config snippet methods ------------------
     # FIXME: move this somewhere else
-    def handle_binding_host_added(self, context, network_id, binding_host, hg_config,
-                                  segment_0, segment_1, trunk_vlan=None, force_update=False):
+    def handle_binding_host_changed(self, context, network_id, binding_host, hg_config,
+                                    segment_0, segment_1, trunk_vlan=None, force_update=False,
+                                    add=True, keep_mapping=False, exclude_hosts=None):
+        # FIXME: the logic of this method needs testing (i.e. written tests)
+        LOG.debug("Handling config update (type %s) for binding host %s on %s",
+                  "add" if add else "remove", binding_host, network_id)
 
         if not segment_0[ml2_api.NETWORK_TYPE] == nl_const.TYPE_VXLAN:
             raise ValueError(f"Port {context.current['id']} network {network_id} host {binding_host} "
-                             f"not bindable: segment_0 ({segment_0['id']} is of type "
+                             f"not usable for config update: segment_0 ({segment_0['id']} is of type "
                              f"{segment_0[ml2_api.NETWORK_TYPE]}, expected {nl_const.TYPE_VXLAN}")
 
         if not segment_1[ml2_api.NETWORK_TYPE] == nl_const.TYPE_VLAN:
             raise ValueError(f"Port {context.current['id']} network {network_id} host {binding_host} "
-                             f"not bindable: segment_1 ({segment_1['id']} is of type "
+                             f"not usable for config update: segment_1 ({segment_1['id']} is of type "
                              f"{segment_1[ml2_api.NETWORK_TYPE]}, expected {nl_const.TYPE_VXLAN}")
 
-        if not force_update:
+        if add and not force_update:
             # check if we need to send an update to the switch
             # the port is not fully bound yet (no bindings db commit), so we'll see what was bound before
             if binding_host in self.db.get_hosts_on_network(context, network_id):
                 LOG.debug("Not sending out update for binding host %s - it is already bound and force_update=False",
                           binding_host)
 
-        from networking_ccloud.ml2.agent.common import messages
+        op = agent_msg.OperationEnum.add if add else agent_msg.OperationEnum.remove
         vendor_updates = {}
         seg_vni = segment_0[ml2_api.SEGMENTATION_ID]
         seg_vlan = segment_1[ml2_api.SEGMENTATION_ID]
-        for switch_name, switchports in hg_config.iter_switchports(self.drv_conf):
+        for switch_name, switchports in hg_config.iter_switchports(self.drv_conf, exclude_hosts=exclude_hosts):
             switch = self.drv_conf.get_switch_by_name(switch_name)
             sg = self.drv_conf.get_switchgroup_by_switch_name(switch.name)
 
-            bgp = messages.BGP(asn=sg.asn)
-            bgp.add_vlan(f"{switch.bgp_source_ip}:{seg_vni}", seg_vlan, seg_vni)
+            if add or not keep_mapping:
+                bgp = agent_msg.BGP(asn=sg.asn)
+                bgp.add_vlan(f"{switch.bgp_source_ip}:{seg_vni}", seg_vlan, seg_vni)
+            else:
+                bgp = None
 
-            scu = messages.SwitchConfigUpdate(switch_name=switch_name, operation=messages.OperationEnum.add, bgp=bgp)
-            scu.add_vlan(seg_vlan, network_id)
-            scu.add_vxlan_map(seg_vni, seg_vlan)
+            scu = agent_msg.SwitchConfigUpdate(switch_name=switch_name, operation=op, bgp=bgp)
+            if add or not keep_mapping:
+                scu.add_vlan(seg_vlan, network_id)
+                scu.add_vxlan_map(seg_vni, seg_vlan)
             for sp in switchports:
-                iface = messages.IfaceConfig.from_switchport(sp)
+                iface = agent_msg.IfaceConfig.from_switchport(sp)
                 iface.add_trunk_vlan(seg_vlan)
 
                 if hg_config.direct_binding:
@@ -287,6 +370,10 @@ class CCFabricMechanismDriver(ml2_api.MechanismDriver, CCFabricDriverAPI):
                 scu.add_iface(iface)
 
             vendor_updates.setdefault(switch.vendor, []).append(scu)
+
+        if not vendor_updates:
+            LOG.warning("Update for host %s on %s yielded no config updates! add=%s, keep=%s, excl=%s",
+                        binding_host, network_id, add, keep_mapping, exclude_hosts)
 
         for vendor, updates in vendor_updates.items():
             rpc_client = CCFabricSwitchAgentRPCClient.get_for_vendor(vendor)
