@@ -12,21 +12,31 @@
 # License for the specific language governing permissions and limitations
 # under the License.
 
-from networking_ccloud.common.config import config_driver as config
+from oslo_config import cfg
+
+from networking_ccloud.common.config import _override_driver_config
+from networking_ccloud.common.config import validate_ml2_vlan_ranges
+from networking_ccloud.common import exceptions as cc_exc
 from networking_ccloud.tests import base
+from networking_ccloud.tests.common import config_fixtures as cfix
 
 
 class TestConfigValidation(base.TestCase):
-    def make_switch(self, name, host="1.2.3.4", vendor="arista"):
-        return config.Switch(name=name, host=host, vendor=vendor, user="admin", password="maunz",
-                             bgp_source_ip="2.3.4.5")
+    def setUp(self):
+        cfg.CONF.set_override('driver_config_path', 'invalid/path/to/conf.yaml', group='ml2_cc_fabric')
+        self.conf_drv = cfix.make_config(switchgroups=[cfix.make_switchgroup("seagull"), cfix.make_switchgroup("cat")])
+        _override_driver_config(self.conf_drv)
+        super().setUp()
 
-    def test_switchgroup_two_members(self):
-        sw1 = self.make_switch("sw1")
-        sw2 = self.make_switch("sw2")
-        sw3 = self.make_switch("sw3")
-        sg_args = dict(name="foo", availability_zone="qa-de-1a", role="vpod", vtep_ip="1.1.1.1", asn=65001)
+    def test_validate_ml2_vlan_ranges_success(self):
+        cfg.CONF.set_override('tenant_network_types', ['vxlan', 'vlan'], group='ml2')
+        cfg.CONF.set_override('network_vlan_ranges', ['seagull:23:42', 'cat:53:1337'], group='ml2_type_vlan')
+        cfg.CONF.set_override('driver_config_path', 'invalid/path/to/conf.yaml', group='ml2_cc_fabric')
+        validate_ml2_vlan_ranges(self.conf_drv)
 
-        self.assertRaises(ValueError, config.SwitchGroup, members=[sw1], **sg_args)
-        self.assertRaises(ValueError, config.SwitchGroup, members=[sw1, sw2, sw3], **sg_args)
-        config.SwitchGroup(members=[sw1, sw2], **sg_args)
+    def test_validate_ml2_vlan_ranges_failure(self):
+        cfg.CONF.set_override('tenant_network_types', ['vxlan', 'vlan'], group='ml2')
+        cfg.CONF.set_override('network_vlan_ranges', ['cat:53:1337'], group='ml2_type_vlan')
+        cfg.CONF.set_override('driver_config_path', 'invalid/path/to/conf.yaml', group='ml2_cc_fabric')
+        self.assertRaisesRegex(cc_exc.MissingPhysnetsInNeutronConfig, ".*seagull.*",
+                               validate_ml2_vlan_ranges, self.conf_drv)

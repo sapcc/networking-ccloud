@@ -48,3 +48,9 @@ class SwitchBase(abc.ABC):
 
     def __str__(self):
         return f"{self.name} ({self.host})"
+
+    def get_switch_status(self):
+        raise NotImplementedError
+
+    def apply_config_update(self, config):
+        raise NotImplementedError

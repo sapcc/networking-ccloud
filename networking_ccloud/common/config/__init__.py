@@ -12,11 +12,13 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
+from neutron_lib.plugins import utils as plugin_utils
 from oslo_config import cfg
 import yaml
 
 from networking_ccloud.common.config.config_driver import DriverConfig
 from networking_ccloud.common.config import config_oslo  # noqa: F401
+from networking_ccloud.common import exceptions as cc_exc
 _FABRIC_CONF = None
 
 
@@ -53,3 +55,19 @@ def get_driver_config(path=None, cached=True):
         _FABRIC_CONF = DriverConfig.parse_obj(conf_data)
 
     return _FABRIC_CONF
+
+
+def validate_ml2_vlan_ranges(driver_config):
+    missing_physnets = set()
+    # plugin is not available in the driver's initialize -.-
+    segment_ranges = plugin_utils.parse_network_vlan_ranges(cfg.CONF.ml2_type_vlan.network_vlan_ranges)
+
+    for sg in driver_config.switchgroups:
+        if sg.vlan_pool in segment_ranges:
+            # FIXME: compare ranges, if we have them
+            pass
+        else:
+            missing_physnets.add(sg.vlan_pool)
+
+    if missing_physnets:
+        raise cc_exc.MissingPhysnetsInNeutronConfig(missing_physnets=missing_physnets)

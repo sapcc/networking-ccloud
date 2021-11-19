@@ -12,6 +12,7 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
+from neutron.conf.plugins.ml2.drivers.driver_type import register_ml2_drivers_vlan_opts
 from oslo_config import cfg
 from oslo_log import log as logging
 
@@ -21,5 +22,9 @@ cc_fabric_opts = [
     cfg.StrOpt("driver_config_path",
                help="Path to yaml config file"),
 ]
+
+# make sure we have ml2 vlan opts available before this option is parsed
+# as we need to access ml2_type_vlan.network_vlan_ranges in our validation
+register_ml2_drivers_vlan_opts()
 
 cfg.CONF.register_opts(cc_fabric_opts, "ml2_cc_fabric")
