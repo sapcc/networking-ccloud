@@ -229,4 +229,9 @@ class AristaSwitch(SwitchBase):
                  self.name, self.host, config.vxlan_maps, config.ifaces)
 
         commands = self._make_config_from_update(config)
-        self.send_cmd(commands)
+        try:
+            self.send_cmd(commands)
+        except Exception as e:
+            LOG.error("Could not send config update to switch %s: %s %s",
+                      self.name, e.__class__.__name__, e)
+            raise
