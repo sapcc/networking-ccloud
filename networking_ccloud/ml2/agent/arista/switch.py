@@ -117,7 +117,7 @@ class AristaSwitch(SwitchBase):
             # add / remove requested mappings
             for vmap in config.vxlan_maps:
                 if config.operation in (Op.add, Op.replace):
-                    commands.append(f"vxlan vlan {vmap.vlan} vni {vmap.vni}")
+                    commands.append(f"vxlan vlan add {vmap.vlan} vni {vmap.vni}")
                 elif config.operation == Op.remove:
                     commands.append(f"no vxlan vlan {vmap.vlan} vni {vmap.vni}")
             commands.append("exit")

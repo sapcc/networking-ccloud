@@ -48,8 +48,8 @@ class TestAristaConfigUpdates(base.TestCase):
             'name basket',
             'exit',
             'interface Vxlan1',
-            'vxlan vlan 1000 vni 232323',
-            'vxlan vlan 1001 vni 424242',
+            'vxlan vlan add 1000 vni 232323',
+            'vxlan vlan add 1001 vni 424242',
             'exit',
             'router bgp 65000',
             'vlan 1000',
@@ -249,8 +249,8 @@ class TestAristaConfigUpdates(base.TestCase):
             'interface Vxlan1',
             'no vxlan vlan 444 vni 2000',
             'no vxlan vlan 2000 vni 424242',
-            'vxlan vlan 42 vni 23',
-            'vxlan vlan 1337 vni 232323',
+            'vxlan vlan add 42 vni 23',
+            'vxlan vlan add 1337 vni 232323',
             'exit',
             'end'
         ]
