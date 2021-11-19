@@ -124,5 +124,5 @@ class CCFabricSwitchAgent(manager.Manager, cc_agent_api.CCFabricSwitchAgentAPI):
                           update.switch_name, update.operation)
                 continue
 
-            result[update.switch_name] = switch.apply_config_update(config)
+            result[update.switch_name] = switch.apply_config_update(update)
         return result
