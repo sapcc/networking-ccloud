@@ -233,7 +233,7 @@ class TestCCFabricMechanismDriver(test_plugin.Ml2PluginV2TestCase, base.PortBind
                     bindings = ml2_models.PortBinding()
                     pc = driver_context.PortContext(self.plugin, self.context, port['port'], net,
                                                     bindings, binding_levels=None)
-                    bl_mock.return_value = [seg_0, seg_1]
+                    bl_mock.return_value = [dict(bound_segment=seg_0), dict(bound_segment=seg_1)]
 
                     pc.release_dynamic_segment = mock.Mock()
                     pc._plugin_context = self.context
@@ -262,7 +262,7 @@ class TestCCFabricMechanismDriver(test_plugin.Ml2PluginV2TestCase, base.PortBind
                     bindings = ml2_models.PortBinding()
                     pc = driver_context.PortContext(self.plugin, self.context, port['port'], net,
                                                     bindings, binding_levels=None)
-                    bl_mock.return_value = [seg_0, seg_1]
+                    bl_mock.return_value = [dict(bound_segment=seg_0), dict(bound_segment=seg_1)]
 
                     pc.release_dynamic_segment = mock.Mock()
                     pc._plugin_context = self.context
@@ -295,7 +295,7 @@ class TestCCFabricMechanismDriver(test_plugin.Ml2PluginV2TestCase, base.PortBind
                     bindings = ml2_models.PortBinding()
                     pc = driver_context.PortContext(self.plugin, self.context, port['port'], net,
                                                     bindings, binding_levels=None)
-                    bl_mock.return_value = [seg_0, seg_1]
+                    bl_mock.return_value = [dict(bound_segment=seg_0), dict(bound_segment=seg_1)]
 
                     pc.release_dynamic_segment = mock.Mock()
                     pc._plugin_context = self.context
@@ -332,7 +332,7 @@ class TestCCFabricMechanismDriver(test_plugin.Ml2PluginV2TestCase, base.PortBind
                     bindings = ml2_models.PortBinding()
                     pc = driver_context.PortContext(self.plugin, self.context, port['port'], net,
                                                     bindings, binding_levels=None)
-                    bl_mock.return_value = [seg_0, seg_1]
+                    bl_mock.return_value = [dict(bound_segment=seg_0), dict(bound_segment=seg_1)]
 
                     pc.release_dynamic_segment = mock.Mock()
                     pc._plugin_context = self.context
@@ -385,7 +385,7 @@ class TestCCFabricMechanismDriver(test_plugin.Ml2PluginV2TestCase, base.PortBind
                 with mock.patch('neutron.plugins.ml2.driver_context.PortContext.original_binding_levels',
                                 new_callable=mock.PropertyMock) as bl_mock, \
                         mock.patch.object(CCFabricSwitchAgentRPCClient, 'apply_config_update') as mock_acu:
-                    bl_mock.return_value = [seg_0, seg_1]
+                    bl_mock.return_value = [dict(bound_segment=seg_0), dict(bound_segment=seg_1)]
                     nc = driver_context.NetworkContext(self.plugin, self.context, net, net)
                     bindings = ml2_models.PortBinding()
                     pc = driver_context.PortContext(self.plugin, self.context, port['port'], nc,

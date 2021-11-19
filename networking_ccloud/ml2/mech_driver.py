@@ -249,8 +249,8 @@ class CCFabricMechanismDriver(ml2_api.MechanismDriver, CCFabricDriverAPI):
             LOG.debug("Port %s changed binding host from %s to %s, calling remove operations on old host",
                       context.current['id'], old_host, new_host)
             self.driver_handle_binding_host_removed(context._plugin_context, context, context.original,
-                                                    context.original_binding_levels[0],
-                                                    context.original_binding_levels[1],
+                                                    context.original_binding_levels[0][ml2_api.BOUND_SEGMENT],
+                                                    context.original_binding_levels[1][ml2_api.BOUND_SEGMENT],
                                                     context.network.original['id'])
 
     def delete_port_postcommit(self, context):
@@ -266,7 +266,8 @@ class CCFabricMechanismDriver(ml2_api.MechanismDriver, CCFabricDriverAPI):
         deleted.
         """
         self.driver_handle_binding_host_removed(context._plugin_context, context, context.current,
-                                                context.binding_levels[0], context.binding_levels[1],
+                                                context.binding_levels[0][ml2_api.BOUND_SEGMENT],
+                                                context.binding_levels[1][ml2_api.BOUND_SEGMENT],
                                                 context.network.current['id'])
 
     def driver_handle_binding_host_removed(self, context, port_context, port, segment_0, segment_1, network_id):
