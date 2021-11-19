@@ -23,6 +23,7 @@ from oslo_service import service
 
 from networking_ccloud.common.config import get_driver_config
 from networking_ccloud.ml2.agent.common import api as cc_agent_api
+from networking_ccloud.ml2.agent.common import messages as agent_msg
 
 LOG = logging.getLogger(__name__)
 
@@ -112,9 +113,10 @@ class CCFabricSwitchAgent(manager.Manager, cc_agent_api.CCFabricSwitchAgentAPI):
             result.append(switch.get_switch_status())
         return result
 
-    def apply_config_update(self, config):
+    def apply_config_update(self, context, config):
         result = {}
         for update in config:
+            update = agent_msg.SwitchConfigUpdate.parse_obj(update)
             switch = self.get_switch_by_name(update.switch_name)
             if not switch:
                 result[update.switch_name] = None

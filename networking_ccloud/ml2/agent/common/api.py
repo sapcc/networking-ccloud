@@ -74,4 +74,4 @@ class CCFabricSwitchAgentRPCClient:
 
     def apply_config_update(self, context, config):
         cctxt = self.client.prepare()
-        return cctxt.call(context, 'apply_config_update', config=config)
+        return cctxt.call(context, 'apply_config_update', config=[c.dict() for c in config])
