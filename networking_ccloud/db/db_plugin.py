@@ -21,6 +21,7 @@ from neutron.services.segments.db import SegmentDbMixin
 from neutron.services.trunk import models as trunk_models
 from neutron_lib.db import api as db_api
 from oslo_log import log as logging
+import sqlalchemy as sa
 
 from networking_ccloud.common import exceptions as cc_exc
 from networking_ccloud.common import helper
@@ -58,7 +59,8 @@ class CCDbPlugin(db_base_plugin_v2.NeutronDbPluginV2,
         ]
         query = context.session.query(*fields)
         query = query.join(ml2_models.PortBindingLevel,
-                           ml2_models.PortBinding.port_id == ml2_models.PortBindingLevel.port_id)
+                           sa.and_(ml2_models.PortBinding.port_id == ml2_models.PortBindingLevel.port_id,
+                                   ml2_models.PortBinding.host == ml2_models.PortBindingLevel.host))
         query = query.join(segment_models.NetworkSegment,
                            ml2_models.PortBindingLevel.segment_id == segment_models.NetworkSegment.id)
         query = query.outerjoin(trunk_models.SubPort,

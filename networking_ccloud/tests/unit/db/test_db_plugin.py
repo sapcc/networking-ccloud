@@ -48,12 +48,12 @@ class TestDBPluginNetworkSyncData(test_segment.SegmentTestCase, base.PortBinding
                                                                {'switch_info': 'bar-baremetal'}]})
 
         # network b, segments foo spam ham
-        #   ports 1(foo) 2(spam) 3(spam) 4(spam) 5-trunk(ham)
+        #   ports 1(foo) 2(spam) 3(spam) 4(spam) 5-trunk(ham) 6-double(foo,spam)
         self._net_b = self._make_network(name="b", admin_state_up=True, fmt='json')['network']
         self._seg_b = {physnet: self._make_segment(network_id=self._net_b['id'], network_type='vlan',
                        physical_network=physnet, segmentation_id=seg_id, tenant_id='test-tenant',
                        fmt='json')['segment']
-                       for physnet, seg_id in (('foo', 400), ('spam', 500), ('ham', 600))}
+                       for physnet, seg_id in (('foo', 400), ('spam', 500), ('ham', 600), ('mew', 700), ('caw', 800))}
         self._seg_b[None] = self._make_segment(network_id=self._net_b['id'], network_type='vxlan',
                                                physical_network='', segmentation_id=42424242,
                                                tenant_id="test-tenant", fmt='json')['segment']
@@ -72,6 +72,12 @@ class TestDBPluginNetworkSyncData(test_segment.SegmentTestCase, base.PortBinding
         self._port_b_5 = self._make_port_with_binding(segments=[(self._seg_b[None], 'cc-fabric'),
                                                                 (self._seg_b['ham'], 'cat-ml2')],
                                                       host='ham-compute')  # FIXME: trunk
+        self._port_b_6a = self._make_port_with_binding(segments=[(self._seg_b[None], 'cc-fabric'),
+                                                                 (self._seg_b['mew'], 'cat-ml2')],
+                                                       host='mew-compute')
+        self._port_b_7b = self._make_port_with_binding(segments=[(self._seg_b[None], 'cc-fabric'),
+                                                                 (self._seg_b['caw'], 'cat-ml2')],
+                                                       host='caw-compute', port=self._port_b_6a)
 
         # create trunk
         ctx = context.get_admin_context()
@@ -109,7 +115,8 @@ class TestDBPluginNetworkSyncData(test_segment.SegmentTestCase, base.PortBinding
 
         # network a and b
         net_hosts = self._db.get_hosts_on_segments(ctx, network_ids=[self._net_a['id'], self._net_b['id']])
-        self.assertEqual(set(["bar-baremetal", "foo-compute", "spam-compute", "node001-spam-compute", "ham-compute"]),
+        self.assertEqual(set(["bar-baremetal", "foo-compute", "spam-compute", "node001-spam-compute", "ham-compute",
+                              "mew-compute", "caw-compute"]),
                          self._all_hosts(net_hosts))
         self.assertIn(self._net_a['id'], net_hosts)
         self.assertEqual(400, net_hosts[self._net_b['id']]['foo-compute']['segmentation_id'])
@@ -147,3 +154,11 @@ class TestDBPluginNetworkSyncData(test_segment.SegmentTestCase, base.PortBinding
         self.assertEqual(1, len(net_hosts))
         self.assertEqual(1, len(list(net_hosts.values())[0]))
         self.assertEqual(1000, list(net_hosts.values())[0]['ham-compute']['trunk_segmentation_id'])
+
+    def test_double_portbinding_vlan_mixup(self):
+        ctx = context.get_admin_context()
+        for i in range(10):
+            net_hosts = self._db.get_hosts_on_segments(ctx, network_ids=[self._net_b['id']])
+            # make sure we got the right vlan ids and no mixup happened
+            self.assertEqual(700, net_hosts[self._net_b['id']]['mew-compute']['segmentation_id'])
+            self.assertEqual(800, net_hosts[self._net_b['id']]['caw-compute']['segmentation_id'])
