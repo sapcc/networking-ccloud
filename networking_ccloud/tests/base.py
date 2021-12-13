@@ -43,7 +43,9 @@ class PortBindingHelper():
         vif_type = kwargs.pop('vif_type', 'cc-test-vif')
         kwargs.setdefault('device_owner', 'compute:None')
         kwargs.setdefault('device_id', '1234')
-        port = self._make_port('json', segments[0][0]['network_id'], host=host, **kwargs)['port']
+        port = kwargs.pop("port", None)
+        if not port:
+            port = self._make_port('json', segments[0][0]['network_id'], host=host, **kwargs)['port']
         ctx = context.get_admin_context()
         with ctx.session.begin():
             pbinding = ml2_models.PortBinding(port_id=port['id'], host=host, profile=profile, vif_type=vif_type)
