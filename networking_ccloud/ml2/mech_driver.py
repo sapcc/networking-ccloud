@@ -13,6 +13,7 @@
 #    under the License.
 
 from neutron import service
+from neutron_lib.api.definitions import portbindings as pb_api
 from neutron_lib import constants as nl_const
 from neutron_lib.plugins import directory
 from neutron_lib.plugins.ml2 import api as ml2_api
@@ -57,6 +58,11 @@ class CCFabricMechanismDriver(ml2_api.MechanismDriver, CCFabricDriverAPI):
         # calls _sync_vlan_allocations(), which might wipe our vlans
         self.drv_conf = get_driver_config()
         validate_ml2_vlan_ranges(self.drv_conf)
+
+        self.vif_details = {
+            # allow ports without an IP to be bound
+            pb_api.VIF_DETAILS_CONNECTIVITY: pb_api.CONNECTIVITY_L2,
+        }
 
     def initialize(self):
         """Perform driver initialization.
