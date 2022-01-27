@@ -26,7 +26,6 @@ from networking_ccloud.common import exceptions as cc_exc
 from networking_ccloud.common import helper
 from networking_ccloud.db.db_plugin import CCDbPlugin
 from networking_ccloud.extensions import fabricoperations
-from networking_ccloud.ml2.agent.common.api import CCFabricSwitchAgentRPCClient
 from networking_ccloud.ml2.agent.common import messages as agent_msg
 from networking_ccloud.ml2.driver_rpc_api import CCFabricDriverAPI
 
@@ -346,42 +345,23 @@ class CCFabricMechanismDriver(ml2_api.MechanismDriver, CCFabricDriverAPI):
             if binding_host in self.db.get_hosts_on_network(context, network_id):
                 LOG.debug("Not sending out update for binding host %s - it is already bound and force_update=False",
                           binding_host)
+                return
 
         op = agent_msg.OperationEnum.add if add else agent_msg.OperationEnum.remove
-        vendor_updates = {}
-        seg_vni = segment_0[ml2_api.SEGMENTATION_ID]
-        seg_vlan = segment_1[ml2_api.SEGMENTATION_ID]
-        for switch_name, switchports in hg_config.iter_switchports(self.drv_conf, exclude_hosts=exclude_hosts):
-            switch = self.drv_conf.get_switch_by_name(switch_name)
-            sg = self.drv_conf.get_switchgroup_by_switch_name(switch.name)
+        scul = agent_msg.SwitchConfigUpdateList(op, self.drv_conf)
+        scul.add_binding_host_to_config(hg_config, network_id,
+                                        segment_0[ml2_api.SEGMENTATION_ID], segment_1[ml2_api.SEGMENTATION_ID],
+                                        trunk_vlan, keep_mapping, exclude_hosts)
 
-            if add or not keep_mapping:
-                bgp = agent_msg.BGP(asn=sg.asn)
-                bgp.add_vlan(f"{switch.bgp_source_ip}:{seg_vni}", seg_vlan, seg_vni)
-            else:
-                bgp = None
+        # FIXME: we need to figure out if the network NOW has to get a BGW
+        # FIXME: we need to figure out if the network NOW needs an ACI segment
 
-            scu = agent_msg.SwitchConfigUpdate(switch_name=switch_name, operation=op, bgp=bgp)
-            if add or not keep_mapping:
-                scu.add_vlan(seg_vlan, network_id)
-                scu.add_vxlan_map(seg_vni, seg_vlan)
-            for sp in switchports:
-                iface = agent_msg.IfaceConfig.from_switchport(sp)
-                iface.add_trunk_vlan(seg_vlan)
+        # handle border gateways if necessary
+        pass
 
-                if hg_config.direct_binding:
-                    if trunk_vlan:
-                        iface.add_vlan_translation(seg_vlan, trunk_vlan)
-                    else:
-                        iface.native_vlan = seg_vlan
-                scu.add_iface(iface)
+        # handle aci transit
+        pass
 
-            vendor_updates.setdefault(switch.vendor, []).append(scu)
-
-        if not vendor_updates:
+        if not scul.execute(context):
             LOG.warning("Update for host %s on %s yielded no config updates! add=%s, keep=%s, excl=%s",
                         binding_host, network_id, add, keep_mapping, exclude_hosts)
-
-        for vendor, updates in vendor_updates.items():
-            rpc_client = CCFabricSwitchAgentRPCClient.get_for_vendor(vendor)
-            rpc_client.apply_config_update(context, updates)
