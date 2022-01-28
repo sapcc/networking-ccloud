@@ -20,7 +20,6 @@ from neutron import policy
 from neutron import wsgi
 from neutron_lib.api import extensions as api_extensions
 from neutron_lib.api import faults
-from neutron_lib import context
 from neutron_lib import exceptions as nl_exc
 from neutron_lib.plugins import directory
 from oslo_log import log as logging
@@ -133,12 +132,11 @@ class AgentCheckController(wsgi.Controller):
     def index(self, request, **kwargs):
         LOG.info("agent-check request %s kwargs %s", request, kwargs)
         resp = []
-        ctx = context.get_admin_context()
         for vendor in self.drv_conf.get_vendors():
             agent_resp = dict(vendor=vendor)
             try:
                 rpc_client = CCFabricSwitchAgentRPCClient.get_for_vendor(vendor)
-                agent_resp['response'] = rpc_client.ping_back_driver(ctx)
+                agent_resp['response'] = rpc_client.ping_back_driver(request.context)
                 agent_resp['success'] = True
             except Exception as e:
                 agent_resp['response'] = f"{type(e.__class__.__name__)}: {e}"
