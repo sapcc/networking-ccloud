@@ -99,7 +99,7 @@ class CCFabricSwitchAgent(manager.Manager, cc_agent_api.CCFabricSwitchAgentAPI):
             manager=f'{cls.__module__}.{cls.__name__}')
         service.launch(cfg.CONF, server).wait()
 
-    def get_switch_status(self, switches=None):
+    def get_switch_status(self, context, switches=None):
         """Get status for specified or all switches this agent manages
 
          :param list switches: List of switch names or primary addresses to filter for
