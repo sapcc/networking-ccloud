@@ -35,7 +35,7 @@ class CCFabricSwitchAgentAPI:
             'ml2-driver-status': rpc_client.status(context),
         }
 
-    def get_switch_status(self, switches=None):
+    def get_switch_status(self, context, switches=None):
         raise NotImplementedError
 
     def apply_config_update(self, context, config):
