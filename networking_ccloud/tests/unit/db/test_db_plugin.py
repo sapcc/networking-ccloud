@@ -12,6 +12,7 @@
 # License for the specific language governing permissions and limitations
 # under the License.
 
+from neutron.db.models import segment as segment_models
 from neutron.services.trunk import models as trunk_models
 from neutron.tests.unit.extensions import test_segment
 from neutron_lib import context
@@ -33,7 +34,7 @@ class TestDBPluginNetworkSyncData(test_segment.SegmentTestCase, base.PortBinding
                        fmt='json')['segment']
                        for physnet, seg_id in (('foo', 100), ('bar', 200), ('baz', 300))}
         self._seg_a[None] = self._make_segment(network_id=self._net_a['id'], network_type='vxlan',
-                                               physical_network='', segmentation_id=23232323,
+                                               segmentation_id=23232323,
                                                tenant_id="test-tenant", fmt='json')['segment']
         self._port_a_1 = self._make_port_with_binding(segments=[(self._seg_a[None], 'cc-fabric'),
                                                                 (self._seg_a['foo'], 'cat-ml2')],
@@ -55,7 +56,7 @@ class TestDBPluginNetworkSyncData(test_segment.SegmentTestCase, base.PortBinding
                        fmt='json')['segment']
                        for physnet, seg_id in (('foo', 400), ('spam', 500), ('ham', 600), ('mew', 700), ('caw', 800))}
         self._seg_b[None] = self._make_segment(network_id=self._net_b['id'], network_type='vxlan',
-                                               physical_network='', segmentation_id=42424242,
+                                               segmentation_id=42424242,
                                                tenant_id="test-tenant", fmt='json')['segment']
         self._port_b_1 = self._make_port_with_binding(segments=[(self._seg_b[None], 'cc-fabric'),
                                                                 (self._seg_b['foo'], 'cat-ml2')],
@@ -87,6 +88,12 @@ class TestDBPluginNetworkSyncData(test_segment.SegmentTestCase, base.PortBinding
             subport = trunk_models.SubPort(port_id=self._port_b_5['id'], segmentation_type='vlan', segmentation_id=1000)
             trunk = trunk_models.Trunk(name='random-trunk', port_id=self._port_c_1['id'], sub_ports=[subport])
             ctx.session.add(trunk)
+
+        # fix segment index
+        with ctx.session.begin():
+            objs = ctx.session.query(segment_models.NetworkSegment).filter_by(physical_network=None,
+                                                                              network_type='vxlan')
+            objs.update({'segment_index': 0})
 
         # plugin we want to test
         self._db = CCDbPlugin()
@@ -154,6 +161,13 @@ class TestDBPluginNetworkSyncData(test_segment.SegmentTestCase, base.PortBinding
         self.assertEqual(1, len(net_hosts))
         self.assertEqual(1, len(list(net_hosts.values())[0]))
         self.assertEqual(1000, list(net_hosts.values())[0]['ham-compute']['trunk_segmentation_id'])
+
+    def test_get_top_level_vxlan_segments(self):
+        ctx = context.get_admin_context()
+        segments = self._db.get_top_level_vxlan_segments(ctx, network_ids=[self._net_a['id']])
+        self.assertEqual(1, len(segments))
+        for key in ('id', 'network_id', 'network_type', 'segmentation_id', 'physical_network'):
+            self.assertEqual(self._seg_a[None][key], getattr(segments[self._net_a['id']], key))
 
     def test_double_portbinding_vlan_mixup(self):
         ctx = context.get_admin_context()

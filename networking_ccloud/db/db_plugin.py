@@ -19,6 +19,7 @@ from neutron.db.models import segment as segment_models
 from neutron.plugins.ml2 import models as ml2_models
 from neutron.services.segments.db import SegmentDbMixin
 from neutron.services.trunk import models as trunk_models
+from neutron_lib import constants as nl_const
 from neutron_lib.db import api as db_api
 from oslo_log import log as logging
 import sqlalchemy as sa
@@ -108,3 +109,15 @@ class CCDbPlugin(db_base_plugin_v2.NeutronDbPluginV2,
         if not net_hosts:
             return []
         return net_hosts[network_id]
+
+    @db_api.retry_if_session_inactive()
+    def get_top_level_vxlan_segments(self, context, network_ids):
+        query = context.session.query(segment_models.NetworkSegment)
+        query = query.filter_by(network_type=nl_const.TYPE_VXLAN, physical_network=None, segment_index=0)
+        query = query.filter(segment_models.NetworkSegment.network_id.in_(network_ids))
+
+        net_seg = {}
+        for segment in query.all():
+            net_seg[segment.network_id] = segment
+
+        return net_seg
