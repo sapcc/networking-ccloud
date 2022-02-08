@@ -12,7 +12,7 @@ Contents:
 .. toctree::
    :maxdepth: 2
 
-   readme
+   intro
    architecture/index
    install/index
    contributor/index

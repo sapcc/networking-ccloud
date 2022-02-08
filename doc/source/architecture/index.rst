@@ -2,10 +2,11 @@
 Driver Architecutre
 ===================
 
-Configuration of networking-ccloud.
+Architecture of networking-ccloud.
 
 .. toctree::
     :maxdepth: 2
 
     overview.rst
+    driver.rst
     switch-config.rst
