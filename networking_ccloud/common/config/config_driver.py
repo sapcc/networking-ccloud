@@ -86,6 +86,11 @@ class RoleEnum(str, Enum):
     bgw = "bgw"
 
 
+class HostgroupRole(str, Enum):
+    transit = 'transit'
+    bgw = 'bgw'
+
+
 class SwitchGroup(pydantic.BaseModel):
     name: str
     members: List[Switch]
@@ -94,6 +99,7 @@ class SwitchGroup(pydantic.BaseModel):
     availability_zone: str
 
     # FIXME: get from driver consts
+    # FIXME: remove this, as we don't need it here
     # role: Union['vpod', 'stpod', 'apod', 'bgw']
     # role: RoleEnum
     role: str
@@ -226,6 +232,10 @@ class Hostgroup(pydantic.BaseModel):
     # members are either switchports or other hostgroups
     members: Union[List[SwitchPort], List[str]]
 
+    # bgw/transit role
+    role: HostgroupRole = None
+    handle_availability_zones: List[str] = None
+
     # infra networks attached to hostgroup
     infra_networks: List[InfraNetwork] = None
 
@@ -240,6 +250,28 @@ class Hostgroup(pydantic.BaseModel):
         if len(v) == 0:
             raise ValueError("Hostgroup needs to have at least one member")
         return v
+
+    @pydantic.root_validator()
+    def ensure_hostgroups_with_role_are_not_a_metagroup(cls, values):
+        # FIXME: constants? enum? what do we do here
+        if values.get("role") and values.get("metagroup"):
+            raise ValueError("transits/bgws cannot be a metagroup")
+        return values
+
+    @pydantic.root_validator
+    def ensure_hostgroups_with_role_have_an_az(cls, values):
+        if values.get('role') and not values.get('handle_availability_zones'):
+            raise ValueError("Hostgroups for bgws/tranits need to have a list of AZs they handle")
+        if not values.get('role') and values.get('handle_availability_zones'):
+            raise ValueError("Normal Hostgroups cannot have handle_availability_zones set")
+        return values
+
+    @pydantic.root_validator
+    def ensure_hostgroups_with_role_have_only_one_binding_host(cls, values):
+        # Allow only one binding host per role-group, as we use it as group-name
+        if values.get('role') and len(values.get('binding_hosts', [])) > 1:
+            raise ValueError("Hostgroups for bgws/tranits can currently only have a single binding host")
+        return values
 
     @pydantic.root_validator
     def ensure_members_and_metaflag_match(cls, values):
@@ -268,17 +300,33 @@ class Hostgroup(pydantic.BaseModel):
             values['direct_binding'] = not values.get('metagroup', False)
         return values
 
-    def get_vlan_pool_name(self, driver_config):
-        """Find vlanpool name for this hostgroup"""
+    @property
+    def binding_host_name(self):
+        """Generate a name for this hostgroup by joining all binding hosts"""
+        return ",".join(self.binding_hosts)
+
+    def get_any_switchgroup(self, drv_conf):
+        """Find one switchgroup this hostgroup is connected to
+
+        In many cases we only need any switchgroup, not all of them, as
+        all switchgroups of a host share the same attribute, like the
+        vlan pool name or availability zone
+        """
         # FIXME: prime candidate for caching, once we know what we're doing with cfg reloads / metagroups / pools
         if self.metagroup:
-            # all metagroup members have the same vlan pool
-            hg = driver_config.get_hostgroup_by_host(self.members[0])
-            return hg.get_vlan_pool_name(driver_config)
+            # all metagroup members have the same switchgroup(s)
+            hg = drv_conf.get_hostgroup_by_host(self.members[0])
+            return hg.get_any_switchgroup(drv_conf)
 
         # all interfaces of a hostgroup have the same vlan pool
-        sg = driver_config.get_switchgroup_by_switch_name(self.members[0].switch)
-        return sg.vlan_pool
+        return drv_conf.get_switchgroup_by_switch_name(self.members[0].switch)
+
+    def get_availability_zone(self, drv_conf):
+        return self.get_any_switchgroup(drv_conf).availability_zone
+
+    def get_vlan_pool_name(self, drv_conf):
+        """Find vlanpool name for this hostgroup"""
+        return self.get_any_switchgroup(drv_conf).vlan_pool
 
     def iter_switchports(self, driver_config, exclude_hosts=None):
         """Iterate over all switchports, grouped by switch
@@ -377,6 +425,32 @@ class DriverConfig(pydantic.BaseModel):
 
         return v
 
+    @pydantic.root_validator
+    def ensure_transits_service_their_own_az(cls, values):
+        if values is None:
+            return
+
+        for hg in values.get('hostgroups', []):
+            if hg.role != HostgroupRole.transit:
+                continue
+            found = False
+            for sg in values.get('switchgroups', []):
+                for sw in sg.members:
+                    if hg.members[0].switch == sw.name:
+                        found = True
+                        break
+                if found:
+                    break
+            else:
+                raise ValueError(f"Missing switch {hg.members[0].switch} for Hostgroup {hg.binding_host_name} "
+                                 f"(should've already been verified!)")
+
+            if sg.availability_zone not in hg.handle_availability_zones:
+                raise ValueError(f"Hostgroup {hg.binding_host_name} is in AZ {sg.availability_zone}, "
+                                 f"but only handles {', '.join(hg.handle_availability_zones)}")
+
+        return values
+
     def get_platforms(self):
         """Get all platforms as a set used in the given config"""
         v = set()
@@ -420,3 +494,7 @@ class DriverConfig(pydantic.BaseModel):
                 if switch.name == name:
                     return switch
         return None
+
+    def get_transits_for_az(self, az):
+        return [hg for hg in self.hostgroups
+                if hg.role == HostgroupRole.transit and az in hg.handle_availability_zones]
