@@ -290,7 +290,7 @@ class ConfigGenerator:
             for switch, port in sorted(data['ports'], key=itemgetter(1, 0)):
                 sp = conf.SwitchPort(switch=switch, name=port)
                 switchports.append(sp)
-            hg = conf.HostGroup(binding_hosts=[hg_name], members=switchports)
+            hg = conf.Hostgroup(binding_hosts=[hg_name], members=switchports)
             hostgroups.append(hg)
 
         # FIXME: meta hostgroups based on device-role
@@ -300,7 +300,7 @@ class ConfigGenerator:
 
         for cluster in nb_clusters.values():
             print(cluster)
-            hg = conf.HostGroup(binding_hosts=[cluster['binding_host']], metagroup=True,
+            hg = conf.Hostgroup(binding_hosts=[cluster['binding_host']], metagroup=True,
                                 members=list(cluster['members']))
             hostgroups.append(hg)
 

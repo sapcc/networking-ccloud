@@ -82,7 +82,7 @@ def make_hostgroups(switchgroup, nodes=10, ports_per_switch=2, offset=0):
     for n in range(1, nodes + 1):
         ports = make_lacp(100 + n, switchgroup, ports_per_switch=ports_per_switch, offset=(n - 1) * ports_per_switch)
         binding_host = f"node{n:03d}-{switchgroup}"
-        hg = config_driver.HostGroup(binding_hosts=[binding_host], members=ports)
+        hg = config_driver.Hostgroup(binding_hosts=[binding_host], members=ports)
         groups.append(hg)
     return groups
 
@@ -90,7 +90,7 @@ def make_hostgroups(switchgroup, nodes=10, ports_per_switch=2, offset=0):
 def make_metagroup(switchgroup, **kwargs):
     groups = make_hostgroups(switchgroup, **kwargs)
     members = [host for group in groups for host in group.binding_hosts]
-    hg = config_driver.HostGroup(binding_hosts=[f"nova-compute-{switchgroup}"], members=members, metagroup=True)
+    hg = config_driver.Hostgroup(binding_hosts=[f"nova-compute-{switchgroup}"], members=members, metagroup=True)
     groups.append(hg)
 
     return groups
