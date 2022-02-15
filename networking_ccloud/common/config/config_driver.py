@@ -211,7 +211,7 @@ class InfraNetwork(pydantic.BaseModel):
         return values
 
 
-class HostGroup(pydantic.BaseModel):
+class Hostgroup(pydantic.BaseModel):
     # FIXME: proper handover mode checking (like with roles)
     # FIXME: shall lacp member ports explicitly have their ports listed as single members or explicitly not
     # FIXME: add computed value "vlan_pool" or name or anything like this
@@ -302,7 +302,7 @@ class HostGroup(pydantic.BaseModel):
 
 class DriverConfig(pydantic.BaseModel):
     switchgroups: List[SwitchGroup]
-    hostgroups: List[HostGroup]
+    hostgroups: List[Hostgroup]
 
     @pydantic.root_validator
     def check_hostgroup_references(cls, values):

@@ -57,23 +57,23 @@ class TestDriverConfigValidation(base.TestCase):
         self.assertEqual(42, sp.portchannel_id)
 
     def test_hostgroup_direct_binding_mode_default(self):
-        hg = config.HostGroup(metagroup=True, binding_hosts=["foo"], members=["foo"])
+        hg = config.Hostgroup(metagroup=True, binding_hosts=["foo"], members=["foo"])
         self.assertEqual(False, hg.direct_binding)
 
-        hg = config.HostGroup(metagroup=True, binding_hosts=["foo"], members=["foo"], direct_binding=True)
+        hg = config.Hostgroup(metagroup=True, binding_hosts=["foo"], members=["foo"], direct_binding=True)
         self.assertEqual(True, hg.direct_binding)
 
-        hg = config.HostGroup(binding_hosts=["foo"], members=[config.SwitchPort(switch="sw-cat", name="e1/1/1")])
+        hg = config.Hostgroup(binding_hosts=["foo"], members=[config.SwitchPort(switch="sw-cat", name="e1/1/1")])
         self.assertEqual(True, hg.direct_binding)
 
-        hg = config.HostGroup(binding_hosts=["foo"], members=[config.SwitchPort(switch="sw-cat", name="e1/1/1")],
+        hg = config.Hostgroup(binding_hosts=["foo"], members=[config.SwitchPort(switch="sw-cat", name="e1/1/1")],
                               direct_binding=False)
         self.assertEqual(False, hg.direct_binding)
 
     def test_cannot_bind_iface_multiple_times(self):
         sg = cfix.make_switchgroup("seagull")
-        hg1 = config.HostGroup(binding_hosts=["foo"], members=[config.SwitchPort(switch="seagull-sw1", name="e1/1/1")])
-        hg2 = config.HostGroup(binding_hosts=["bar"], members=[config.SwitchPort(switch="seagull-sw1", name="e1/1/1")])
+        hg1 = config.Hostgroup(binding_hosts=["foo"], members=[config.SwitchPort(switch="seagull-sw1", name="e1/1/1")])
+        hg2 = config.Hostgroup(binding_hosts=["bar"], members=[config.SwitchPort(switch="seagull-sw1", name="e1/1/1")])
 
         self.assertRaisesRegex(ValueError, ".*Iface seagull-sw1/e1/1/1 is bound two times.*bar.*foo.*",
                                config.DriverConfig, switchgroups=[sg], hostgroups=[hg1, hg2])
