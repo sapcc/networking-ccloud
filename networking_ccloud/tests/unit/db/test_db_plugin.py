@@ -17,8 +17,10 @@ from neutron.services.trunk import models as trunk_models
 from neutron.tests.unit.extensions import test_segment
 from neutron_lib import context
 
+from networking_ccloud.common.config import _override_driver_config, config_driver
 from networking_ccloud.db.db_plugin import CCDbPlugin
 from networking_ccloud.tests import base
+from networking_ccloud.tests.common import config_fixtures as cfix
 
 
 class TestDBPluginNetworkSyncData(test_segment.SegmentTestCase, base.PortBindingHelper):
@@ -96,6 +98,7 @@ class TestDBPluginNetworkSyncData(test_segment.SegmentTestCase, base.PortBinding
             objs.update({'segment_index': 0})
 
         # plugin we want to test
+        _override_driver_config(123)  # usable config currently not needed by tests
         self._db = CCDbPlugin()
 
     def _all_hosts(self, net_hosts):
@@ -176,3 +179,126 @@ class TestDBPluginNetworkSyncData(test_segment.SegmentTestCase, base.PortBinding
             # make sure we got the right vlan ids and no mixup happened
             self.assertEqual(700, net_hosts[self._net_b['id']]['mew-compute']['segmentation_id'])
             self.assertEqual(800, net_hosts[self._net_b['id']]['caw-compute']['segmentation_id'])
+
+
+class TestTransitAllocation(test_segment.SegmentTestCase, base.PortBindingHelper):
+    def setUp(self):
+        super().setUp()
+
+        # create a config with some transits
+        switchgroups = [
+            cfix.make_switchgroup("seagull", availability_zone="qa-de-1a"),
+            cfix.make_switchgroup("cat", availability_zone="qa-de-1b"),
+        ]
+
+        def _make_transit(name, switch, azs):
+            return config_driver.Hostgroup(binding_hosts=[name], role=config_driver.HostgroupRole.transit,
+                                           members=[cfix.make_switchport(f"{switch}-sw1", f"{name}-1/1/1")],
+                                           handle_availability_zones=azs)
+        hostgroups = [
+            _make_transit("transit1", "seagull", ["qa-de-1a"]),
+            _make_transit("transit2", "cat", ["qa-de-1b"]),
+            _make_transit("transit3", "cat", ["qa-de-1b", "qa-de-1c"]),
+        ]
+        self.drv_conf = cfix.make_config(switchgroups=switchgroups, hostgroups=hostgroups)
+        _override_driver_config(self.drv_conf)
+
+        self._db = CCDbPlugin()
+
+    def test_transit_allocation(self):
+        ctx = context.get_admin_context()
+
+        # first network
+        net_a = self._make_network(name="a", admin_state_up=True, fmt='json')['network']
+        transit_created, transit = self._db.ensure_transit_for_network(ctx, net_a['id'], 'qa-de-1a')
+        self.assertTrue(transit_created)
+        self.assertEqual("transit1", transit.transit)
+        self.assertEqual("qa-de-1a", transit.availability_zone)
+        self.assertEqual(net_a['id'], transit.network_id)
+
+        # first network, again
+        transit_created, transit = self._db.ensure_transit_for_network(ctx, net_a['id'], 'qa-de-1a')
+        self.assertFalse(transit_created)
+        self.assertEqual("transit1", transit.transit)
+
+        # second network
+        net_b = self._make_network(name="b", admin_state_up=True, fmt='json')['network']
+        transit_created, transit = self._db.ensure_transit_for_network(ctx, net_b['id'], 'qa-de-1a')
+        self.assertTrue(transit_created)
+        self.assertEqual("transit1", transit.transit)
+
+        # third network, only possible on transit3
+        net_c = self._make_network(name="c", admin_state_up=True, fmt='json')['network']
+        transit_created, transit = self._db.ensure_transit_for_network(ctx, net_c['id'], 'qa-de-1c')
+        self.assertTrue(transit_created)
+        self.assertEqual("transit3", transit.transit)
+
+    def test_same_net_multiple_transits_and_get(self):
+        ctx = context.get_admin_context()
+        net_a = self._make_network(name="a", admin_state_up=True, fmt='json')['network']
+
+        # qa-de-1a
+        transit_created, transit = self._db.ensure_transit_for_network(ctx, net_a['id'], 'qa-de-1a')
+        self.assertTrue(transit_created)
+        self.assertEqual("transit1", transit.transit)
+
+        # qa-de-1c
+        transit_created, transit = self._db.ensure_transit_for_network(ctx, net_a['id'], 'qa-de-1c')
+        self.assertTrue(transit_created)
+        self.assertEqual("transit3", transit.transit)
+
+        # qa-de-1b, transit3 should already be bound
+        transit_created, transit = self._db.ensure_transit_for_network(ctx, net_a['id'], 'qa-de-1b')
+        self.assertFalse(transit_created)
+        self.assertEqual("transit3", transit.transit)
+
+        # test get
+        db_transits = self._db.get_transits_for_network(ctx, net_a['id'])
+        self.assertEqual({"transit1", "transit3"}, set(t.transit for t in db_transits))
+        self.assertEqual({"qa-de-1a", "qa-de-1b", "qa-de-1c"}, set(t.availability_zone for t in db_transits))
+        self.assertEqual(3, len(db_transits))
+
+    def test_transit_allocation_with_nonexistant_transit(self):
+        ctx = context.get_admin_context()
+        net_a = self._make_network(name="a", admin_state_up=True, fmt='json')['network']
+        transit_created, transit = self._db.ensure_transit_for_network(ctx, net_a['id'], 'qa-de-1-nonexistant')
+        self.assertFalse(transit_created)
+        self.assertEqual(None, transit)
+
+    def test_transit_allocation_multiple_transits(self):
+        ctx = context.get_admin_context()
+
+        # frist network
+        net_a = self._make_network(name="a", admin_state_up=True, fmt='json')['network']
+        transit_created, transit = self._db.ensure_transit_for_network(ctx, net_a['id'], 'qa-de-1b')
+        self.assertTrue(transit_created)
+        self.assertEqual("transit2", transit.transit)
+
+        # second network, expect second transit to be allocated
+        net_b = self._make_network(name="b", admin_state_up=True, fmt='json')['network']
+        transit_created, transit = self._db.ensure_transit_for_network(ctx, net_b['id'], 'qa-de-1b')
+        self.assertTrue(transit_created)
+        self.assertEqual("transit3", transit.transit)
+
+        # third and fourth network, both should be allocated to a different transit
+        net_c = self._make_network(name="c", admin_state_up=True, fmt='json')['network']
+        net_d = self._make_network(name="d", admin_state_up=True, fmt='json')['network']
+        transit_created_3, transit_3 = self._db.ensure_transit_for_network(ctx, net_c['id'], 'qa-de-1b')
+        transit_created_4, transit_4 = self._db.ensure_transit_for_network(ctx, net_d['id'], 'qa-de-1b')
+        self.assertNotEqual(transit_3.transit, transit_4.transit, "Transits should not be equal")
+
+    def test_transit_deallocation(self):
+        ctx = context.get_admin_context()
+
+        # allocate something we can delete
+        net_a = self._make_network(name="a", admin_state_up=True, fmt='json')['network']
+        transit_created, transit = self._db.ensure_transit_for_network(ctx, net_a['id'], 'qa-de-1a')
+        self.assertTrue(transit_created)
+
+        # remove it
+        removed = self._db.remove_transit_from_network(ctx, net_a['id'], 'qa-de-1a')
+        self.assertTrue(removed)
+
+        # remove it a second time, should return False
+        removed = self._db.remove_transit_from_network(ctx, net_a['id'], 'qa-de-1a')
+        self.assertFalse(removed)

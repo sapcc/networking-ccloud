@@ -78,6 +78,20 @@ class TestDriverConfigValidation(base.TestCase):
         self.assertRaisesRegex(ValueError, ".*Iface seagull-sw1/e1/1/1 is bound two times.*bar.*foo.*",
                                config.DriverConfig, switchgroups=[sg], hostgroups=[hg1, hg2])
 
+    def test_hostgroup_transit_always_services_own_az(self):
+        # should work
+        sg = cfix.make_switchgroup("seagull", availability_zone="qa-de-1a")
+        hg = config.Hostgroup(role="transit", handle_availability_zones=["qa-de-1a"], binding_hosts=["transit1"],
+                              members=[config.SwitchPort(switch="seagull-sw1", name="e1/1/1")])
+        config.DriverConfig(switchgroups=[sg], hostgroups=[hg])
+
+        # should break
+        hg = config.Hostgroup(role="transit", handle_availability_zones=["qa-de-1b"], binding_hosts=["transit1"],
+                              members=[config.SwitchPort(switch="seagull-sw1", name="e1/1/1")])
+
+        self.assertRaisesRegex(ValueError, "Hostgroup transit1 is in AZ qa-de-1a, but.*",
+                               config.DriverConfig, switchgroups=[sg], hostgroups=[hg])
+
 
 class TestDriverUtilityFunctions(base.TestCase):
     def test_get_hostgroup_by_host(self):

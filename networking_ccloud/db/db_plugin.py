@@ -24,6 +24,8 @@ from neutron_lib.db import api as db_api
 from oslo_log import log as logging
 import sqlalchemy as sa
 
+from networking_ccloud.db import models as cc_models
+from networking_ccloud.common.config import get_driver_config
 from networking_ccloud.common import exceptions as cc_exc
 from networking_ccloud.common import helper
 
@@ -34,6 +36,10 @@ class CCDbPlugin(db_base_plugin_v2.NeutronDbPluginV2,
                  address_scope_db.AddressScopeDbMixin,
                  SegmentDbMixin,
                  external_net_db.External_net_db_mixin):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.drv_conf = get_driver_config()
+
     @db_api.retry_if_session_inactive()
     def get_hosts_on_segments(self, context, segment_ids=None, network_ids=None, physical_networks=None, level=1,
                               driver=None):
@@ -121,3 +127,92 @@ class CCDbPlugin(db_base_plugin_v2.NeutronDbPluginV2,
             net_seg[segment.network_id] = segment
 
         return net_seg
+
+    @db_api.retry_if_session_inactive()
+    def get_azs_for_network(self, context, network_id, extra_binding_hosts=None):
+        """Get all AZs in this network bound on this driver"""
+        # get binding hosts on network
+        binding_hosts = self.get_hosts_on_network(context, network_id)
+        if extra_binding_hosts:
+            binding_hosts += extra_binding_hosts
+
+        azs = set()
+        for binding_host in binding_hosts:
+            hg_config = self.drv_conf.get_hostgroup_by_host(binding_host)
+            if hg_config:
+                az = hg_config.get_availability_zone()
+                azs.add(az)
+
+        return azs
+
+    @db_api.retry_if_session_inactive()
+    def get_transits_for_network(self, context, network_id):
+        query = context.session.query(cc_models.CCNetworkTransitMap)
+        query = query.filter_by(network_id=network_id)
+
+        return list(query.all())
+
+    @db_api.retry_if_session_inactive()
+    def ensure_transit_for_network(self, context, network_id, az):
+        """Make sure a network has a transit allocated for an AZ
+
+        Returns a bool indicating if a new transit had to be allocated and the
+        DB model itself. If no transit is available, (False, None) is returned.
+        Note that false can also be returned when a new DB entry was made, but
+        the transit was already allocated to this network, but not the given AZ
+        (but also services this AZ).
+        """
+        with context.session.begin(subtransactions=True):
+            query = context.session.query(cc_models.CCNetworkTransitMap)
+            query = query.filter_by(network_id=network_id, availability_zone=az)
+            if query.count() > 0:
+                # Transit already scheduled
+                return False, query.all()[0]
+
+            # we need to assign a transit - find candidates from config
+            available_transits = [t.binding_host_name for t in self.drv_conf.get_transits_for_az(az)]
+            if not available_transits:
+                LOG.warning("Can't scheduled transit for network %s - no transit available for AZ %s in config",
+                            network_id, az)
+                return False, None
+
+            # check that this network has net yet bound one of these transits
+            query = context.session.query(cc_models.CCNetworkTransitMap.transit)
+            query = query.filter(cc_models.CCNetworkTransitMap.network_id == network_id)
+            for entry in query.all():
+                if entry[0] in available_transits:
+                    # existing transit!
+                    new_transit_allocated = False
+                    transit = entry[0]
+                    break
+            else:
+                # scheduling algorithm: least used
+                new_transit_allocated = True
+                query = context.session.query(cc_models.CCNetworkTransitMap.transit,
+                                              sa.func.count(cc_models.CCNetworkTransitMap.network_id).label('count'))
+                query = query.filter(cc_models.CCNetworkTransitMap.transit.in_(available_transits))
+                query = query.group_by(cc_models.CCNetworkTransitMap.transit)
+                query = query.order_by('count')
+
+                # check if one transit is not present (not used yet), else use first entry from DB query
+                db_transits = [entry[0] for entry in query.all()]
+                for transit in available_transits:
+                    if transit not in db_transits:
+                        break
+                else:
+                    transit = db_transits[0]
+
+            transit_alloc = cc_models.CCNetworkTransitMap(network_id=network_id, availability_zone=az, transit=transit)
+            context.session.add(transit_alloc)
+
+        return new_transit_allocated, transit_alloc
+
+    @db_api.retry_if_session_inactive()
+    def remove_transit_from_network(self, context, network_id, az):
+        """Remove a transit from a network"""
+        query = context.session.query(cc_models.CCNetworkTransitMap)
+        query = query.filter(cc_models.CCNetworkTransitMap.network_id == network_id)
+        if az is not None:
+            query = query.filter(cc_models.CCNetworkTransitMap.availability_zone == az)
+
+        return query.delete() > 0
