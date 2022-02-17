@@ -3,20 +3,18 @@ Generator Input
 
 The driver configuration is generated based on input from external toooling (Netbox) and the following conventions.
 
-************
+*********
 Leaf Pair
-************
+*********
 
 All EVPN fabric members will be of the following Netbox roles:
 
 * **EVPN Spine**: Used for all spine switches, not configured by driver
 * **EVPN Border Gateway**: Used for all gateways interconnecting CC AZ's in a multi AZ fabric
 * **EVPN Leaf**: Used for all leaf switches in the EVPN fabric
-
-Further more specific leaf functions will be identified by adding tags to the leafs.
-
+ 
 Uniq Pair ID
-#############
+############
 Each leaf pair (MLAG/VPC) requires a fabric uniq 4 digit ID (XYZZn) with an a/b identifier for leaf in group per leaf pair used to generate device specifig configuration settings (ASN etc.)
 
 * X: CCloud AZ 1=a, 2=b, etc.
@@ -44,34 +42,31 @@ CND EVPN leaf types:
 The driver needs to identify certain non-pod leaf pairs to 
 push tenant configuration:
 
-ACI transit leaf, required to extend tenant networks to leagcy ACI fabric
+* **CC-NET-EVPN-BORDER**: Border leaf connectng to core routing, required for subnet pool summerization
+* **CC-NET-EVPN-TRANSIT**: Transit leaf connecting to ACI for migration purposes
  
 Netbox Query:
 ::
     Role: EVPN Leaf
     Name: .*(\d\d\d\d)([a-b]).* #\1=leaf_id \2=leaf_a_b
-    Tag: CND-EVPN-ACI-TRANSIT
+    Tag: CC-NET-EVPN-TRANSIT
 
-EVPN Border Leaf, required to set summarization/aggregation for tenant subnet pools.
-
-Netbox Query:
-::
     Role: EVPN Leaf
     Name: .*(\d\d\d\d)([a-b]).* #\1=leaf_id \2=leaf_a_b
-    Tag: CND-EVPN-BORDER-LEAF
+    Tag: CC-NET-EVPN-BORDER
 
-*******************
+**************
 L2/L3 Networks
-*******************
+**************
 
 Tenant Network VLAN range
-##########################
+#########################
 The VLAN range segments should be allocated from is per convention defined as
 ::
     2000-3750
 
-If for a device a different (or reduced) range is in effect it must be expressed in the Netbox device config context for that device
-.. code-block::
+If for a device a different (or reduced) range is in effect it must be expressed in the Netbox device config context as a list of single values or ranges for that device, ranges are including first and last value.
+::
     {
     "cc": {
         "net": {
@@ -85,7 +80,7 @@ If for a device a different (or reduced) range is in effect it must be expressed
     }
 
 Infra Network DHCP Relay
-##################################
+########################
 For infra networks requiring a DHCP relay one or more Netbox Tags 
 must be added to the vlan object, one for each dhcp relay server
 in the form:
@@ -94,7 +89,7 @@ in the form:
     CC-NET-EVPN-DHCP-RELAY:10.11.11.11
 
 L2 Networks VLAN to VNI mapping
-#################################
+###############################
 Netbox does not yet support a moddel for overlay network VNI's, the follwoing conventions are used
 
 * **Infra Regional**: VLAN X uses VNI X (VLAN 100 -> VNI 100)
@@ -103,15 +98,15 @@ Netbox does not yet support a moddel for overlay network VNI's, the follwoing co
 * **Tenant**: CCloud platform driver should use range 1.000.000 - 1.100.000
 
 
-*******************
+*****
 Ports 
-*******************
+*****
 the driver is responsible for front ports on pod equipment, some port types require 
 certain infra VLAN's to be provisioned as well as ports beeing assembled into port-channels
 based on current port function
 
 Port infra VLANs
-###################
+################
 Infra VLAN's required on ports are recorded on the netbox port they are reuqired on,
 for port-channels the reuqired vlans do only need to be provided on the LAG interface,
 VLAN's defined on member interfaces will be ignored for port-channel members:
@@ -124,7 +119,7 @@ Netbox config
 
 
 Port Channels
-#################
+#############
 There are two types port-channels, static which are defined in Netbox as LAG
 with member interfaces and dynamic which are defined via CCloud port groups
 self service.
@@ -141,4 +136,4 @@ variants:
 ::
     port-channel1 defined on device 1110a only: a regular port-channel will be configured
     port-channel1 defined on device 1110a AND 1110b: a MLAG/vPC will be configured
-
+    
