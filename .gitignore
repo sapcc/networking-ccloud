@@ -138,4 +138,4 @@ dmypy.json
 .DS_Store
 
 .vscode
-doc/source/_build/**
+doc/source/_build/
