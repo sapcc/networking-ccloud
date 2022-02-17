@@ -65,7 +65,7 @@ The VLAN range segments should be allocated from is per convention defined as::
 
     2000-3750
 
-If for a device a different (or reduced) range is in effect it must be expressed in the Netbox device config context as a list of single values or ranges for that device, ranges are including first and last value.::
+If for a device a different (or reduced) range is in effect it must be expressed in the Netbox device config context as a list of single values or ranges for that device, ranges are including first and last value::
 
     {
     "cc": {
