@@ -84,6 +84,14 @@ If for a device a different (or reduced) range is in effect it must be expressed
         }
     }
 
+Infra Network DHCP Relay
+##################################
+For infra networks requiring a DHCP relay one or more Netbox Tags 
+must be added to the vlan object, one for each dhcp relay server
+in the form:
+::
+    CC-NET-EVPN-DHCP-RELAY:10.10.10.10
+    CC-NET-EVPN-DHCP-RELAY:10.11.11.11
 
 L2 Networks VLAN to VNI mapping
 #################################
@@ -91,6 +99,46 @@ Netbox does not yet support a moddel for overlay network VNI's, the follwoing co
 
 * **Infra Regional**: VLAN X uses VNI X (VLAN 100 -> VNI 100)
 * **Infra AZ-wide**: VLAN X uses VNI [AZ-Prefix]X (VLAN 800, AZ=a -> 10800, VLAN 800, AZ=b -> 20800)
-* **Infra Pod-wide**: VLAN X re-used in many pods as local vlan 100 -> TBD
+* **Infra Pod-wide**: VLAN X re-used in many pods as local vlan 100 -> **TBD**
 * **Tenant**: CCloud platform driver should use range 1.000.000 - 1.100.000
+
+
+*******************
+Ports 
+*******************
+the driver is responsible for front ports on pod equipment, some port types require 
+certain infra VLAN's to be provisioned as well as ports beeing assembled into port-channels
+based on current port function
+
+Port infra VLANs
+###################
+Infra VLAN's required on ports are recorded on the netbox port they are reuqired on,
+for port-channels the reuqired vlans do only need to be provided on the LAG interface,
+VLAN's defined on member interfaces will be ignored for port-channel members:
+
+Netbox config
+::
+    "802.1Q Mode" = Tagged|Untagged
+    "Untagged VLAN" = Single VLAN reference
+    "Tagged VLAN's" = List of VLAN references
+
+
+Port Channels
+#################
+There are two types port-channels, static which are defined in Netbox as LAG
+with member interfaces and dynamic which are defined via CCloud port groups
+self service.
+
+To ensure port-channel definitions do not conflict the id range is distinct for 
+both use cases as such:
+::
+    static: port-channel1 - port-channel199
+    dynamic: port-channel200 - port-channel299
+
+Port-channels can either have ports only on one device or be spanned across two
+devices (MLAG/vPC) the following convention will be used to distinguish the two 
+variants:
+::
+    port-channel1 defined on device 1110a only: a regular port-channel will be configured
+    port-channel1 defined on device 1110a AND 1110b: a MLAG/vPC will be configured
 
