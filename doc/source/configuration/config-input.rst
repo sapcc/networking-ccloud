@@ -22,8 +22,8 @@ Each leaf pair (MLAG/VPC) requires a fabric uniq 4 digit ID (XYZZn) with an a/b 
 * ZZ: Two digit uniq leaf pair identifier 01-99
 * n: a=fist leaf in pair, b=second leaf in pair
 
-Netbox Query:
-::
+Netbox Query::
+
     Role: EVPN Leaf
     Name: .*(\d\d\d\d)([a-b]).* #\1=leaf_id \2=leaf_a_b
 
@@ -136,4 +136,3 @@ variants:
 ::
     port-channel1 defined on device 1110a only: a regular port-channel will be configured
     port-channel1 defined on device 1110a AND 1110b: a MLAG/vPC will be configured
-    
