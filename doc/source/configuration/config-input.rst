@@ -42,7 +42,7 @@ CND EVPN leaf types:
 The driver needs to identify certain non-pod leaf pairs to 
 push tenant configuration:
 
-* **CC-NET-EVPN-BORDER**: Border leaf connectng to core routing, required for subnet pool summerization
+* **CC-NET-EVPN-BORDER**: Border leaf connectng to core routing, required for subnet pool summarization
 * **CC-NET-EVPN-TRANSIT**: Transit leaf connecting to ACI for migration purposes
  
 Netbox Query::
@@ -93,9 +93,9 @@ L2 Networks VLAN to VNI mapping
 Netbox does not yet support a moddel for overlay network VNI's, the follwoing conventions are used
 
 * **Infra Regional**: VLAN X uses VNI X (VLAN 100 -> VNI 100)
-* **Infra AZ-wide**: VLAN X uses VNI [AZ-Prefix]X (VLAN 800, AZ=a -> 10800, VLAN 800, AZ=b -> 20800)
+* **Infra AZ-wide**: VLAN X uses VNI [AZ-Prefix]X (VLAN 800, AZ=a -> 100800, VLAN 800, AZ=b -> 200800)
 * **Infra Pod-wide**: VLAN X re-used in many pods as local vlan 100 -> **TBD**
-* **Tenant**: CCloud platform driver should use range 1.000.000 - 1.100.000
+* **Tenant**: CCloud platform driver should use range 10.000 - 99.999
 
 
 *****
