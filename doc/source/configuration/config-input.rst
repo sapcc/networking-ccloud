@@ -31,8 +31,8 @@ CCloud Pod leafs
 ################
 All CCloud pod types will be tagged to the leaf to identify sub-role:
 
-Netbox Query:
-::
+Netbox Query::
+
     Role: EVPN Leaf
     Name: .*(\d\d\d\d)([a-b]).* #\1=leaf_id \2=leaf_a_b
     Tag: CC-APOD|CC-BPOD|CC-NETPOD|CC-STPOD|CC-VPOD
@@ -45,8 +45,8 @@ push tenant configuration:
 * **CC-NET-EVPN-BORDER**: Border leaf connectng to core routing, required for subnet pool summerization
 * **CC-NET-EVPN-TRANSIT**: Transit leaf connecting to ACI for migration purposes
  
-Netbox Query:
-::
+Netbox Query::
+
     Role: EVPN Leaf
     Name: .*(\d\d\d\d)([a-b]).* #\1=leaf_id \2=leaf_a_b
     Tag: CC-NET-EVPN-TRANSIT
@@ -61,12 +61,12 @@ L2/L3 Networks
 
 Tenant Network VLAN range
 #########################
-The VLAN range segments should be allocated from is per convention defined as
-::
+The VLAN range segments should be allocated from is per convention defined as::
+
     2000-3750
 
-If for a device a different (or reduced) range is in effect it must be expressed in the Netbox device config context as a list of single values or ranges for that device, ranges are including first and last value.
-::
+If for a device a different (or reduced) range is in effect it must be expressed in the Netbox device config context as a list of single values or ranges for that device, ranges are including first and last value.::
+
     {
     "cc": {
         "net": {
@@ -83,8 +83,8 @@ Infra Network DHCP Relay
 ########################
 For infra networks requiring a DHCP relay one or more Netbox Tags 
 must be added to the vlan object, one for each dhcp relay server
-in the form:
-::
+in the form::
+
     CC-NET-EVPN-DHCP-RELAY:10.10.10.10
     CC-NET-EVPN-DHCP-RELAY:10.11.11.11
 
@@ -111,12 +111,11 @@ Infra VLAN's required on ports are recorded on the netbox port they are reuqired
 for port-channels the reuqired vlans do only need to be provided on the LAG interface,
 VLAN's defined on member interfaces will be ignored for port-channel members:
 
-Netbox config
-::
+Netbox config::
+
     "802.1Q Mode" = Tagged|Untagged
     "Untagged VLAN" = Single VLAN reference
     "Tagged VLAN's" = List of VLAN references
-
 
 Port Channels
 #############
@@ -125,14 +124,15 @@ with member interfaces and dynamic which are defined via CCloud port groups
 self service.
 
 To ensure port-channel definitions do not conflict the id range is distinct for 
-both use cases as such:
-::
+both use cases as such::
+
     static: port-channel1 - port-channel199
     dynamic: port-channel200 - port-channel299
 
 Port-channels can either have ports only on one device or be spanned across two
 devices (MLAG/vPC) the following convention will be used to distinguish the two 
-variants:
-::
+variants::
+
     port-channel1 defined on device 1110a only: a regular port-channel will be configured
     port-channel1 defined on device 1110a AND 1110b: a MLAG/vPC will be configured
+
