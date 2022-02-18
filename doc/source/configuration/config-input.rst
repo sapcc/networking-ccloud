@@ -90,7 +90,7 @@ in the form::
 
 L2 Networks VLAN to VNI mapping
 ###############################
-Netbox does not yet support a moddel for overlay network VNI's, the follwoing conventions are used
+Netbox does not yet support a model for overlay network VNIs, the following conventions are used
 
 * **Infra Regional**: VLAN X uses VNI X (VLAN 100 -> VNI 100)
 * **Infra AZ-wide**: VLAN X uses VNI [AZ-Prefix]X (VLAN 800, AZ=a -> 100800, VLAN 800, AZ=b -> 200800)
