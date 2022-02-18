@@ -24,10 +24,10 @@ from neutron_lib.db import api as db_api
 from oslo_log import log as logging
 import sqlalchemy as sa
 
-from networking_ccloud.db import models as cc_models
 from networking_ccloud.common.config import get_driver_config
 from networking_ccloud.common import exceptions as cc_exc
 from networking_ccloud.common import helper
+from networking_ccloud.db import models as cc_models
 
 LOG = logging.getLogger(__name__)
 
