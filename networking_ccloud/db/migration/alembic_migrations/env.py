@@ -16,16 +16,16 @@
 from logging import config as logging_config
 
 from alembic import context
+from neutron.db.migration.alembic_migrations import external
+from neutron.db.migration.models import head  # noqa: F401
 from neutron_lib.db import model_base
 from oslo_config import cfg
 from oslo_db.sqlalchemy import session
 import sqlalchemy as sa
 from sqlalchemy import event
 
-from neutron.db.migration.alembic_migrations import external
-from neutron.db.migration.models import head  # noqa
+from networking_ccloud.db.migration.models import head as cc_head  # noqa: F401
 
-from networking_ccloud.db import head
 
 MYSQL_ENGINE = None
 CC_FABRIC_VERSION_TABLE = 'cc_fabric_alembic_version'
