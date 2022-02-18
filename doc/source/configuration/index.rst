@@ -9,3 +9,4 @@ Configuration of networking-ccloud.
 
     config-oslo.rst
     config-driver.rst
+    config-input.rst
