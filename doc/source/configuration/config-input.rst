@@ -102,13 +102,13 @@ Netbox does not yet support a moddel for overlay network VNI's, the follwoing co
 Ports 
 *****
 the driver is responsible for front ports on pod equipment, some port types require 
-certain infra VLAN's to be provisioned as well as ports beeing assembled into port-channels
+certain infra VLANs to be provisioned as well as ports being assembled into port-channels
 based on current port function
 
 Port infra VLANs
 ################
-Infra VLAN's required on ports are recorded on the netbox port they are reuqired on,
-for port-channels the reuqired vlans do only need to be provided on the LAG interface,
+Infra VLAN's required on ports are recorded on the Netbox port they are reuqired on,
+for port-channels the required vlans do only need to be provided on the LAG interface,
 VLAN's defined on member interfaces will be ignored for port-channel members:
 
 Netbox config::
