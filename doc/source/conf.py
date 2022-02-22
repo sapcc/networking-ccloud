@@ -42,7 +42,7 @@ copyright = u'2021, SAP SE'
 
 # openstackdocstheme options
 openstackdocs_repo_name = 'sapcc/networking-ccloud'
-openstackdocs_bug_project = 'replace with the name of the project on Launchpad or the ID from Storyboard'
+openstackdocs_bug_project = ''
 openstackdocs_bug_tag = ''
 
 # If true, '()' will be appended to :func: etc. cross-reference text.
