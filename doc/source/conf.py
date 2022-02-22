@@ -79,3 +79,6 @@ latex_documents = [
 
 # Example configuration for intersphinx: refer to the Python standard library.
 #intersphinx_mapping = {'http://docs.python.org/': None}
+
+templates_path = ["_templates"]
+html_static_path = ['_static']
