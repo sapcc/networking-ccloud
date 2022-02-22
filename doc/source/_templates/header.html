@@ -1,0 +1,39 @@
+<style>
+    body {
+        margin: 0;
+        display: flex;
+        flex-direction: column;
+    }
+
+    .juno-pageheader {
+        display: flex;
+        align-items: center;
+        background: rgb(0,8,16);
+        position: sticky;
+        top: 0;
+        padding: 0.75rem 1.5rem;
+    }
+
+    .sap-logo {
+        height: 1.5rem;
+        margin-right: 0.75rem;
+    }
+
+    .header-title {
+        color: rgb(222,223,224);
+        font-family: Arial;
+        font-size: 1.125rem;
+        line-height: 1.75rem;
+    }
+
+    /* class from doc layout -- main container */
+    .docs-book-wrapper {
+        flex-grow: 1;
+        margin-top: 16px;
+    }
+</style>
+
+<div class="juno-pageheader" role="banner">
+    <img src="{{pathto('_static/images/sap_logo.svg', 1)}}" alt="SAP Logo" class="sap-logo" />
+    <div class="header-title">Converged Cloud | networking-ccloud</div>
+</div>
