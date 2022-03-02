@@ -170,7 +170,7 @@ Dual AZ with Single Legacy AZ
 * **Second port AZa or AZb**: Additional BGW segment in AZa and AZb is added if not already present.
   
 Multi AZ with Multi Legacy AZ
-----------------------------
+-----------------------------
 
 .. figure:: figure/legacy_fabric_type_multi_az.svg
     :width: 450px
@@ -192,8 +192,8 @@ Multi AZ with Dual Legacy AZ
 
 * **First port AZa**: Additional segment for L2 trunk EVPN<->Legacy in AZa is added.
 * **First port AZb**: Additional segment for L2 trunk EVPN<->Legacy in AZb is added.
-* **First port AZc**: Additional segment for L2 trunk EVPN<->Legacy in AZa OR AZb is added (determined by driver configuration) BGW segment in AZc and AZa OR AZb is added.
-* **Second port AZX**: Additional BGW segment in AZX and ALL AZs already having ports is added, additional segment for L2 trunk in AZX is added.
+* **First port AZc**: Additional segment for L2 trunk EVPN<->Legacy in AZa AND AZb is added, BGW segment in AZc and AZa and AZb is added.
+* **Second port AZX**: Additional BGW segment in AZX and ALL AZs already having ports is added, additional segment for L2 trunk in AZX is added if not already present.
  
 *********
 Subnet
