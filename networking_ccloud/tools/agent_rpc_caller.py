@@ -29,7 +29,7 @@ CONF = cfg.CONF
 
 CLI_OPTS = [
     cfg.BoolOpt("driver", help="Communicate with the driver via RPC"),
-    cfg.StrOpt("agent", help="Communicate with an agent via RPC, vendor needs to be specified"),
+    cfg.StrOpt("agent", help="Communicate with an agent via RPC, platform needs to be specified"),
     cfg.StrOpt("method", default="status", help="Method you want to call on the other side (default status)"),
     cfg.ListOpt("args", default=[], help="Args to pass to method"),
 ]

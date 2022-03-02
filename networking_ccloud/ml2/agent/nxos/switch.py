@@ -25,8 +25,8 @@ LOG = logging.getLogger(__name__)
 
 class NXOSSwitch(SwitchBase):
     @classmethod
-    def get_vendor(self):
-        return cc_const.VENDOR_NXOS
+    def get_platform(self):
+        return cc_const.PLATFORM_NXOS
 
     def login(self):
         self._api = requests.Session()

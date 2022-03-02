@@ -53,8 +53,8 @@ class CCFabricSwitchAgentRPCClient:
     """
 
     @classmethod
-    def get_for_vendor(cls, vendor):
-        return cls(cc_const.SWITCH_AGENT_TOPIC_MAP[vendor])
+    def get_for_platform(cls, platform):
+        return cls(cc_const.SWITCH_AGENT_TOPIC_MAP[platform])
 
     def __init__(self, topic):
         target = oslo_messaging.Target(topic=topic, version='1.0')

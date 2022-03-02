@@ -27,8 +27,8 @@ LOG = logging.getLogger(__name__)
 
 class AristaSwitch(SwitchBase):
     @classmethod
-    def get_vendor(self):
-        return cc_const.VENDOR_ARISTA
+    def get_platform(self):
+        return cc_const.PLATFORM_EOS
 
     def login(self):
         self._api = pyeapi.connect(

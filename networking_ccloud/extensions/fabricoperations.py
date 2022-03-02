@@ -132,10 +132,10 @@ class AgentCheckController(wsgi.Controller):
     def index(self, request, **kwargs):
         LOG.info("agent-check request %s kwargs %s", request, kwargs)
         resp = []
-        for vendor in self.drv_conf.get_vendors():
-            agent_resp = dict(vendor=vendor)
+        for platform in self.drv_conf.get_platforms():
+            agent_resp = dict(platform=platform)
             try:
-                rpc_client = CCFabricSwitchAgentRPCClient.get_for_vendor(vendor)
+                rpc_client = CCFabricSwitchAgentRPCClient.get_for_platform(platform)
                 agent_resp['response'] = rpc_client.ping_back_driver(request.context)
                 agent_resp['success'] = True
             except Exception as e:

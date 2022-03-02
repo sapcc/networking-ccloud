@@ -13,13 +13,14 @@
 # under the License.
 
 from networking_ccloud.common.config import config_driver as config
+from networking_ccloud.common import constants as cc_const
 from networking_ccloud.tests import base
 from networking_ccloud.tests.common import config_fixtures as cfix
 
 
 class TestDriverConfigValidation(base.TestCase):
-    def make_switch(self, name, host="1.2.3.4", vendor="arista"):
-        return config.Switch(name=name, host=host, vendor=vendor, user="admin", password="maunz",
+    def make_switch(self, name, host="1.2.3.4", platform=cc_const.PLATFORM_EOS):
+        return config.Switch(name=name, host=host, platform=platform, user="admin", password="maunz",
                              bgp_source_ip="2.3.4.5")
 
     def test_switchgroup_two_members(self):

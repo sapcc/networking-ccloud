@@ -58,7 +58,7 @@ class CCFabricSwitchAgent(manager.Manager, cc_agent_api.CCFabricSwitchAgentAPI):
     def _init_switches(self):
         """Init all switches the agent manages"""
         for switch_conf in self.drv_conf.get_switches():
-            if switch_conf.vendor != self.get_switch_class().get_vendor():
+            if switch_conf.platform != self.get_switch_class().get_platform():
                 continue
             switch = self.get_switch_class()(switch_conf)
             LOG.debug("Adding switch %s with user %s to switchpool", switch, switch.user)

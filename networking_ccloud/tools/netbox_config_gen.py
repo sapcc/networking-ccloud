@@ -145,10 +145,10 @@ class ConfigGenerator:
         for leaf in leafs:
             switch_name = leaf.name
 
-            # vendor check!
-            vendor = leaf.device_type.manufacturer.slug
-            if vendor not in c_const.VENDORS:
-                print(f"Warning: Device {switch_name} is of vendor {vendor}, "
+            # platform check!
+            platform = leaf.platform.slug
+            if platform not in c_const.PLATFORMS:
+                print(f"Warning: Device {switch_name} is of platform {platform}, "
                       "which is not supported by the driver/config generator")
                 continue
 
@@ -215,7 +215,7 @@ class ConfigGenerator:
                 'name': switch_name,
                 'ports': switch_ports,
                 'hosts': host_ports,
-                'vendor': vendor,
+                'platform': platform,
                 'az': leaf.site.name,
             }
             switch.update(self.calculate_ccloud_switch_number_resources(leaf, kv_tags, region_asn))
@@ -261,7 +261,7 @@ class ConfigGenerator:
                 loopback1.add(nb_switch['loopback1'])
                 asn.add(nb_switch['asn'])
                 switch = conf.Switch(name=nb_switch['name'], host=nb_switch['host'],
-                                     bgp_source_ip=nb_switch['loopback0'], vendor=nb_switch['vendor'],
+                                     bgp_source_ip=nb_switch['loopback0'], platform=nb_switch['platform'],
                                      user=self.args.switch_user, password=self.args.switch_password)
 
                 switches.append(switch)
