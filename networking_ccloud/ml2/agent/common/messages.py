@@ -210,16 +210,16 @@ class SwitchConfigUpdateList:
                         iface.native_vlan = seg_vlan
 
     def execute(self, context):
-        vendor_updates = {}
+        platform_updates = {}
         for scu in self.switch_config_updates.values():
-            vendor = self.drv_conf.get_switch_by_name(scu.switch_name).vendor
-            vendor_updates.setdefault(vendor, []).append(scu)
+            platform = self.drv_conf.get_switch_by_name(scu.switch_name).platform
+            platform_updates.setdefault(platform, []).append(scu)
 
-        if not vendor_updates:
+        if not platform_updates:
             return False
 
-        for vendor, updates in vendor_updates.items():
-            rpc_client = CCFabricSwitchAgentRPCClient.get_for_vendor(vendor)
+        for platform, updates in platform_updates.items():
+            rpc_client = CCFabricSwitchAgentRPCClient.get_for_platform(platform)
             rpc_client.apply_config_update(context, updates)
 
         return True

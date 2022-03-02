@@ -32,7 +32,7 @@ class SwitchBase(abc.ABC):
 
     @classmethod
     @abc.abstractmethod
-    def get_vendor(cls):
+    def get_platform(cls):
         pass
 
     @property

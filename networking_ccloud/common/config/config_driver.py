@@ -50,8 +50,8 @@ class Switch(pydantic.BaseModel):
     name: str
     host: str
 
-    # netbox: device.device_types.manufacturer
-    vendor: str
+    # netbox: device.platform.slug
+    platform: str
     # injected from secrets
     user: str
     password: str
@@ -61,13 +61,13 @@ class Switch(pydantic.BaseModel):
 
     _normalize_host = pydantic.validator('host', allow_reuse=True)(validate_ip_address)
     _normalize_bgp_source_ip = pydantic.validator('bgp_source_ip', allow_reuse=True)(validate_ip_address)
-    _allow_test_vendor = False  # only used by the tests
+    _allow_test_platform = False  # only used by the tests
 
-    @pydantic.validator('vendor')
-    def validate_vendor(cls, v):
-        # check if the vendor is supported
-        if not (v in cc_const.VENDORS or (v == "test" and cls._allow_test_vendor)):
-            raise ValueError(f"Vendor {v} is not supported by this driver (yet)")
+    @pydantic.validator('platform')
+    def validate_platform(cls, v):
+        # check if the platform is supported
+        if not (v in cc_const.PLATFORMS or (v == "test" and cls._allow_test_platform)):
+            raise ValueError(f"Platform '{v}' is not supported by this driver (yet)")
 
         return v
 
@@ -119,11 +119,11 @@ class SwitchGroup(pydantic.BaseModel):
                              "the code should work with other member counts, but this "
                              "should be checked beforehand")
 
-        # members need to be of the same vendor
-        vendors = set(s.vendor for s in v)
-        if len(vendors) > 1:
-            raise ValueError("Switchgroup members need to have the same vendor! Found {}"
-                             .format(", ".join(f"{s.name} of type {s.vendor}" for s in v)))
+        # members need to be of the same platform
+        platforms = set(s.platform for s in v)
+        if len(platforms) > 1:
+            raise ValueError("Switchgroup members need to have the same platform! Found {}"
+                             .format(", ".join(f"{s.name} of type {s.platform}" for s in v)))
 
         return v
 
@@ -355,20 +355,20 @@ class DriverConfig(pydantic.BaseModel):
 
         return v
 
-    def get_vendors(self):
-        """Get all vendors as a set used in the given config"""
+    def get_platforms(self):
+        """Get all platforms as a set used in the given config"""
         v = set()
         for sg in self.switchgroups:
             for s in sg.members:
-                v.add(s.vendor)
+                v.add(s.platform)
         return v
 
-    def get_switches(self, vendor=None):
-        """Get all switches, optionally filtered by vendor"""
+    def get_switches(self, platform=None):
+        """Get all switches, optionally filtered by platform"""
         switches = []
         for sg in self.switchgroups:
             for sw in sg.members:
-                if vendor and sw.vendor != vendor:
+                if platform and sw.platform != platform:
                     continue
                 switches.append(sw)
         return switches

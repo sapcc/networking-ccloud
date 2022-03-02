@@ -18,13 +18,13 @@ from networking_ccloud.common.config import config_driver
 DEFAULT_AZ = "qa-test-1a"
 
 
-def make_switch(name, vendor="test", **kwargs):
-    if vendor == "test":
-        # enable test vendor
-        config_driver.Switch._allow_test_vendor = True
+def make_switch(name, platform="test", **kwargs):
+    if platform == "test":
+        # enable test platform
+        config_driver.Switch._allow_test_platform = True
 
     switch_vars = dict(
-        name=name, vendor=vendor,
+        name=name, platform=platform,
         user="maunzuser", password="maunzpassword",
         host="1.1.1.1", bgp_source_ip="1.1.1.2",  # FIXME: derive IPs from somewhere
     )

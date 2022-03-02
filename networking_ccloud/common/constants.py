@@ -12,9 +12,9 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
-VENDOR_ARISTA = "arista"
-VENDOR_NXOS = "nxos"
-VENDORS = [VENDOR_ARISTA, VENDOR_NXOS]
+PLATFORM_EOS = "arista-eos"
+PLATFORM_NXOS = "cisco-nx-os"
+PLATFORMS = [PLATFORM_EOS, PLATFORM_NXOS]
 
 HANDOVER_VLAN = 'vlan'
 HANDOVER_MODES = [HANDOVER_VLAN]
@@ -28,6 +28,6 @@ SWITCH_AGENT_ARISTA_TOPIC = 'cc-fabric-switch-agent-arista'
 SWITCH_AGENT_NXOS_TOPIC = 'cc-fabric-switch-agent-nxos'
 
 SWITCH_AGENT_TOPIC_MAP = {
-    'arista': SWITCH_AGENT_ARISTA_TOPIC,
-    'nxos': SWITCH_AGENT_NXOS_TOPIC,
+    PLATFORM_EOS: SWITCH_AGENT_ARISTA_TOPIC,
+    PLATFORM_NXOS: SWITCH_AGENT_NXOS_TOPIC,
 }

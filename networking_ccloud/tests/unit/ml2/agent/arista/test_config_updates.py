@@ -16,6 +16,7 @@ import re
 from unittest import mock
 
 from networking_ccloud.common.config import config_driver
+from networking_ccloud.common import constants as cc_const
 from networking_ccloud.ml2.agent.arista.switch import AristaSwitch
 from networking_ccloud.ml2.agent.common import messages
 from networking_ccloud.tests import base
@@ -24,7 +25,7 @@ from networking_ccloud.tests import base
 class TestAristaConfigUpdates(base.TestCase):
     def setUp(self):
         super().setUp()
-        cfg_switch = config_driver.Switch(name="seagull-sw1", host="127.0.0.1", vendor="arista",
+        cfg_switch = config_driver.Switch(name="seagull-sw1", host="127.0.0.1", platform=cc_const.PLATFORM_EOS,
                                           user="seagulladm", password="KRAKRAKRA", bgp_source_ip="1.1.1.1")
         self.switch = AristaSwitch(cfg_switch)
         self.switch._api = mock.Mock()
