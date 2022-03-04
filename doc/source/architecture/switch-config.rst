@@ -69,84 +69,70 @@ Example Network Definition
 
    global:
       asn_region: 65130
+      infra_network_default_vrf: CC-MGMT
+      vrfs:
+        CC-MGMT: 
+          rd: 900
 
    hostgroups:
    - binding_hosts:
-     - node003-bm206
+     - node001-bm301
      members:
      - name: Ethernet1/1
-       switch: qa-de-3-sw1111a-bb206
+       switch: qa-de-3-sw1103a-bb301
      - name: Ethernet1/1
-       switch: qa-de-3-sw1111b-bb206
+       switch: qa-de-3-sw1103b-bb301
    - binding_hosts:
-     - node004-bm206
+     - node002-bb301
      members:
      - name: Ethernet2/1
-       switch: qa-de-3-sw1111a-bb206
+       switch: qa-de-3-sw1103a-bb301
      - name: Ethernet2/1
-       switch: qa-de-3-sw1111b-bb206
+       switch: qa-de-3-sw1103b-bb301
+     - name: Port-Channel 201
+       switch: qa-de-3-sw1103a-bb301
+       lacp: true
+       members: [Ethernet3/1]
+     - name: Port-Channel 201
+       switch: qa-de-3-sw1103b-bb301
+       lacp: true
+       members: [Ethernet3/1]
    - binding_hosts:
-     - node005-bm206
+     - nova-compute-bb301
      members:
-     - name: eth1/2
-       switch: qa-de-3-sw1112a-bb206-cisco
-     - name: eth1/2
-       switch: qa-de-3-sw1112b-bb206-cisco
-   - binding_hosts:
-     - node006-bm206
-     members:
-     - name: eth1/3
-       switch: qa-de-3-sw1112a-bb206-cisco
-   - binding_hosts:
-     - nova-compute-bm206
-     members:
-     - node003-bm206
-     - node004-bm206
+     - node001-bb301
+     - node002-bb301
+     infra_networks:
+     - vni: 10301100
+       vlan: 100
+       vrf: CC-MGMT
+       untagged: true
+       networks: [ 10.246.100.1/24 ]
+       dhcp_relays: [147.204.1.45, 10.247.3.122]
+     - vni: 10301101
+       vlan: 101    
      metagroup: true
-   - binding_hosts:
-     - nova-compute-bm206-cisco
-     members:
-     - node006-bm206
-     - node005-bm206
-     metagroup: true
+
    
    switchgroups:
-   - asn: '65130.1111'
-     availability_zone: qa-de-3a
+   - asn: '65130.1103'
+     availability_zone: qa-de-1a
      members:
-     - bgp_source_ip: 1.1.11.1
+     - bgp_source_ip: 1.1.03.1
        host: 10.114.0.203
-       name: qa-de-3-sw1111a-bb206
+       name: qa-de-1-sw1103a-bb301
        password: nope
        user: admin2
        platform: arista-eos
-     - bgp_source_ip: 1.1.11.2
+     - bgp_source_ip: 1.1.03.2
        host: 10.114.0.204
-       name: qa-de-3-sw1111b-bb206
-       password: nope
-       user: admin2
+       name: qa-de-3-sw1103b-bb301
+       password: api-password
+       user: api-user
        platform: arista-eos
-     name: bb206
+     name: bb301
      role: vpod
-     vtep_ip: 1.1.11.0
-   - asn: '65130.1112'
-     availability_zone: qa-de-3a
-     members:
-     - bgp_source_ip: 1.1.12.1
-       host: 10.114.0.205
-       name: qa-de-3-sw1112a-bb206-cisco
-       password: nope
-       user: admin
-       platform: cisco-nx-os
-     - bgp_source_ip: 1.1.12.2
-       host: 10.114.0.206
-       name: qa-de-3-sw1112b-bb206-cisco
-       password: nope
-       user: admin
-       platform: cisco-nx-os
-     name: bb206-cisco
-     role: vpod
-     vtep_ip: 1.1.12.0
+     vtep_ip: 1.1.03.0
 
 Single AZ Network
 -----------------
@@ -189,7 +175,14 @@ On Device configuration
      - 
    * - VRFs
      - 
-     - 
+     -
+   * - VLAN Translations (per Port)
+     -
+     - 4000 / 500 (FX3)
+   * - VLAN Translations (per Switch)
+     -
+     - 24000 / 6000 (FX3)
+
 
 Driver Configuration
 --------------------
@@ -215,6 +208,22 @@ aPOD/vPOD/stPOD/netPOD/bPOD/Transit leafs
          redistribute learned
 
 **NX-OS**:
+::
+
+   vlan 2420
+      name aeec9fd4-30f7-4398-8554-34acb36b7712/bb301
+      vn-segment 10394
+
+   router bgp 65130.1103
+      evpn
+         vni 10394 l2
+            rd 65130.1103:10394
+            route-target both 65130:10394
+
+   interface nve1
+      member vni 10394
+         ingress-replication protocol bgp
+         suppress-arp
 
 Border Gateway
 --------------
