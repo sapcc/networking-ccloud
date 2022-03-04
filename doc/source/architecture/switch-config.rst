@@ -276,9 +276,6 @@ when the last port in one AZ is removed and no other AZ is using this transit
 then the scheduling of this (AZ, Transit, Network) and its respective segment / VLAN
 allocation will be removed.
 
-Legacy integration scenarios
-============================
-
 The EVPN fabric driver needs to support interaction with a legacy fabric. For Neutron networks it is required to add provisioned networks not only to the leafs that are in the host group but also add the network to border gateway device for inter AZ communication as well as transit leafs to extend networks to the legacy environment.
 The driver is not responsible for loop avoidance or migration of flows between fabric interconnections, this is expected to be handled via the static non-driver controlled configuration.
 The following topology variations need to be supported, for below scenarios it is expected that the network is already in use in legacy.
