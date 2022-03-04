@@ -177,6 +177,20 @@ Networks with a single AZ are identified by having a availability_zones list of 
 On Device configuration
 #######################
 
+.. list-table:: Relevant Device Scaling Limits
+   :widths: 33 33 33
+   :header-rows: 1
+
+   * - Resource
+     - EOS
+     - NX-OS
+   * - VLANs
+     - 1800
+     - 
+   * - VRFs
+     - 
+     - 
+
 Driver Configuration
 --------------------
 
