@@ -192,6 +192,25 @@ class SwitchPort(pydantic.BaseModel):
         return values
 
 
+class InfraNetwork(pydantic.BaseModel):
+    name: str
+    native_vlan_pool: None
+    vlan: pydantic.conint(gt=0, lt=4096)
+    networks: List[str] = None
+    vni: pydantic.conint(gt=0, lt=2**24) = None
+    untagged: bool = False
+    dhcp_relays: List[str] = None
+
+    _normalize_networks = pydantic.validator('networks', each_item=True, allow_reuse=True)(validate_ip_address)
+
+    @pydantic.root_validator
+    def ensure_correct_value_combination(cls, values):
+        # FIXME: we probably need a different logic here
+        if bool(values['vni']) ^ bool(values['network']):
+            raise ValueError(f"If network is set vni needs to be set and vice versa")
+        return values
+
+
 class HostGroup(pydantic.BaseModel):
     # FIXME: proper handover mode checking (like with roles)
     # FIXME: shall lacp member ports explicitly have their ports listed as single members or explicitly not
@@ -206,6 +225,9 @@ class HostGroup(pydantic.BaseModel):
 
     # members are either switchports or other hostgroups
     members: Union[List[SwitchPort], List[str]]
+
+    # infra networks attached to hostgroup
+    infra_networks: List[InfraNetwork] = None
 
     @pydantic.validator('binding_hosts')
     def ensure_at_least_one_binding_host(cls, v):
