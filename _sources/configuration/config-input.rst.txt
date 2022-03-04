@@ -10,14 +10,13 @@ Leaf Pair
 All EVPN fabric members will be of the following Netbox roles:
 
 * **EVPN Spine**: Used for all spine switches, not configured by driver
-* **EVPN Border Gateway**: Used for all gateways interconnecting CC AZ's in a multi AZ fabric
 * **EVPN Leaf**: Used for all leaf switches in the EVPN fabric
  
 Uniq Pair ID
 ############
 Each leaf pair (MLAG/VPC) requires a fabric uniq 4 digit ID (XYZZn) with an a/b identifier for leaf in group per leaf pair used to generate device specifig configuration settings (ASN etc.)
 
-* X: CCloud AZ 1=a, 2=b, etc.
+* X: CCloud AZ a=1, b=2, etc.
 * Y: EVPN Spine POD in AZ 1,2,3... etc.
 * ZZ: Two digit uniq leaf pair identifier 01-99
 * n: a=fist leaf in pair, b=second leaf in pair
@@ -42,18 +41,23 @@ CND EVPN leaf types:
 The driver needs to identify certain non-pod leaf pairs to 
 push tenant configuration:
 
-* **CC-NET-EVPN-BORDER**: Border leaf connectng to core routing, required for subnet pool summarization
-* **CC-NET-EVPN-TRANSIT**: Transit leaf connecting to ACI for migration purposes
+* **CND-NET-EVPN-BL**: Border leaf connectng to core routing, required for subnet pool summarization
+* **CND-NET-EVPN-TL**: Transit leaf connecting to a legacy fabric for migration purposes
+* **CND-NET-EVPN-BG**: Used for all gateways interconnecting CC AZ's in a multi AZ fabric
  
 Netbox Query::
 
     Role: EVPN Leaf
     Name: .*(\d\d\d\d)([a-b]).* #\1=leaf_id \2=leaf_a_b
-    Tag: CC-NET-EVPN-TRANSIT
+    Tag: CND-NET-EVPN-TL
 
     Role: EVPN Leaf
     Name: .*(\d\d\d\d)([a-b]).* #\1=leaf_id \2=leaf_a_b
-    Tag: CC-NET-EVPN-BORDER
+    Tag: CND-NET-EVPN-BG
+
+    Role: EVPN Leaf
+    Name: .*(\d\d\d\d)([a-b]).* #\1=leaf_id \2=leaf_a_b
+    Tag: CND-NET-EVPN-BL
 
 **************
 L2/L3 Networks
@@ -94,8 +98,8 @@ Netbox does not yet support a model for overlay network VNIs, the following conv
 
 * **Infra Regional**: VLAN X uses VNI X (VLAN 100 -> VNI 100)
 * **Infra AZ-wide**: VLAN X uses VNI [AZ-Prefix]X (VLAN 800, AZ=a -> 100800, VLAN 800, AZ=b -> 200800)
-* **Infra Pod-wide**: VLAN X re-used in many pods as local vlan 100 -> **TBD**
-* **Tenant**: CCloud platform driver should use range 10.000 - 99.999
+* **Infra Pod-specific**: VLAN X re-used in many pods as local vlan, 1PPPPVVV with P=Pod ID 4-Digit with leading zeros, V=Local VLAN id 3-Digit with leading zeros. Vlan 100 in vPOD 371 -> VNI=10371100
+* **Tenant**: CCloud platform driver should use range 10000 - 99999
 
 
 *****
@@ -122,17 +126,36 @@ Port Channels
 There are two types port-channels, static which are defined in Netbox as LAG
 with member interfaces and dynamic which are defined via CCloud port groups
 self service.
-
 To ensure port-channel definitions do not conflict the id range is distinct for 
-both use cases as such::
+both use cases as follows.
 
-    static: port-channel1 - port-channel199
-    dynamic: port-channel200 - port-channel299
+.. list-table:: Port-Channel Ranges
+   :widths: 25 25 50
+   :header-rows: 1
+
+   * - Port-Channel ID
+     - Type
+     - Usage
+   * - 1
+     - Static
+     - MLAG or vPC peer link
+   * - 2-3
+     - Static
+     - reserved for admin switch connectivity
+   * - 4-9
+     - Static
+     - reserved for future use
+   * - 10-99
+     - Static
+     - reserved for non-driver controlled Port-channels
+   * - 100-999
+     - Dynamic
+     - reserved for driver controlled Port-channels
 
 Port-channels can either have ports only on one device or be spanned across two
 devices (MLAG/vPC) the following convention will be used to distinguish the two 
 variants::
 
-    port-channel1 defined on device 1110a only: a regular port-channel will be configured
-    port-channel1 defined on device 1110a AND 1110b: a MLAG/vPC will be configured
+    port-channel100 defined on device 1110a only: a regular port-channel will be configured
+    port-channel100 defined on device 1110a AND 1110b: a MLAG/vPC will be configured
 
