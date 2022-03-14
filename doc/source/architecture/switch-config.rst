@@ -182,6 +182,14 @@ On Device configuration
    * - VLAN Translations (per Switch)
      -
      - 24000 / 6000 (FX3)
+   * - Static ARP entries
+     -
+     - 
+   * - Static IPv4 Routes
+     -
+     - 
+
+
 
 
 Driver Configuration
@@ -210,6 +218,11 @@ aPOD/vPOD/stPOD/netPOD/bPOD/Transit leafs
 **NX-OS**:
 ::
 
+   interface nve1
+      member vni 10394
+         ingress-replication protocol bgp
+         suppress-arp
+         
    vlan 2420
       name aeec9fd4-30f7-4398-8554-34acb36b7712/bb301
       vn-segment 10394
@@ -219,11 +232,6 @@ aPOD/vPOD/stPOD/netPOD/bPOD/Transit leafs
          vni 10394 l2
             rd 65130.1103:10394
             route-target both 65130:10394
-
-   interface nve1
-      member vni 10394
-         ingress-replication protocol bgp
-         suppress-arp
 
 Border Gateway
 --------------
@@ -354,13 +362,169 @@ Directly Accessible Private Network
 Subnet Pool
 ***********
 
+The external subnets which are fabric relevant are identified by being created from 
+a subnet pool belonging to an address-scope which is listed in the driver configuration.
+If a subnet is matching this criteria it is created as described in the subnet section.
+In addition the driver will manage summarization of routes from and across subnet pools
+within the same address-scope. The summary routes are maintained on the pod leafs the 
+suppression of more specific prefixes towards core routing is done on the leaf
+connecting to the upstream router, this is done by maintaining a prefix list filtering
+out undesired prefixes. It is assumed this list will be used in BGP policy towards
+core routers, policy and bgp configuration for those peerings are not in scope 
+of the driver managed configuration. For each vrf the driver will do:
+
+
+1. Collect all address-scopes belonging to the vrf
+2. Collect all subnet pools from the relevant address-scopes
+3. From the subnet pools collect all prefixes
+4. Compress the list by merging all adjacent prefixes (supernetting)
+5. Set list as ip prefix list on border leaf
+6. Remove all list entries where there exists a subnet equal to the entry (summary would conflict subnet)
+7. Add BGP summary for remainder of list
+
+Driver Configuration
+####################
+::
+
+   [address-scope:hcp03-public]
+   export_rt_suffix = 102
+   import_rt_suffix = 102
+   vrf = cc-cloud02
+
+   [address-scope:bs-public]
+   export_rt_suffix = 102
+   import_rt_suffix = 102
+   vrf = cc-cloud02
+
+
+Sample Subnet Pool Definition
+#############################
+::
+
+   {
+     "id": "f2fd984c-45b1-4465-9f99-e72f86b896fa",
+     "ip_version": 4,
+     "name": "hcp03-public",
+   }
+   {
+     "id": "10c48c80-b250-4452-a253-7f88b7a0deec",
+     "ip_version": 4,
+     "name": "bs-public",
+   }
+
+   {
+    "address_scope_id": "f2fd984c-45b1-4465-9f99-e72f86b896fa",
+    "id": "e6df3de0-16dd-46e3-850f-5418fd6dd820",
+    "ip_version": 4,
+    "name": "sap-hcp03",
+    "prefixes": [
+      "130.214.202.0/25",
+      "10.188.16.0/21",
+      "10.236.100.0/22"
+    ],
+   }
+   {
+    "address_scope_id": "10c48c80-b250-4452-a253-7f88b7a0deec",
+    "id": "438157b9-3ce3-4370-8bb5-59131ff105f9",
+    "ip_version": 4,
+    "name": "internet-bs",
+    "prefixes": [
+      "130.214.202.0/25",
+      "130.214.215.0/26"
+    ],
+   }
+
+   {
+     "cidr": "10.188.16.0/21",
+     "id": "5051685d-37c5-4bab-98bf-8e797453ab03",
+     "ip_version": 4,
+     "name": "FloatingIP-sap-hcp03-03",
+     "subnetpool_id": "e6df3de0-16dd-46e3-850f-5418fd6dd820",
+   }
+
+On Device Configuration
+#######################
+
+Border Leaf
+-----------
+
+**EOS**:
+::
+
+   ip prefix-list PL-CC-CLOUD02
+      seq 10 deny 130.214.202.0/24 ge 25 le 31
+      seq 20 deny 130.214.215.0/26 ge 27 le 31
+      seq 30 deny 10.188.16.0/21 ge 22 le 31
+      seq 40 deny 10.236.100.0/22 ge 23 le 31
+
+
+aPOD/vPOD/stPOD/netPOD/bPOD/Transit leafs
+-----------------------------------------
+
+**EOS**:
+::
+   router bgp 65130.1103
+      vrf CC-CLOUD02
+         aggregate-address 130.214.202.0/24
+         aggregate-address 130.214.215.0/26
+         aggregate-address 10.236.100.0/22
+
+**NX-OS**:
+::
+
+   router bgp 65130.1103
+      vrf CC-CLOUD02
+         address-family ipv4 unicast
+            aggregate-address 130.214.202.0/24
+            aggregate-address 130.214.215.0/26
+            aggregate-address 10.236.100.0/22
+
+
 ***********
 Floating IP
 ***********
 
+Sample Floating IP Definition
+#############################
+::
+
+   # Neutron Router external Port connected to netPOD leaf serving the Floating IP
+   {
+     "binding_vif_type": "asr1k",
+     "device_owner": "network:router_gateway",
+     "mac_address": "fa:16:3e:6d:d3:33",
+   }
+   {
+     "fixed_ip_address": "10.180.1.7",
+     "floating_ip_address": "10.47.104.75",
+     "floating_network_id": "aeec9fd4-30f7-4398-8554-34acb36b7712",
+     "id": "fb8a5ddd-611b-415a-8bd7-64d3033ab840",
+     "router_id": "260c2d26-2904-4073-8407-7f94ed1e88b8",
+   }
+
+
+On Device Configuration
+#######################
+
+netPOD leafs
+-----------------------------------------
+
+**EOS**:
+::
+   arp vrf CC-CLOUD02 10.47.104.75 fa16.3e6d.d333 
+
+**NX-OS**:
+::
+   
+   interface vlan 3150
+     vrf member CC-CLOUD02
+     ip arp 10.47.104.75 fa16.3e6d.d333
+
 ***********
 Port
 ***********
+
+arista garp accept router 
 
 VLAN Handoff
 ############
