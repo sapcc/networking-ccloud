@@ -222,7 +222,7 @@ aPOD/vPOD/stPOD/netPOD/bPOD/Transit leafs
       member vni 10394
          ingress-replication protocol bgp
          suppress-arp
-         
+
    vlan 2420
       name aeec9fd4-30f7-4398-8554-34acb36b7712/bb301
       vn-segment 10394
@@ -463,6 +463,7 @@ aPOD/vPOD/stPOD/netPOD/bPOD/Transit leafs
 
 **EOS**:
 ::
+
    router bgp 65130.1103
       vrf CC-CLOUD02
          aggregate-address 130.214.202.0/24
@@ -483,6 +484,17 @@ aPOD/vPOD/stPOD/netPOD/bPOD/Transit leafs
 ***********
 Floating IP
 ***********
+
+The high churn rate and mac-to-ip mobility cause significant ARP traffic in the fabric if 
+not otherwise mitigated. To reduce the number of ARP packets required the driver will
+in combination with the Neutron L3 driver create and maintain static arp entries to 
+reduce the number of ARP packets significantly and allow for Floating Ip operations to 
+be instantaneous. Static ARP entries will be defined on every leaf pair a certain 
+FIP is expected to be at. If there are multiple leaf pairs where the IP could be located
+it is expected that only the leaf pair also having the destination MAC in its local 
+endpoint table generate a Type-2 MAC/IP route for the entry. Other leafs are not 
+to generate Type-2 until such point as the destination MAC address becomes active 
+at that leaf.
 
 Sample Floating IP Definition
 #############################
@@ -529,8 +541,25 @@ arista garp accept router
 VLAN Handoff
 ############
 
-Ironic
-######
+VMware NSX-t, Neutron Network Agent, Octavia F5, Netapp
+-------------------------------------------------------
 
-Neutron l3
-##########
+
+Ironic Cisco UCS
+----------------
+
+
+Ironic
+------
+
+Neutron ASR ml2
+---------------
+
+VXLAN EVPN Handoff
+##################
+
+
+VXLAN Flood and Learn Handoff
+#############################
+
+
