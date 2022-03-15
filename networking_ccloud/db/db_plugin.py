@@ -25,6 +25,7 @@ from oslo_log import log as logging
 import sqlalchemy as sa
 
 from networking_ccloud.common.config import get_driver_config
+from networking_ccloud.common import constants as cc_const
 from networking_ccloud.common import exceptions as cc_exc
 from networking_ccloud.common import helper
 from networking_ccloud.db import models as cc_models
@@ -146,73 +147,94 @@ class CCDbPlugin(db_base_plugin_v2.NeutronDbPluginV2,
         return azs
 
     @db_api.retry_if_session_inactive()
-    def get_transits_for_network(self, context, network_id):
-        query = context.session.query(cc_models.CCNetworkTransitMap)
-        query = query.filter_by(network_id=network_id)
+    def get_interconnects_for_network(self, context, device_type, network_id):
+        query = context.session.query(cc_models.CCNetworkInterconnects)
+        query = query.filter_by(device_type=device_type, network_id=network_id)
 
         return list(query.all())
 
-    @db_api.retry_if_session_inactive()
-    def ensure_transit_for_network(self, context, network_id, az):
-        """Make sure a network has a transit allocated for an AZ
+    def get_transits_for_network(self, context, network_id):
+        return self.get_interconnects_for_network(context, cc_const.DEVICE_TYPE_TRANSIT, network_id)
 
-        Returns a bool indicating if a new transit had to be allocated and the
-        DB model itself. If no transit is available, (False, None) is returned.
-        Note that false can also be returned when a new DB entry was made, but
-        the transit was already allocated to this network, but not the given AZ
-        (but also services this AZ).
+    def get_bgws_for_network(self, context, network_id):
+        return self.get_interconnects_for_network(context, cc_const.DEVICE_TYPE_BGW, network_id)
+
+    @db_api.retry_if_session_inactive()
+    def ensure_interconnect_for_network(self, context, device_type, network_id, az):
+        """Make sure a network has an interconnect of device_type allocated for an AZ
+
+        Returns a bool indicating if a new interconnect had to be allocated plus the
+        DB model itself. If no interconnect is available, (False, None) is returned.
+        Note that False can also be returned when a new DB entry was made, but
+        the interconnect was already allocated to this network, but not the given AZ
+        (but also services this AZ) - this can only happen for Transits as they are
+        the only devices servicing a different AZ.
         """
         with context.session.begin(subtransactions=True):
-            query = context.session.query(cc_models.CCNetworkTransitMap)
-            query = query.filter_by(network_id=network_id, availability_zone=az)
+            query = context.session.query(cc_models.CCNetworkInterconnects)
+            query = query.filter_by(device_type=device_type, network_id=network_id, availability_zone=az)
             if query.count() > 0:
-                # Transit already scheduled
+                # Interconnection device already scheduled
                 return False, query.all()[0]
 
-            # we need to assign a transit - find candidates from config
-            available_transits = [t.binding_host_name for t in self.drv_conf.get_transits_for_az(az)]
-            if not available_transits:
-                LOG.warning("Can't scheduled transit for network %s - no transit available for AZ %s in config",
-                            network_id, az)
+            # we need to assign a device - find candidates from config
+            avail_devices = [t.binding_host_name for t in self.drv_conf.get_interconnects_for_az(device_type, az)]
+            if not avail_devices:
+                LOG.warning("Can't schedule interconnect %s for network %s - no %s available for AZ %s in config",
+                            device_type, network_id, device_type, az)
                 return False, None
 
-            # check that this network has net yet bound one of these transits
-            query = context.session.query(cc_models.CCNetworkTransitMap.transit)
-            query = query.filter(cc_models.CCNetworkTransitMap.network_id == network_id)
+            # check that this network has not yet bound one of these interconnects
+            query = context.session.query(cc_models.CCNetworkInterconnects.host)
+            query = query.filter_by(device_type=device_type, network_id=network_id)
             for entry in query.all():
-                if entry[0] in available_transits:
+                if entry[0] in avail_devices:
                     # existing transit!
-                    new_transit_allocated = False
-                    transit = entry[0]
+                    new_interconnect_allocated = False
+                    host = entry[0]
                     break
             else:
                 # scheduling algorithm: least used
-                new_transit_allocated = True
-                query = context.session.query(cc_models.CCNetworkTransitMap.transit,
-                                              sa.func.count(cc_models.CCNetworkTransitMap.network_id).label('count'))
-                query = query.filter(cc_models.CCNetworkTransitMap.transit.in_(available_transits))
-                query = query.group_by(cc_models.CCNetworkTransitMap.transit)
+                new_interconnect_allocated = True
+                query = context.session.query(cc_models.CCNetworkInterconnects.host,
+                                              sa.func.count(cc_models.CCNetworkInterconnects.network_id).label('count'))
+                query = query.filter_by(device_type=device_type)
+                query = query.filter(cc_models.CCNetworkInterconnects.host.in_(avail_devices))
+                query = query.group_by(cc_models.CCNetworkInterconnects.host)
                 query = query.order_by('count')
 
                 # check if one transit is not present (not used yet), else use first entry from DB query
-                db_transits = [entry[0] for entry in query.all()]
-                for transit in available_transits:
-                    if transit not in db_transits:
+                db_devices = [entry[0] for entry in query.all()]
+                for host in avail_devices:
+                    if host not in db_devices:
                         break
                 else:
-                    transit = db_transits[0]
+                    host = db_devices[0]
 
-            transit_alloc = cc_models.CCNetworkTransitMap(network_id=network_id, availability_zone=az, transit=transit)
+            transit_alloc = cc_models.CCNetworkInterconnects(device_type=device_type, network_id=network_id,
+                                                             availability_zone=az, host=host)
             context.session.add(transit_alloc)
 
-        return new_transit_allocated, transit_alloc
+        return new_interconnect_allocated, transit_alloc
+
+    def ensure_transit_for_network(self, context, network_id, az):
+        return self.ensure_interconnect_for_network(context, cc_const.DEVICE_TYPE_TRANSIT, network_id, az)
+
+    def ensure_bgw_for_network(self, context, network_id, az):
+        return self.ensure_interconnect_for_network(context, cc_const.DEVICE_TYPE_BGW, network_id, az)
 
     @db_api.retry_if_session_inactive()
-    def remove_transit_from_network(self, context, network_id, az):
+    def remove_interconnect_from_network(self, context, device_type, network_id, az):
         """Remove a transit from a network"""
-        query = context.session.query(cc_models.CCNetworkTransitMap)
-        query = query.filter(cc_models.CCNetworkTransitMap.network_id == network_id)
+        query = context.session.query(cc_models.CCNetworkInterconnects)
+        query = query.filter_by(device_type=device_type, network_id=network_id)
         if az is not None:
-            query = query.filter(cc_models.CCNetworkTransitMap.availability_zone == az)
+            query = query.filter_by(availability_zone=az)
 
         return query.delete() > 0
+
+    def remove_transit_from_network(self, context, network_id, az):
+        return self.remove_interconnect_from_network(context, cc_const.DEVICE_TYPE_TRANSIT, network_id, az)
+
+    def remove_bgw_from_network(self, context, network_id, az):
+        return self.remove_interconnect_from_network(context, cc_const.DEVICE_TYPE_BGW, network_id, az)

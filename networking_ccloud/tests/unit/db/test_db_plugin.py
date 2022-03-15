@@ -181,7 +181,7 @@ class TestDBPluginNetworkSyncData(test_segment.SegmentTestCase, base.PortBinding
             self.assertEqual(800, net_hosts[self._net_b['id']]['caw-compute']['segmentation_id'])
 
 
-class TestTransitAllocation(test_segment.SegmentTestCase, base.PortBindingHelper):
+class TestNetworkInterconnectAllocation(test_segment.SegmentTestCase, base.PortBindingHelper):
     def setUp(self):
         super().setUp()
 
@@ -189,16 +189,15 @@ class TestTransitAllocation(test_segment.SegmentTestCase, base.PortBindingHelper
         switchgroups = [
             cfix.make_switchgroup("seagull", availability_zone="qa-de-1a"),
             cfix.make_switchgroup("cat", availability_zone="qa-de-1b"),
+            cfix.make_switchgroup("crow", availability_zone="qa-de-1a"),
         ]
 
-        def _make_transit(name, switch, azs):
-            return config_driver.Hostgroup(binding_hosts=[name], role=config_driver.HostgroupRole.transit,
-                                           members=[cfix.make_switchport(f"{switch}-sw1", f"{name}-1/1/1")],
-                                           handle_availability_zones=azs)
         hostgroups = [
-            _make_transit("transit1", "seagull", ["qa-de-1a"]),
-            _make_transit("transit2", "cat", ["qa-de-1b"]),
-            _make_transit("transit3", "cat", ["qa-de-1b", "qa-de-1c"]),
+            cfix.make_interconnect(config_driver.HostgroupRole.transit, "transit1", "seagull", ["qa-de-1a"]),
+            cfix.make_interconnect(config_driver.HostgroupRole.transit, "transit2", "cat", ["qa-de-1b"]),
+            cfix.make_interconnect(config_driver.HostgroupRole.transit, "transit3", "cat", ["qa-de-1b", "qa-de-1c"]),
+
+            cfix.make_interconnect(config_driver.HostgroupRole.bgw, "bgw1", "crow", ["qa-de-1a"]),
         ]
         self.drv_conf = cfix.make_config(switchgroups=switchgroups, hostgroups=hostgroups)
         _override_driver_config(self.drv_conf)
@@ -212,26 +211,26 @@ class TestTransitAllocation(test_segment.SegmentTestCase, base.PortBindingHelper
         net_a = self._make_network(name="a", admin_state_up=True, fmt='json')['network']
         transit_created, transit = self._db.ensure_transit_for_network(ctx, net_a['id'], 'qa-de-1a')
         self.assertTrue(transit_created)
-        self.assertEqual("transit1", transit.transit)
+        self.assertEqual("transit1", transit.host)
         self.assertEqual("qa-de-1a", transit.availability_zone)
         self.assertEqual(net_a['id'], transit.network_id)
 
         # first network, again
         transit_created, transit = self._db.ensure_transit_for_network(ctx, net_a['id'], 'qa-de-1a')
         self.assertFalse(transit_created)
-        self.assertEqual("transit1", transit.transit)
+        self.assertEqual("transit1", transit.host)
 
         # second network
         net_b = self._make_network(name="b", admin_state_up=True, fmt='json')['network']
         transit_created, transit = self._db.ensure_transit_for_network(ctx, net_b['id'], 'qa-de-1a')
         self.assertTrue(transit_created)
-        self.assertEqual("transit1", transit.transit)
+        self.assertEqual("transit1", transit.host)
 
         # third network, only possible on transit3
         net_c = self._make_network(name="c", admin_state_up=True, fmt='json')['network']
         transit_created, transit = self._db.ensure_transit_for_network(ctx, net_c['id'], 'qa-de-1c')
         self.assertTrue(transit_created)
-        self.assertEqual("transit3", transit.transit)
+        self.assertEqual("transit3", transit.host)
 
     def test_same_net_multiple_transits_and_get(self):
         ctx = context.get_admin_context()
@@ -240,21 +239,21 @@ class TestTransitAllocation(test_segment.SegmentTestCase, base.PortBindingHelper
         # qa-de-1a
         transit_created, transit = self._db.ensure_transit_for_network(ctx, net_a['id'], 'qa-de-1a')
         self.assertTrue(transit_created)
-        self.assertEqual("transit1", transit.transit)
+        self.assertEqual("transit1", transit.host)
 
         # qa-de-1c
         transit_created, transit = self._db.ensure_transit_for_network(ctx, net_a['id'], 'qa-de-1c')
         self.assertTrue(transit_created)
-        self.assertEqual("transit3", transit.transit)
+        self.assertEqual("transit3", transit.host)
 
         # qa-de-1b, transit3 should already be bound
         transit_created, transit = self._db.ensure_transit_for_network(ctx, net_a['id'], 'qa-de-1b')
         self.assertFalse(transit_created)
-        self.assertEqual("transit3", transit.transit)
+        self.assertEqual("transit3", transit.host)
 
         # test get
         db_transits = self._db.get_transits_for_network(ctx, net_a['id'])
-        self.assertEqual({"transit1", "transit3"}, set(t.transit for t in db_transits))
+        self.assertEqual({"transit1", "transit3"}, set(t.host for t in db_transits))
         self.assertEqual({"qa-de-1a", "qa-de-1b", "qa-de-1c"}, set(t.availability_zone for t in db_transits))
         self.assertEqual(3, len(db_transits))
 
@@ -272,20 +271,20 @@ class TestTransitAllocation(test_segment.SegmentTestCase, base.PortBindingHelper
         net_a = self._make_network(name="a", admin_state_up=True, fmt='json')['network']
         transit_created, transit = self._db.ensure_transit_for_network(ctx, net_a['id'], 'qa-de-1b')
         self.assertTrue(transit_created)
-        self.assertEqual("transit2", transit.transit)
+        self.assertEqual("transit2", transit.host)
 
         # second network, expect second transit to be allocated
         net_b = self._make_network(name="b", admin_state_up=True, fmt='json')['network']
         transit_created, transit = self._db.ensure_transit_for_network(ctx, net_b['id'], 'qa-de-1b')
         self.assertTrue(transit_created)
-        self.assertEqual("transit3", transit.transit)
+        self.assertEqual("transit3", transit.host)
 
         # third and fourth network, both should be allocated to a different transit
         net_c = self._make_network(name="c", admin_state_up=True, fmt='json')['network']
         net_d = self._make_network(name="d", admin_state_up=True, fmt='json')['network']
         transit_created_3, transit_3 = self._db.ensure_transit_for_network(ctx, net_c['id'], 'qa-de-1b')
         transit_created_4, transit_4 = self._db.ensure_transit_for_network(ctx, net_d['id'], 'qa-de-1b')
-        self.assertNotEqual(transit_3.transit, transit_4.transit, "Transits should not be equal")
+        self.assertNotEqual(transit_3.host, transit_4.host, "Transits should not be equal")
 
     def test_transit_deallocation(self):
         ctx = context.get_admin_context()
@@ -301,4 +300,39 @@ class TestTransitAllocation(test_segment.SegmentTestCase, base.PortBindingHelper
 
         # remove it a second time, should return False
         removed = self._db.remove_transit_from_network(ctx, net_a['id'], 'qa-de-1a')
+        self.assertFalse(removed)
+
+    def test_bgw_allocation_deallocation(self):
+        # NOTE: we do most tests already with transits, so BGW testing is a bit shorter
+        ctx = context.get_admin_context()
+        net_a = self._make_network(name="a", admin_state_up=True, fmt='json')['network']
+
+        # test bgw allocation
+        bgw_created, bgw = self._db.ensure_bgw_for_network(ctx, net_a['id'], 'qa-de-1a')
+        self.assertTrue(bgw_created)
+        self.assertEqual("bgw1", bgw.host)
+
+        # make sure we can also still allocate a transit
+        transit_created, transit = self._db.ensure_transit_for_network(ctx, net_a['id'], 'qa-de-1a')
+        self.assertTrue(transit_created)
+        self.assertEqual("transit1", transit.host)
+        self.assertEqual("qa-de-1a", transit.availability_zone)
+        self.assertEqual(net_a['id'], transit.network_id)
+
+        # same returned second time
+        bgw_created_2, bgw_2 = self._db.ensure_bgw_for_network(ctx, net_a['id'], 'qa-de-1a')
+        self.assertFalse(bgw_created_2)
+        self.assertEqual("bgw1", bgw_2.host)
+
+        # get the bgw from db
+        bgws = self._db.get_bgws_for_network(ctx, net_a['id'])
+        self.assertEqual(1, len(bgws))
+        self.assertEqual("bgw1", bgws[0].host)
+        self.assertEqual("qa-de-1a", bgws[0].availability_zone)
+
+        # deallocate
+        removed = self._db.remove_bgw_from_network(ctx, net_a['id'], 'qa-de-1a')
+        self.assertTrue(removed)
+
+        removed = self._db.remove_bgw_from_network(ctx, net_a['id'], 'qa-de-1a')
         self.assertFalse(removed)

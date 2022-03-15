@@ -87,8 +87,8 @@ class RoleEnum(str, Enum):
 
 
 class HostgroupRole(str, Enum):
-    transit = 'transit'
-    bgw = 'bgw'
+    transit = cc_const.DEVICE_TYPE_TRANSIT
+    bgw = cc_const.DEVICE_TYPE_BGW
 
 
 class SwitchGroup(pydantic.BaseModel):
@@ -426,12 +426,13 @@ class DriverConfig(pydantic.BaseModel):
         return v
 
     @pydantic.root_validator
-    def ensure_transits_service_their_own_az(cls, values):
+    def ensure_interconnect_az_requirements(cls, values):
+        """Make sure transits service their own AZ and all others service ONLY their own AZ"""
         if values is None:
             return
 
         for hg in values.get('hostgroups', []):
-            if hg.role != HostgroupRole.transit:
+            if hg.role is None:
                 continue
             found = False
             for sg in values.get('switchgroups', []):
@@ -448,6 +449,10 @@ class DriverConfig(pydantic.BaseModel):
             if sg.availability_zone not in hg.handle_availability_zones:
                 raise ValueError(f"Hostgroup {hg.binding_host_name} is in AZ {sg.availability_zone}, "
                                  f"but only handles {', '.join(hg.handle_availability_zones)}")
+
+            if hg.role != HostgroupRole.transit and len(hg.handle_availability_zones) > 1:
+                raise ValueError(f"Hostgroup {hg.binding_host_name} has AZs {hg.handle_availability_zones}, but "
+                                 f"should only have {sg.availability_zone}")
 
         return values
 
@@ -495,6 +500,6 @@ class DriverConfig(pydantic.BaseModel):
                     return switch
         return None
 
-    def get_transits_for_az(self, az):
+    def get_interconnects_for_az(self, device_type, az):
         return [hg for hg in self.hostgroups
-                if hg.role == HostgroupRole.transit and az in hg.handle_availability_zones]
+                if hg.role == device_type and az in hg.handle_availability_zones]
