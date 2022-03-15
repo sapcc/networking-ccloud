@@ -96,6 +96,12 @@ def make_metagroup(switchgroup, **kwargs):
     return groups
 
 
+def make_interconnect(role, host, switch_base, handle_azs):
+    return config_driver.Hostgroup(binding_hosts=[host], role=role,
+                                   members=[make_switchport(f"{switch_base}-sw1", f"{host}-1/1/1")],
+                                   handle_availability_zones=handle_azs)
+
+
 # whole config
 def make_config(switchgroups=None, hostgroups=None):
     return config_driver.DriverConfig(switchgroups=switchgroups or [], hostgroups=hostgroups or [])

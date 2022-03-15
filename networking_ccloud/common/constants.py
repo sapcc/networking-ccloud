@@ -22,6 +22,9 @@ HANDOVER_MODES = [HANDOVER_VLAN]
 CC_DRIVER_NAME = 'cc-fabric'
 VIF_TYPE_CC_FABRIC = 'cc-fabric'
 
+DEVICE_TYPE_TRANSIT = 'transit'
+DEVICE_TYPE_BGW = 'bgw'
+
 # rpc topics
 CC_DRIVER_TOPIC = 'cc-fabric-driver'
 SWITCH_AGENT_ARISTA_TOPIC = 'cc-fabric-switch-agent-arista'
