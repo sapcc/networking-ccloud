@@ -352,12 +352,178 @@ Multi AZ with Dual Legacy AZ
 Subnet
 *********
 
-On External Network
-###################
+
+External Network
+################
+
+Sample Driver Configuration
+---------------------------
+
+::
+
+   [address-scope:hcp03-public]
+   export_rt_suffix = 102
+   import_rt_suffix = 102
+   vrf = cc-cloud02
+
+Sample Subnet Definition
+------------------------
+
+::
+
+   ######### Example External Address Scope
+   {
+     "id": "f2fd984c-45b1-4465-9f99-e72f86b896fa",
+     "name": "hcp03-public",
+   }
+   ######### Example External Network
+   {
+     "id": "aeec9fd4-30f7-4398-8554-34acb36b7712",
+     "ipv4_address_scope": "24908a2d-55e8-4c03-87a9-e1493cd0d995",
+   }
+   ######### Subnets 
+   {
+     "cidr": "10.47.8.192/27",
+     "gateway_ip": "10.47.8.193",
+     "host_routes": [],
+     "id": "bbe371ae-341b-4f86-931a-e9c808cb312e",
+     "ip_version": 4,
+     "name": "FloatingIP-sap-sfh03-eude1-01",
+     "network_id": "aeec9fd4-30f7-4398-8554-34acb36b7712",
+     "subnetpool_id": "e8556528-01e6-4ccd-9286-0145ac7a75f4",
+   }
+   {
+     "cidr": "10.47.10.0/24",
+     "gateway_ip": "10.47.10.1",
+     "host_routes": [],
+     "id": "14b7b745-8d5d-4667-a3e3-2be0facbb23d",
+     "ip_version": 4,
+     "name": "FloatingIP-sap-sfh03-eude1-02",
+     "network_id": "aeec9fd4-30f7-4398-8554-34acb36b7712",
+     "subnetpool_id": "e8556528-01e6-4ccd-9286-0145ac7a75f4",
+   }
+
+Device Config
+-------------
+
+**EOS**:
+::
+
+   vrf instance CC-CLOUD02
+   
+   ip routing vrf CC-CLOUD02
+   
+   interface vlan 3150
+      description aeec9fd4-30f7-4398-8554-34acb36b7712
+      arp gratuitous accept
+      vrf CC-CLOUD02
+      ip address virtual 10.47.8.193/27
+      ip address virtual 10.47.10.1/24 secondary
+   
+   interface vxlan1
+      vxlan vlan 3150 vni 10394
+      vxlan vrf CC-CLOUD02 vni 102
+   !
+   router bgp 65130.1103
+      vrf CC-CLOUD02
+         rd 65130.1103:102
+         route-target import evpn 65130.1103:102
+         route-target export evpn 65130.1103:102
+         network 10.47.8.192/27
+         network 10.47.10.0/24
+
+**NX-OS**:
+::
+
+   interface Vlan 3150
+      description aeec9fd4-30f7-4398-8554-34acb36b7712
+      no shutdown
+      vrf member CC-CLOUD02
+      ip forward
+   
+   interface nve1
+      member vni 102 associate-vrf
+   
+   vrf context CC-CLOUD02
+      vni 102
+      rd 65130.1103:102
+      address-family ipv4 unicast
+         route-target both 65130.1103:102
+         route-target both 65130.1103:102 evpn
+
+   router bgp 65130.1103      
+      vrf CC-CLOUD02
+         address-family ipv4 unicast
+            network 10.47.8.192/27
+            network 10.47.10.0/24
+
 
 Directly Accessible Private Network 
 ###################################
 
+Sample DAPnet Definition
+------------------------
+::
+  
+   ######### Example External Network
+   {
+     "id": "aeec9fd4-30f7-4398-8554-34acb36b7712",
+     "ipv4_address_scope": "24908a2d-55e8-4c03-87a9-e1493cd0d995",
+   }
+
+   ####### Router Port which is next hop for DAPnet
+   {
+   "binding_vif_type": "asr1k",
+   "device_owner": "network:router_gateway",
+   "fixed_ips": [
+     {
+       "subnet_id": "bbe371ae-341b-4f86-931a-e9c808cb312e",
+       "ip_address": "10.47.8.197"
+     }
+   ],
+   }
+   
+   ######### Example DAPnet Network
+   {
+     "id": "8a307448-ef2a-4cae-9b2a-2edf0287e194",
+     "ipv4_address_scope": "24908a2d-55e8-4c03-87a9-e1493cd0d995",
+   }
+
+   ######### Example DAPnet Subnet
+   {
+     "cidr": "10.47.100.0/24",
+     "gateway_ip": "10.47.100.1",
+     "host_routes": [],
+     "id": "ab16807f-9c82-45e8-8e8d-da615eb8505a",
+     "ip_version": 4,
+     "name": "FloatDAPnet Sample 1",
+     "network_id": "8a307448-ef2a-4cae-9b2a-2edf0287e194",
+     "subnetpool_id": "e8556528-01e6-4ccd-9286-0145ac7a75f4",
+   }
+
+Device Config
+-------------
+
+**EOS**:
+::
+
+   ip route vrf CC-CLOUD02 10.47.100.0/24 10.47.8.197
+  
+   router bgp 65130.1103
+      vrf CC-CLOUD02
+         network 10.47.100.0/24
+
+**NX-OS**:
+::
+   
+   vrf context CC-CLOUD02
+      ip route 10.47.100.0/24 10.47.8.197
+
+   router bgp 65130.1103      
+      vrf CC-CLOUD02
+         address-family ipv4 unicast
+            network 10.47.100.0/24
+   
 ***********
 Subnet Pool
 ***********
