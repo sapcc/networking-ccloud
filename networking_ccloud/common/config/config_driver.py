@@ -239,6 +239,9 @@ class Hostgroup(pydantic.BaseModel):
     # infra networks attached to hostgroup
     infra_networks: List[InfraNetwork] = None
 
+    class Config:
+        use_enum_values = True
+
     @pydantic.validator('binding_hosts')
     def ensure_at_least_one_binding_host(cls, v):
         if len(v) == 0:
