@@ -2,13 +2,21 @@ Device Config
 ~~~~~~~~~~~~~
 This part describes the on-device config for all feature and vendor combinations.
 
-
 *********
 Network
 *********
 
-Workflow
+Overview
 ########
+
+Single AZ
+---------
+
+Multi AZ
+--------
+
+Workflow
+--------
 
 The network to device is triggered on demand when the first resources 
 
@@ -16,244 +24,6 @@ The network to device is triggered on demand when the first resources
     :width: 400px
     :align: center
     :figclass: align-center
-
-Example Network Definition
-##########################
-
-::
-
-   {
-     "admin_state_up": true,
-     "availability_zones": [
-       "qa-de-1a",
-       "qa-de-1b",
-       "qa-de-1d"
-     ],
-     "id": "aeec9fd4-30f7-4398-8554-34acb36b7712",
-     "ipv4_address_scope": "24908a2d-55e8-4c03-87a9-e1493cd0d995",
-     "mtu": 8950,
-     "name": "FloatingIP-external-sfh03-eude1",
-     "project_id": "07ed7aa018584972b40d94697b70a37b",
-     "router:external": true,
-     "segments": [
-       {
-         "provider:network_type": "vxlan",
-         "provider:physical_network": null,
-         "provider:segmentation_id": 10394
-       },
-       {
-         "provider:network_type": "vlan",
-         "provider:physical_network": "bb301",
-         "provider:segmentation_id": 3150
-       },
-       {
-         "provider:network_type": "vlan",
-         "provider:physical_network": "transit-leaf",
-         "provider:segmentation_id": 2300
-       }
-       {
-         "provider:network_type": "vlan",
-         "provider:physical_network": "bgw",
-         "provider:segmentation_id": 2340
-       }
-     ],
-     "status": "ACTIVE",
-     "subnets": [
-       "14b7b745-8d5d-4667-a3e3-2be0facbb23d",
-       "72f96182-d93d-4aa7-a987-edb315875c9e",
-       "bbe371ae-341b-4f86-931a-e9c808cb312e"
-     ],
-   }
-
-::
-
-   global:
-      asn_region: 65130
-      infra_network_default_vrf: CC-MGMT
-      vrfs:
-        CC-MGMT: 
-          rd: 900
-
-   hostgroups:
-   - binding_hosts:
-     - node001-bm301
-     members:
-     - name: Ethernet1/1
-       switch: qa-de-3-sw1103a-bb301
-     - name: Ethernet1/1
-       switch: qa-de-3-sw1103b-bb301
-   - binding_hosts:
-     - node002-bb301
-     members:
-     - name: Ethernet2/1
-       switch: qa-de-3-sw1103a-bb301
-     - name: Ethernet2/1
-       switch: qa-de-3-sw1103b-bb301
-     - name: Port-Channel 201
-       switch: qa-de-3-sw1103a-bb301
-       lacp: true
-       members: [Ethernet3/1]
-     - name: Port-Channel 201
-       switch: qa-de-3-sw1103b-bb301
-       lacp: true
-       members: [Ethernet3/1]
-   - binding_hosts:
-     - nova-compute-bb301
-     members:
-     - node001-bb301
-     - node002-bb301
-     infra_networks:
-     - vni: 10301100
-       vlan: 100
-       vrf: CC-MGMT
-       untagged: true
-       networks: [ 10.246.100.1/24 ]
-       dhcp_relays: [147.204.1.45, 10.247.3.122]
-     - vni: 10301101
-       vlan: 101    
-     metagroup: true
-
-   
-   switchgroups:
-   - asn: '65130.1103'
-     availability_zone: qa-de-1a
-     members:
-     - bgp_source_ip: 1.1.03.1
-       host: 10.114.0.203
-       name: qa-de-1-sw1103a-bb301
-       password: nope
-       user: admin2
-       platform: arista-eos
-     - bgp_source_ip: 1.1.03.2
-       host: 10.114.0.204
-       name: qa-de-3-sw1103b-bb301
-       password: api-password
-       user: api-user
-       platform: arista-eos
-     name: bb301
-     role: vpod
-     vtep_ip: 1.1.03.0
-
-Single AZ Network
------------------
-Networks with a single AZ are identified by having a availability_zones list of size 1.
-
-::
-
-    {
-     "availability_zones": [
-       "qa-de-1a",
-     ],
-    }
-
-Multi AZ Network
------------------
-Networks with a single AZ are identified by having a availability_zones list of size N.
-
-::
-
-    {
-     "availability_zones": [
-       "qa-de-1a",
-       "qa-de-1b",
-       "qa-de-1d"
-     ],
-    }
-
-On Device configuration
-#######################
-
-.. list-table:: Relevant Device Scaling Limits
-   :widths: 33 33 33
-   :header-rows: 1
-
-   * - Resource
-     - EOS
-     - NX-OS
-   * - VLANs
-     - 1800
-     - 
-   * - VRFs
-     - 
-     -
-   * - VLAN Translations (per Port)
-     -
-     - 4000 / 500 (FX3)
-   * - VLAN Translations (per Switch)
-     -
-     - 24000 / 6000 (FX3)
-   * - Static ARP entries
-     -
-     - 
-   * - Static IPv4 Routes
-     -
-     - 
-
-
-
-
-Driver Configuration
---------------------
-
-
-
-aPOD/vPOD/stPOD/netPOD/bPOD/Transit leafs
------------------------------------------
-
-**EOS**:
-::
-
-   interface Vxlan1
-      vxlan vlan 3150 vni 10394
-
-   vlan 3150
-      name aeec9fd4-30f7-4398-8554-34acb36b7712/bb301
-
-   router bgp 65130.1112
-     vlan 3150
-         rd 65130.1112:10394
-         route-target both 65130:10394
-         redistribute learned
-
-**NX-OS**:
-::
-
-   interface nve1
-      member vni 10394
-         ingress-replication protocol bgp
-         suppress-arp
-
-   vlan 2420
-      name aeec9fd4-30f7-4398-8554-34acb36b7712/bb301
-      vn-segment 10394
-
-   router bgp 65130.1103
-      evpn
-         vni 10394 l2
-            rd 65130.1103:10394
-            route-target both 65130:10394
-
-Border Gateway
---------------
-
-**EOS**:
-::
-
-   interface Vxlan1
-      vxlan vlan 2340 vni 10394
-
-   vlan 2420
-      name aeec9fd4-30f7-4398-8554-34acb36b7712/bgw
-
-   router bgp 65130.1103
-      vlan 2340
-         rd evpn domain all 65130.1103:10394
-         route-target both 65130:10394
-         route-target import export evpn domain remote 65130:10394
-         redistribute learned
-
-**NX-OS**:
-
 
 Legacy Fabric Integration
 #########################
@@ -347,11 +117,215 @@ Multi AZ with Dual Legacy AZ
 * **First port AZb**: Additional segment for L2 trunk EVPN<->Legacy in AZb is added.
 * **First port AZc**: Additional segment for L2 trunk EVPN<->Legacy in AZa AND AZb is added, BGW segment in AZc and AZa and AZb is added.
 * **Second port AZX**: Additional BGW segment in AZX and ALL AZs already having ports is added, additional segment for L2 trunk in AZX is added if not already present.
- 
+
+Sample Driver Configuration
+###########################
+::
+
+   global:
+      asn_region: 65130
+      infra_network_default_vrf: CC-MGMT
+      vrfs:
+        CC-MGMT: 
+          rd: 900
+
+   hostgroups:
+   - binding_hosts:
+     - node001-bm301
+     members:
+     - name: Ethernet1/1
+       switch: qa-de-3-sw1103a-bb301
+     - name: Ethernet1/1
+       switch: qa-de-3-sw1103b-bb301
+   - binding_hosts:
+     - node002-bb301
+     members:
+     - name: Ethernet2/1
+       switch: qa-de-3-sw1103a-bb301
+     - name: Ethernet2/1
+       switch: qa-de-3-sw1103b-bb301
+     - name: Port-Channel 201
+       switch: qa-de-3-sw1103a-bb301
+       lacp: true
+       members: [Ethernet3/1]
+     - name: Port-Channel 201
+       switch: qa-de-3-sw1103b-bb301
+       lacp: true
+       members: [Ethernet3/1]
+   - binding_hosts:
+     - nova-compute-bb301
+     members:
+     - node001-bb301
+     - node002-bb301
+     infra_networks:
+     - vni: 10301100
+       vlan: 100
+       vrf: CC-MGMT
+       untagged: true
+       networks: [ 10.246.100.1/24 ]
+       dhcp_relays: [147.204.1.45, 10.247.3.122]
+     - vni: 10301101
+       vlan: 101    
+     metagroup: true
+
+   
+   switchgroups:
+   - asn: '65130.1103'
+     availability_zone: qa-de-1a
+     members:
+     - bgp_source_ip: 1.1.03.1
+       host: 10.114.0.203
+       name: qa-de-1-sw1103a-bb301
+       password: nope
+       user: admin2
+       platform: arista-eos
+     - bgp_source_ip: 1.1.03.2
+       host: 10.114.0.204
+       name: qa-de-3-sw1103b-bb301
+       password: api-password
+       user: api-user
+       platform: arista-eos
+     name: bb301
+     role: vpod
+     vtep_ip: 1.1.03.0
+
+Sample Network Definition
+#########################
+
+::
+
+   {
+     "admin_state_up": true,
+     "availability_zones": [
+       "qa-de-1a",
+       "qa-de-1b",
+       "qa-de-1d"
+     ],
+     "id": "aeec9fd4-30f7-4398-8554-34acb36b7712",
+     "ipv4_address_scope": "24908a2d-55e8-4c03-87a9-e1493cd0d995",
+     "mtu": 8950,
+     "name": "FloatingIP-external-sfh03-eude1",
+     "project_id": "07ed7aa018584972b40d94697b70a37b",
+     "router:external": true,
+     "segments": [
+       {
+         "provider:network_type": "vxlan",
+         "provider:physical_network": null,
+         "provider:segmentation_id": 10394
+       },
+       {
+         "provider:network_type": "vlan",
+         "provider:physical_network": "bb301",
+         "provider:segmentation_id": 3150
+       },
+       {
+         "provider:network_type": "vlan",
+         "provider:physical_network": "transit-leaf",
+         "provider:segmentation_id": 2300
+       }
+       {
+         "provider:network_type": "vlan",
+         "provider:physical_network": "bgw",
+         "provider:segmentation_id": 2340
+       }
+     ],
+     "status": "ACTIVE",
+     "subnets": [
+       "14b7b745-8d5d-4667-a3e3-2be0facbb23d",
+       "72f96182-d93d-4aa7-a987-edb315875c9e",
+       "bbe371ae-341b-4f86-931a-e9c808cb312e"
+     ],
+   }
+
+Single AZ Network
+-----------------
+Networks with a single AZ are identified by having a availability_zones list of size 1.
+
+::
+
+    {
+     "availability_zones": [
+       "qa-de-1a",
+     ],
+    }
+
+Multi AZ Network
+-----------------
+Networks with a single AZ are identified by having a availability_zones list of size N.
+
+::
+
+    {
+     "availability_zones": [
+       "qa-de-1a",
+       "qa-de-1b",
+       "qa-de-1d"
+     ],
+    }
+
+On Device configuration
+#######################
+
+aPOD/vPOD/stPOD/netPOD/bPOD/Transit leafs
+-----------------------------------------
+
+**EOS**:
+::
+
+   interface Vxlan1
+      vxlan vlan 3150 vni 10394
+
+   vlan 3150
+      name aeec9fd4-30f7-4398-8554-34acb36b7712/bb301
+
+   router bgp 65130.1112
+     vlan 3150
+         rd 65130.1112:10394
+         route-target both 65130:10394
+         redistribute learned
+
+**NX-OS**:
+::
+
+   interface nve1
+      member vni 10394
+         ingress-replication protocol bgp
+         suppress-arp
+
+   vlan 2420
+      name aeec9fd4-30f7-4398-8554-34acb36b7712/bb301
+      vn-segment 10394
+
+   router bgp 65130.1103
+      evpn
+         vni 10394 l2
+            rd 65130.1103:10394
+            route-target both 65130:10394
+
+Border Gateway
+--------------
+
+**EOS**:
+::
+
+   interface Vxlan1
+      vxlan vlan 2340 vni 10394
+
+   vlan 2420
+      name aeec9fd4-30f7-4398-8554-34acb36b7712/bgw
+
+   router bgp 65130.1103
+      vlan 2340
+         rd evpn domain all 65130.1103:10394
+         route-target both 65130:10394
+         route-target import export evpn domain remote 65130:10394
+         redistribute learned
+
+**NX-OS**:
+
 *********
 Subnet
 *********
-
 
 External Network
 ################
@@ -403,8 +377,8 @@ Sample Subnet Definition
      "subnetpool_id": "e8556528-01e6-4ccd-9286-0145ac7a75f4",
    }
 
-Device Config
--------------
+On Device configuration
+-----------------------
 
 **EOS**:
 ::
@@ -415,7 +389,6 @@ Device Config
    
    interface vlan 3150
       description aeec9fd4-30f7-4398-8554-34acb36b7712
-      arp gratuitous accept
       vrf CC-CLOUD02
       ip address virtual 10.47.8.193/27
       ip address virtual 10.47.10.1/24 secondary
@@ -457,9 +430,8 @@ Device Config
             network 10.47.8.192/27
             network 10.47.10.0/24
 
-
-Directly Accessible Private Network 
-###################################
+DAPnet Directly Accessible Private Network 
+##########################################
 
 Sample DAPnet Definition
 ------------------------
@@ -501,8 +473,8 @@ Sample DAPnet Definition
      "subnetpool_id": "e8556528-01e6-4ccd-9286-0145ac7a75f4",
    }
 
-Device Config
--------------
+On Device configuration
+-----------------------
 
 **EOS**:
 ::
@@ -539,7 +511,6 @@ out undesired prefixes. It is assumed this list will be used in BGP policy towar
 core routers, policy and bgp configuration for those peerings are not in scope 
 of the driver managed configuration. For each vrf the driver will do:
 
-
 1. Collect all address-scopes belonging to the vrf
 2. Collect all subnet pools from the relevant address-scopes
 3. From the subnet pools collect all prefixes
@@ -550,6 +521,7 @@ of the driver managed configuration. For each vrf the driver will do:
 
 Driver Configuration
 ####################
+
 ::
 
    [address-scope:hcp03-public]
@@ -565,6 +537,7 @@ Driver Configuration
 
 Sample Subnet Pool Definition
 #############################
+
 ::
 
    {
@@ -623,7 +596,6 @@ Border Leaf
       seq 30 deny 10.188.16.0/21 ge 22 le 31
       seq 40 deny 10.236.100.0/22 ge 23 le 31
 
-
 aPOD/vPOD/stPOD/netPOD/bPOD/Transit leafs
 -----------------------------------------
 
@@ -645,7 +617,6 @@ aPOD/vPOD/stPOD/netPOD/bPOD/Transit leafs
             aggregate-address 130.214.202.0/24
             aggregate-address 130.214.215.0/26
             aggregate-address 10.236.100.0/22
-
 
 ***********
 Floating IP
@@ -680,7 +651,6 @@ Sample Floating IP Definition
      "router_id": "260c2d26-2904-4073-8407-7f94ed1e88b8",
    }
 
-
 On Device Configuration
 #######################
 
@@ -689,6 +659,7 @@ netPOD leafs
 
 **EOS**:
 ::
+
    arp vrf CC-CLOUD02 10.47.104.75 fa16.3e6d.d333 
 
 **NX-OS**:
@@ -702,18 +673,14 @@ netPOD leafs
 Port
 ***********
 
-arista garp accept router 
-
 VLAN Handoff
 ############
 
 VMware NSX-t, Neutron Network Agent, Octavia F5, Netapp
 -------------------------------------------------------
 
-
 Ironic Cisco UCS
 ----------------
-
 
 Ironic
 ------
@@ -724,8 +691,35 @@ Neutron ASR ml2
 VXLAN EVPN Handoff
 ##################
 
-
 VXLAN Flood and Learn Handoff
 #############################
 
+**************
+Scaling Limits
+**************
 
+.. list-table:: Relevant Device Scaling Limits
+   :widths: 33 33 33
+   :header-rows: 1
+
+   * - Resource
+     - EOS
+     - NX-OS
+   * - VLANs
+     - 1800
+     - 
+   * - VRFs
+     - 
+     -
+   * - VLAN Translations (per Port)
+     -
+     - 4000 / 500 (FX3)
+   * - VLAN Translations (per Switch)
+     -
+     - 24000 / 6000 (FX3)
+   * - Static ARP entries
+     -
+     - 
+   * - Static IPv4 Routes
+     -
+     - 
