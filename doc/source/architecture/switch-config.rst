@@ -734,38 +734,32 @@ Avocado defines two modes:
 Bare metal boxes expect their default ports to be available untagged.
 
 Arista leaf config:
-```
-! default vlan X, int vxlan1 stuff
-!
-! for each interface belonging to the hostgroup
-interface $eth_x
-    switchport mode trunk
-    switchport trunk allowed vlan $vlan_bb # only add it...
-    switchport trunk native vlan $vlan_bb
-```
+::
+
+  ! default vlan X, int vxlan1 stuff
+  !
+  ! for each interface belonging to the hostgroup
+  interface $eth_x
+      switchport mode trunk
+      switchport trunk allowed vlan $vlan_bb # only add it...
+      switchport trunk native vlan $vlan_bb
 
 ## Trunk extension
 In node bare metal mode if the user binds a network to a server via trunk sub-port with vlan id `$vlan_user`.
 
 Arista leaf config:
-```
-vlan $vlan_bb
-!
-interface vxlan1
-    vxlan vlan $vlan_bb vni $vni_net_a
-!
-! for each interface belonging to the hostgroup
-interface $eth_x
-    switchport mode trunk
-    switchport vlan translation $vlan_user $vlan_bb
-    switchport allowed vlan ...
+::
 
-```
-
-NXOS leaf config:
-```
-
-```
+  vlan $vlan_bb
+  !
+  interface vxlan1
+      vxlan vlan $vlan_bb vni $vni_net_a
+  !
+  ! for each interface belonging to the hostgroup
+  interface $eth_x
+     switchport mode trunk
+     switchport vlan translation $vlan_user $vlan_bb
+     switchport allowed vlan ...
 
 ## Port-Channel
 
