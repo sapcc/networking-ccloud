@@ -1,24 +1,34 @@
 Device Config
 ~~~~~~~~~~~~~
-This part describes the on-device config for all feature and vendor combinations.
+This document describes the mapping of Openstack Neutron objects to device configuration including limits and supported feature combinations.
 
 *********
 Network
 *********
+A Neutron Network is the basis for all other operations it is an assumed L2 broadcast domain.
 
 Overview
 ########
+This driver implements Neutron networks by way of establishing a 1:1 mapping between a Neutron Network and a VXLAN-EVPN VNI.
+The VNI ID is managed by the Neutron server and is recorded as top level segment in the neutron segments table for a specific network.The driver will on demand create sub-segments (hierarchical port binding) whenever a specific network is required on a EVPN leaf switch or group of leaf switches. Those sub segments include a segmentation ID of type VLAN which is the switch/group local VLAN ID which will be used for VNI to VLAN mapping by the driver.
 
 Single AZ
 ---------
+Single AZ networks are only configured within one EVPN domain. Inter-AZ traffic for single AZ
+networks is routed L3 only.
 
 Multi AZ
 --------
+Multi AZ networks span over multiple EVPN Domains, the network is extended between EVPN domains 
+using EVPN border gateway or EVPN multi site functionality. The driver will configure ALL 
+border gateways when the first port is going through ml2 port binding for a given network 
+and will remove the configuration when the last port in the network is removed.
 
 Workflow
 --------
-
-The network to device is triggered on demand when the first resources 
+All fabric configuration is triggered by ml2 port binding requests, depending on the 
+network settings the below workflow is triggered to determine the config and scope 
+that is required to extend the neutron network to the devices.
 
 .. figure:: figure/network_provisioning_flow.svg
     :width: 400px
@@ -27,71 +37,94 @@ The network to device is triggered on demand when the first resources
 
 Legacy Fabric Integration
 #########################
+The driver supports the integration with a legacy network fabric managed by 
+another neutron driver in a multi-az environment.
 
-The transit (or L2 Trunk) is used to connect the fabric to another ml2
+Legacy driver coordination
+--------------------------
+The transit (a L2 trunk between fabrics) is used to connect the fabric to 
+another network environment managed by a different ml2
 top level driver. The legacy driver and this driver (networking-ccloud) both 
 share responsibility for the top segment.
 For this to work they need to be interconnected. This means that whenever
 an OpenStack network should be present both on legacy and networking-ccloud side
-it requires a transit segment between these two fabrics.
-
-The transit is done by having two switch pairs connected back-to-back, one on
-each side and having the drivers coordinate on the VLANs used on both sides.
-Networking-ccloud will create the necessary segment, as it is on top of the hierarchy.
+it requires a transit segment between these two fabrics. Those transit points 
+have to be coordinated between the two drivers (VLAN allocation, etc.).
 
 Other drivers will have to be notified of this change, options are:
  * having an own signal in bind_port
  * use ml2 `(create|update|delete)_port_postcommit` hooks
 
-In config (and NetBox) each Transit will have a list of AZs associated with it
-that it feels responsible for. Whenever a network is either extended across
-AZs or is present in at least one AZ and on the "other side" (e.g. ACI) the
-driver will schedule the network to an ACI transit for each AZ it is in.
-One Transit can be responsible for multiple AZs. If a Transit is in a
-different AZ than other portbindings, BGWs will be configured for inter-AZ
-communication inside the fabric. When the Transit is no longer needed (e.g.
-when the last port in one AZ is removed and no other AZ is using this transit
-then the scheduling of this (AZ, Transit, Network) and its respective segment / VLAN
-allocation will be removed.
+In config each Transit will have a list of AZs associated with it
+that it can service. Whenever a network is potentially present in 
+both environments the driver will pick a transit point in each az 
+(multiple transits per AZ are allowed and will be scheduled least-used)
+which has transits defined. 
 
-The EVPN fabric driver needs to support interaction with a legacy fabric. For Neutron networks it is required to add provisioned networks not only to the leafs that are in the host group but also add the network to border gateway device for inter AZ communication as well as transit leafs to extend networks to the legacy environment.
+The guarantee of loop free forwarding is outside of the scope of the driver
+and is guaranteed to be solved in the underlying base configuration.
+
+Legacy fabric interconnection
+-----------------------------
+
+The transit is done by having switch pairs connected back-to-back, one on
+each side and having the drivers coordinate on the VLANs used on both sides.
+Networking-ccloud will create the necessary segment, as it is on top of the hierarchy.
+If more networks need to be transited than a single switch pair can service 
+and there are more than one transit pair available in an AZ the driver
+will schedule to the least used pair.
+
 The driver is not responsible for loop avoidance or migration of flows between fabric interconnections, this is expected to be handled via the static non-driver controlled configuration.
 The following topology variations need to be supported, for below scenarios it is expected that the network is already in use in legacy.
 
 Single AZ
 ---------
+There exists only a single AZ and both fabrics are interconnected with one or more transit pairs.
 
 .. figure:: figure/legacy_fabric_type_single_az.svg
     :width: 300px
     :align: center
     :figclass: align-center
 
-* **First port AZa**: Additional segment for L2 trunk EVPN<->Legacy in AZa is added.
-  
+* Single AZ Network a
+   #. Additional segment for L2 trunk EVPN<->Legacy in AZa is added.
+
 Dual AZ with Dual Legacy AZ
 ---------------------------
+There are two AZs and both have a legacy and a EVPN deployment.
 
 .. figure:: figure/legacy_fabric_type_dual_az.svg
     :width: 300px
     :align: center
     :figclass: align-center
 
-* **First port AZa**: Additional segment for L2 trunk EVPN<->Legacy in AZa is added.
-* **First port AZb**: Additional segment for L2 trunk EVPN<->Legacy in AZb is added.
-* **Second port AZa or AZb**: Additional BGW segment in AZa and AZb is added, AZX L2 Trunk is added.
+
+* Single AZ Network a or b
+   #. Additional segment for L2 trunk EVPN<->Legacy in network local AZ
+
+* Multi AZ Network
+   #. Additional segment for L2 trunk EVPN<->Legacy in ALL AZs
+   #. Additional segment for BGW in ALL AZs
 
 Dual AZ with Single Legacy AZ
 -----------------------------
+There are two AZs and both have a legacy and a EVPN deployment.
 
 .. figure:: figure/legacy_fabric_type_dual_az_evpn.svg
     :width: 300px
     :align: center
     :figclass: align-center
 
-* **First port AZb**: Additional segment for L2 trunk EVPN<->Legacy in AZa is added, additional BGW segment in AZa and AZb is added.
-* **First port AZa**: Additional segment for L2 trunk EVPN<->Legacy in AZa is added.
-* **Second port AZa or AZb**: Additional BGW segment in AZa and AZb is added if not already present.
-  
+* Single AZ Network a
+   #. Additional segment for L2 trunk EVPN<->Legacy in network local AZ
+
+* Single AZ Network b
+   #. No additional action required
+
+* Multi AZ Network
+   #. Additional segment for L2 trunk EVPN<->Legacy in AZ a
+   #. Additional segment for BGW in ALL AZs
+
 Multi AZ with Multi Legacy AZ
 -----------------------------
 
@@ -100,10 +133,12 @@ Multi AZ with Multi Legacy AZ
     :align: center
     :figclass: align-center
 
-* **First port AZa**: Additional segment for L2 trunk EVPN<->Legacy in AZa is added.
-* **First port AZb**: Additional segment for L2 trunk EVPN<->Legacy in AZb is added.
-* **First port AZc**: Additional segment for L2 trunk EVPN<->Legacy in AZc is added.
-* **Second port AZX**: Additional BGW segment in AZX and ALL AZs already having ports is added, AZx L2 Trunk is added.
+* Single AZ Network
+   #. Additional segment for L2 trunk EVPN<->Legacy in network local AZ
+
+* Multi AZ Network
+   #. Additional segment for L2 trunk EVPN<->Legacy in ALL AZs
+   #. Additional segment for BGW in ALL AZs
 
 Multi AZ with Dual Legacy AZ
 ----------------------------
@@ -113,10 +148,15 @@ Multi AZ with Dual Legacy AZ
     :align: center
     :figclass: align-center
 
-* **First port AZa**: Additional segment for L2 trunk EVPN<->Legacy in AZa is added.
-* **First port AZb**: Additional segment for L2 trunk EVPN<->Legacy in AZb is added.
-* **First port AZc**: Additional segment for L2 trunk EVPN<->Legacy in AZa AND AZb is added, BGW segment in AZc and AZa and AZb is added.
-* **Second port AZX**: Additional BGW segment in AZX and ALL AZs already having ports is added, additional segment for L2 trunk in AZX is added if not already present.
+* Single AZ Network a/b
+   #. Additional segment for L2 trunk EVPN<->Legacy in network local AZ
+
+* Single AZ Network c
+   #. No additional action required
+
+* Multi AZ Network
+   #. Additional segment for L2 trunk EVPN<->Legacy in AZa AND AZb
+   #. Additional segment for BGW in ALL AZs
 
 Sample Driver Configuration
 ###########################
@@ -126,7 +166,7 @@ Sample Driver Configuration
       asn_region: 65130
       infra_network_default_vrf: CC-MGMT
       vrfs:
-        CC-MGMT: 
+        CC-MGMT:
           rd: 900
 
    hostgroups:
@@ -165,10 +205,9 @@ Sample Driver Configuration
        networks: [ 10.246.100.1/24 ]
        dhcp_relays: [147.204.1.45, 10.247.3.122]
      - vni: 10301101
-       vlan: 101    
+       vlan: 101
      metagroup: true
 
-   
    switchgroups:
    - asn: '65130.1103'
      availability_zone: qa-de-1a
@@ -311,7 +350,7 @@ Border Gateway
    interface Vxlan1
       vxlan vlan 2340 vni 10394
 
-   vlan 2420
+   vlan 2340
       name aeec9fd4-30f7-4398-8554-34acb36b7712/bgw
 
    router bgp 65130.1103
@@ -354,8 +393,9 @@ Sample Subnet Definition
    {
      "id": "aeec9fd4-30f7-4398-8554-34acb36b7712",
      "ipv4_address_scope": "24908a2d-55e8-4c03-87a9-e1493cd0d995",
+     "router:external": true,
    }
-   ######### Subnets 
+   ######### Subnets
    {
      "cidr": "10.47.8.192/27",
      "gateway_ip": "10.47.8.193",
@@ -384,15 +424,15 @@ On Device configuration
 ::
 
    vrf instance CC-CLOUD02
-   
+
    ip routing vrf CC-CLOUD02
-   
+
    interface vlan 3150
       description aeec9fd4-30f7-4398-8554-34acb36b7712
       vrf CC-CLOUD02
       ip address virtual 10.47.8.193/27
       ip address virtual 10.47.10.1/24 secondary
-   
+
    interface vxlan1
       vxlan vlan 3150 vni 10394
       vxlan vrf CC-CLOUD02 vni 102
@@ -413,10 +453,10 @@ On Device configuration
       no shutdown
       vrf member CC-CLOUD02
       ip forward
-   
+
    interface nve1
       member vni 102 associate-vrf
-   
+
    vrf context CC-CLOUD02
       vni 102
       rd 65130.1103:102
@@ -424,19 +464,19 @@ On Device configuration
          route-target both 65130.1103:102
          route-target both 65130.1103:102 evpn
 
-   router bgp 65130.1103      
+   router bgp 65130.1103
       vrf CC-CLOUD02
          address-family ipv4 unicast
             network 10.47.8.192/27
             network 10.47.10.0/24
 
-DAPnet Directly Accessible Private Network 
+DAPnet Directly Accessible Private Network
 ##########################################
 
 Sample DAPnet Definition
 ------------------------
 ::
-  
+
    ######### Example External Network
    {
      "id": "aeec9fd4-30f7-4398-8554-34acb36b7712",
@@ -454,7 +494,7 @@ Sample DAPnet Definition
      }
    ],
    }
-   
+
    ######### Example DAPnet Network
    {
      "id": "8a307448-ef2a-4cae-9b2a-2edf0287e194",
@@ -480,14 +520,14 @@ On Device configuration
 ::
 
    ip route vrf CC-CLOUD02 10.47.100.0/24 10.47.8.197
-  
+
    router bgp 65130.1103
       vrf CC-CLOUD02
          network 10.47.100.0/24
 
 **NX-OS**:
 ::
-   
+
    vrf context CC-CLOUD02
       ip route 10.47.100.0/24 10.47.8.197
 
@@ -495,7 +535,7 @@ On Device configuration
       vrf CC-CLOUD02
          address-family ipv4 unicast
             network 10.47.100.0/24
-   
+
 ***********
 Subnet Pool
 ***********
@@ -664,7 +704,7 @@ netPOD leafs
 
 **NX-OS**:
 ::
-   
+
    interface vlan 3150
      vrf member CC-CLOUD02
      ip arp 10.47.104.75 fa16.3e6d.d333
@@ -675,6 +715,59 @@ Port
 
 VLAN Handoff
 ############
+
+# Avocado on Fabric
+The Avocado project for ACI defines a way to use parts of a virtualization cluster as bare metal and vice versa.
+It also allows us to deploy hypervisors and other machinery via Ironic as bare metal boxes.
+
+Avocado defines two modes:
+ * infra mode
+    * ports are bound together with all other ports in hostgroup
+    * ports have access to management networks (e.g. vlan 100 - mgmt)
+ * bare metal mode
+    * port can be bound on its own
+    * no access to management networks
+    * portchannel can be assembled / disassembled at will (via admin API)
+    * OpenStack trunk extension available
+
+## Normal Baremetal Port Binding
+Bare metal boxes expect their default ports to be available untagged.
+
+Arista leaf config:
+```
+! default vlan X, int vxlan1 stuff
+!
+! for each interface belonging to the hostgroup
+interface $eth_x
+    switchport mode trunk
+    switchport trunk allowed vlan $vlan_bb # only add it...
+    switchport trunk native vlan $vlan_bb
+```
+
+## Trunk extension
+In node bare metal mode if the user binds a network to a server via trunk sub-port with vlan id `$vlan_user`.
+
+Arista leaf config:
+```
+vlan $vlan_bb
+!
+interface vxlan1
+    vxlan vlan $vlan_bb vni $vni_net_a
+!
+! for each interface belonging to the hostgroup
+interface $eth_x
+    switchport mode trunk
+    switchport vlan translation $vlan_user $vlan_bb
+    switchport allowed vlan ...
+
+```
+
+NXOS leaf config:
+```
+
+```
+
+## Port-Channel
 
 VMware NSX-t, Neutron Network Agent, Octavia F5, Netapp
 -------------------------------------------------------
