@@ -171,7 +171,7 @@ Sample Driver Configuration
 
    hostgroups:
    - binding_hosts:
-     - node001-bm301
+     - node001-bb301
      members:
      - name: Ethernet1/1
        switch: qa-de-3-sw1103a-bb301
@@ -279,10 +279,14 @@ Sample Network Definition
 Single AZ Network
 -----------------
 Networks with a single AZ are identified by having a availability_zones list of size 1.
+Networks with multiple hints are not supported by the driver and will be rejected.
 
 ::
 
     {
+     "availability_zone_hints": [
+       "qa-de-1a",
+     ],
      "availability_zones": [
        "qa-de-1a",
      ],
@@ -291,10 +295,13 @@ Networks with a single AZ are identified by having a availability_zones list of 
 Multi AZ Network
 -----------------
 Networks with a single AZ are identified by having a availability_zones list of size N.
+Regional networks are expected to not have an AZ hint set.
 
 ::
 
     {
+     "availability_zone_hints": [
+     ],
      "availability_zones": [
        "qa-de-1a",
        "qa-de-1b",
@@ -472,6 +479,12 @@ On Device configuration
 
 DAPnet Directly Accessible Private Network
 ##########################################
+The driver supports tenant networks that are router internal (Neutron Router is the default gw) 
+but exempt from NAT. Those networks are identified in Neutron by comparing the address-scope
+of a routers internal and external network, if they match it is assumed that no NAT is required 
+since the scope is the same. The driver needs to identify if there are tenant routers in a subnet 
+and if those currently have DAPnets assigned to them. If this is the case the fabric as the upstream 
+router must have routes set to those networks pointing to the respective tenant router.
 
 Sample DAPnet Definition
 ------------------------
@@ -551,13 +564,18 @@ out undesired prefixes. It is assumed this list will be used in BGP policy towar
 core routers, policy and bgp configuration for those peerings are not in scope 
 of the driver managed configuration. For each vrf the driver will do:
 
-1. Collect all address-scopes belonging to the vrf
-2. Collect all subnet pools from the relevant address-scopes
-3. From the subnet pools collect all prefixes
-4. Compress the list by merging all adjacent prefixes (supernetting)
-5. Set list as ip prefix list on border leaf
-6. Remove all list entries where there exists a subnet equal to the entry (summary would conflict subnet)
-7. Add BGP summary for remainder of list
+1. **All**: Collect all address-scopes belonging to the vrf
+2. **All**: Continue processing individually for each AZ and Regional address-scopes
+3. **All**: From the subnet pools collect all prefixes
+4. **All**: Compress the list by merging all adjacent prefixes (supernetting)
+5. **BGW only**: Set list as ip prefix list on border leaf (perAZ or ALL)
+6. **POD leaf only**: Remove all list entries where there exists a subnet equal to the entry (summary would conflict subnet)
+7. **POD leaf only**: Add BGP summary for remainder of list
+
+.. figure:: figure/subnet_aggregation_flow.svg
+    :width: 300px
+    :align: center
+    :figclass: align-center
 
 Driver Configuration
 ####################
@@ -574,6 +592,17 @@ Driver Configuration
    import_rt_suffix = 102
    vrf = cc-cloud02
 
+   [address-scope:bs-public-a]
+   availability_zone = a
+   export_rt_suffix = 1102
+   import_rt_suffix = 1102
+   vrf = cc-cloud02
+
+   [address-scope:bs-public-b]
+   availability_zone = b
+   export_rt_suffix = 2102
+   import_rt_suffix = 2102
+   vrf = cc-cloud02
 
 Sample Subnet Pool Definition
 #############################
@@ -589,6 +618,11 @@ Sample Subnet Pool Definition
      "id": "10c48c80-b250-4452-a253-7f88b7a0deec",
      "ip_version": 4,
      "name": "bs-public",
+   }
+   {
+     "id": "ff3452d0-c968-49c6-b1c7-152e5ffb11ae",
+     "ip_version": 4,
+     "name": "bs-public-a",
    }
 
    {
@@ -612,6 +646,15 @@ Sample Subnet Pool Definition
       "130.214.215.0/26"
     ],
    }
+   {
+    "address_scope_id": "ff3452d0-c968-49c6-b1c7-152e5ffb11ae",
+    "id": "438157b9-3ce3-4370-8bb5-59131ff105f9",
+    "ip_version": 4,
+    "name": "internet-bs",
+    "prefixes": [
+      "130.214.215.64/26"
+    ],
+   }
 
    {
      "cidr": "10.188.16.0/21",
@@ -630,6 +673,15 @@ Border Leaf
 **EOS**:
 ::
 
+   #Sample for a availability zone
+   ip prefix-list PL-CC-CLOUD02
+      seq 10 deny 130.214.202.0/24 ge 25 le 31
+      seq 20 deny 130.214.215.0/26 ge 27 le 31
+      seq 20 deny 130.214.215.64/26 ge 27 le 31
+      seq 30 deny 10.188.16.0/21 ge 22 le 31
+      seq 40 deny 10.236.100.0/22 ge 23 le 31
+
+   #Sample for b availability zone
    ip prefix-list PL-CC-CLOUD02
       seq 10 deny 130.214.202.0/24 ge 25 le 31
       seq 20 deny 130.214.215.0/26 ge 27 le 31
@@ -712,68 +764,140 @@ netPOD leafs
 ***********
 Port
 ***********
+The driver handles multiple types of ports or port binding requests,
+for all requests the driver manages the top level segment, segment creation for HPB
+and configuring the relevant front ports for handing off networks 
+to attached equipment which is configured by a ml2 driver further down the processing
+chain and execute final port binding. For bare metal ports / servers directly
+attached to the fabric the driver will do the final port binding as no 
+other driver is subsequently called.
 
 VLAN Handoff
 ############
+This type of handoff is the most commonly used, the driver will allocate 
+and configure a VNI to VLAN mapping (HPB segment) on all leaf switches relevant for the 
+hostgroup in the port binding request as well as adding the vlan to all relevant ports on the switches.
+The subsequent driver will pick up the partial binding and use the provided vlan information to configure
+the attached device accordingly and finalize the port binding afterwards.
 
-# Avocado on Fabric
-The Avocado project for ACI defines a way to use parts of a virtualization cluster as bare metal and vice versa.
-It also allows us to deploy hypervisors and other machinery via Ironic as bare metal boxes.
+In addition to the Neutron networks in question the relevant infra networks defined in driver configuration
+for the ports will be added.
 
-Avocado defines two modes:
- * infra mode
-    * ports are bound together with all other ports in hostgroup
-    * ports have access to management networks (e.g. vlan 100 - mgmt)
- * bare metal mode
-    * port can be bound on its own
-    * no access to management networks
-    * portchannel can be assembled / disassembled at will (via admin API)
-    * OpenStack trunk extension available
-
-## Normal Baremetal Port Binding
-Bare metal boxes expect their default ports to be available untagged.
-
-Arista leaf config:
+Sample Driver Config
+--------------------
 ::
 
-  ! default vlan X, int vxlan1 stuff
-  !
-  ! for each interface belonging to the hostgroup
-  interface $eth_x
-      switchport mode trunk
-      switchport trunk allowed vlan $vlan_bb # only add it...
-      switchport trunk native vlan $vlan_bb
+  hostgroups:
+     - binding_hosts:
+       - node001-bb301
+       members:
+       - name: Ethernet1/1
+         switch: qa-de-3-sw1103a-bb301
+       - name: Ethernet1/1
+         switch: qa-de-3-sw1103b-bb301
+     - binding_hosts:
+       - node002-bb301
+       members:
+       - name: Port-Channel 201
+         switch: qa-de-3-sw1103a-bb301
+         lacp: true
+         members: [Ethernet3/1]
+       - name: Port-Channel 201
+         switch: qa-de-3-sw1103b-bb301
+         lacp: true
+         members: [Ethernet3/1]
+     - binding_hosts:
+       - nova-compute-bb301
+       members:
+       - node001-bb301
+       - node002-bb301
+       infra_networks:
+       - vni: 10301100
+         vlan: 100
+         untagged: true
+       - vni: 10301101
+         vlan: 101
+       metagroup: true
 
-## Trunk extension
-In node bare metal mode if the user binds a network to a server via trunk sub-port with vlan id `$vlan_user`.
-
-Arista leaf config:
+Sample Port Definition
+----------------------
 ::
 
-  vlan $vlan_bb
-  !
-  interface vxlan1
-      vxlan vlan $vlan_bb vni $vni_net_a
-  !
-  ! for each interface belonging to the hostgroup
-  interface $eth_x
+  # Network
+  {
+    "admin_state_up": true,
+    "availability_zones": [
+      "qa-de-1a",
+      "qa-de-1b",
+      "qa-de-1d"
+    ],
+    "id": "aeec9fd4-30f7-4398-8554-34acb36b7712",
+    "segments": [
+      {
+        "provider:network_type": "vlan",
+        "provider:physical_network": "bb301",
+        "provider:segmentation_id": 3150
+      },
+    ],
+  }
+  # Port
+  {
+  "admin_state_up": true,
+  "binding_host_id": "nova-compute-bb301",
+  "binding_profile": {},
+  "binding_vif_details": {
+    "segmentation_id": 3150
+  },
+  "device_owner": "compute:eu-de-1d",
+  "id": "7574c44b-a3d7-471f-89e5-f3a450181f9a",
+  "network_id": "aeec9fd4-30f7-4398-8554-34acb36b7712",
+  }
+
+VMware NSX-t, Neutron Network Agent, Octavia F5, Netapp, Ironic UCS, Neutron ASR ml2
+------------------------------------------------------------------------------------
+**EOS**:
+::
+
+  interface Ethernet1/1
+     description "connect to node001-bb301"
+     no shutdown
+     switchport
      switchport mode trunk
-     switchport vlan translation $vlan_user $vlan_bb
-     switchport allowed vlan ...
+     switchport trunk allowed 100,101,3150
+     switchport trunk native vlan 100
+     switchport trunk group $tenant-1 
+     storm-control broadcast level 10
+     spanning-tree portfast               
+     errdisable recovery cause bpduguard    
+     errdisable recovery interval 300        
 
-## Port-Channel
+  interface Ethernet3/1
+     description "connect to node002-bb301"
+     no shutdown
+     channel-group 201 active
 
-VMware NSX-t, Neutron Network Agent, Octavia F5, Netapp
--------------------------------------------------------
+  interface Port-Channel201
+     description "connect to node002-bb301"
+     port-channel min-links 1
+     no shutdown
+     switchport
+     switchport mode trunk
+     switchport trunk allowed 100,101,3150
+     switchport trunk native vlan 100
+     storm-control broadcast level 10
+     spanning-tree portfast               
+     errdisable recovery cause bpduguard    
+     errdisable recovery interval 300        
+     port-channel lacp fallback static
+     port-channel lacp fallback timeout 100
 
-Ironic Cisco UCS
-----------------
+**NX-OS**:
+::
 
-Ironic
-------
+  TBD
 
-Neutron ASR ml2
----------------
+Ironic Bare Metal Ports
+-----------------------
 
 VXLAN EVPN Handoff
 ##################
