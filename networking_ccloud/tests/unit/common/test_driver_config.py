@@ -71,26 +71,41 @@ class TestDriverConfigValidation(base.TestCase):
         self.assertEqual(False, hg.direct_binding)
 
     def test_cannot_bind_iface_multiple_times(self):
+        gc = cfix.make_global_config()
         sg = cfix.make_switchgroup("seagull")
         hg1 = config.Hostgroup(binding_hosts=["foo"], members=[config.SwitchPort(switch="seagull-sw1", name="e1/1/1")])
         hg2 = config.Hostgroup(binding_hosts=["bar"], members=[config.SwitchPort(switch="seagull-sw1", name="e1/1/1")])
 
         self.assertRaisesRegex(ValueError, ".*Iface seagull-sw1/e1/1/1 is bound two times.*bar.*foo.*",
-                               config.DriverConfig, switchgroups=[sg], hostgroups=[hg1, hg2])
+                               config.DriverConfig, global_config=gc, switchgroups=[sg], hostgroups=[hg1, hg2])
 
     def test_hostgroup_transit_always_services_own_az(self):
         # should work
+        gc = cfix.make_global_config()
         sg = cfix.make_switchgroup("seagull", availability_zone="qa-de-1a")
         hg = config.Hostgroup(role="transit", handle_availability_zones=["qa-de-1a"], binding_hosts=["transit1"],
                               members=[config.SwitchPort(switch="seagull-sw1", name="e1/1/1")])
-        config.DriverConfig(switchgroups=[sg], hostgroups=[hg])
+        config.DriverConfig(global_config=gc, switchgroups=[sg], hostgroups=[hg])
 
         # should break
         hg = config.Hostgroup(role="transit", handle_availability_zones=["qa-de-1b"], binding_hosts=["transit1"],
                               members=[config.SwitchPort(switch="seagull-sw1", name="e1/1/1")])
 
         self.assertRaisesRegex(ValueError, "Hostgroup transit1 is in AZ qa-de-1a, but.*",
-                               config.DriverConfig, switchgroups=[sg], hostgroups=[hg])
+                               config.DriverConfig, global_config=gc, switchgroups=[sg], hostgroups=[hg])
+
+    def test_hostgroup_bgw_require_unnamed_ifaces(self):
+        # normal hg with unnamed interface forbidden
+        self.assertRaisesRegex(ValueError, ".*Hostgroup ..bgw1.. with role bgw cannot have named switchports.*",
+                               config.Hostgroup, binding_hosts=["bgw1"],
+                               role="bgw", handle_availability_zones=["qa-de-1a"],
+                               members=[config.SwitchPort(switch="seagull-sw1", name="e1/1/1")])
+
+    def test_hostgroup_require_named_ifaces(self):
+        # normal hg with unnamed interface forbidden
+        self.assertRaisesRegex(ValueError, ".*Hostgroup ..seagull-compute.. needs to have names for each switchport.*",
+                               config.Hostgroup, binding_hosts=["seagull-compute"],
+                               members=[config.SwitchPort(switch="seagull-sw1")])
 
 
 class TestDriverUtilityFunctions(base.TestCase):

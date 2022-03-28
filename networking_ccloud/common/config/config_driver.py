@@ -43,6 +43,24 @@ def validate_ip_address(addr: str) -> str:
     return addr
 
 
+def validate_asn(asn):
+    # 65000 or 65000.123
+    asn = str(asn)
+    m = re.match(r"^(?P<first>\d+)(?:\.(?P<second>\d+))?$", asn)
+    if not m:
+        raise ValueError(f"asn value '{asn}' is not a valid AS number")
+
+    asn = int(m.group('first'))
+    if m.group('second'):
+        # dot notation
+        asn = (asn << 16) + int(m.group('second'))
+
+    if not (0 < asn < (2 ** 32)):
+        raise ValueError(f"asn value '{asn}' is out of range")
+
+    return asn
+
+
 class Switch(pydantic.BaseModel):
     # netbox: dcim.devices
 
@@ -111,6 +129,7 @@ class SwitchGroup(pydantic.BaseModel):
     override_vlan_pool: str = None
 
     _normalize_vtep_ip = pydantic.validator('vtep_ip', allow_reuse=True)(validate_ip_address)
+    _normalize_asn = pydantic.validator('asn', allow_reuse=True)(validate_asn)
 
     @property
     def vlan_pool(self):
@@ -143,29 +162,11 @@ class SwitchGroup(pydantic.BaseModel):
             raise ValueError(f"Unknown role {v}, allowed values are {roles}")
         return v
 
-    @pydantic.validator('asn')
-    def validate_asn(cls, v):
-        # 65000 or 65000.123
-        v = str(v)
-        m = re.match(r"^(?P<first>\d+)(?:\.(?P<second>\d+))?$", v)
-        if not m:
-            raise ValueError(f"asn value '{v}' is not a valid AS number")
-
-        asn = int(m.group('first'))
-        if m.group('second'):
-            # dot notation
-            asn = (asn << 16) + int(m.group('second'))
-
-        if not (0 < asn < (2 ** 32)):
-            raise ValueError(f"asn value '{v}' is out of range")
-
-        return v
-
 
 class SwitchPort(pydantic.BaseModel):
     # FIXME: for LACP is the name just Port-Channel<id>? do we need to parse the id? if so, extra validation
     switch: str
-    name: str
+    name: str = None
     lacp: bool = False
     portchannel_id: pydantic.conint(gt=0) = None
     members: List[str] = None
@@ -277,6 +278,12 @@ class Hostgroup(pydantic.BaseModel):
         return values
 
     @pydantic.root_validator
+    def ensure_hostgroups_with_role_are_direct_binding(cls, values):
+        if values.get('role') and not values.get('direct_binding'):
+            raise ValueError("Hostgroups for bgws/tranits need to be direct bindings")
+        return values
+
+    @pydantic.root_validator
     def ensure_members_and_metaflag_match(cls, values):
         if 'members' in values:
             metagroup = values.get('metagroup')
@@ -285,6 +292,19 @@ class Hostgroup(pydantic.BaseModel):
                 raise ValueError("Metagroups can't have SwitchPorts as members")
             if not metagroup and not is_switchport:
                 raise ValueError("Non-metagroups need to have SwitchPorts as members")
+        return values
+
+    @pydantic.root_validator
+    def ensure_bgw_members_have_no_ports_but_everyone_else_has(cls, values):
+        if 'members' in values and not values.get('metagroup'):
+            is_bgw = values.get('role') == HostgroupRole.bgw
+            for sp in values.get('members', []):
+                if is_bgw and sp.name:
+                    raise ValueError(f"Hostgroup {values.get('binding_hosts')} with role bgw "
+                                     "cannot have named switchports")
+                if not is_bgw and not sp.name:
+                    raise ValueError(f"Hostgroup {values.get('binding_hosts')} needs to have names for each switchport")
+
         return values
 
     @pydantic.root_validator
@@ -351,7 +371,14 @@ class Hostgroup(pydantic.BaseModel):
         return groupby(sorted(ifaces, key=attrgetter('switch')), key=attrgetter('switch'))
 
 
+class GlobalConfig(pydantic.BaseModel):
+    asn_region: str
+
+    _normalize_asn = pydantic.validator('asn_region', allow_reuse=True)(validate_asn)
+
+
 class DriverConfig(pydantic.BaseModel):
+    global_config: GlobalConfig
     switchgroups: List[SwitchGroup]
     hostgroups: List[Hostgroup]
 
@@ -506,3 +533,15 @@ class DriverConfig(pydantic.BaseModel):
     def get_interconnects_for_az(self, device_type, az):
         return [hg for hg in self.hostgroups
                 if hg.role == device_type and az in hg.handle_availability_zones]
+
+    def get_azs_for_hosts(self, binding_hosts, ignore_special=False):
+        """Get all availability zones for a list of networks
+
+         * binding_hosts: list of binding hosts to get the AZs for
+         * ignore_special: ignore transits/bordergateways
+        """
+        return set(hg_config.get_availability_zone(self) for hg_config in self.get_hostgroups_by_hosts(binding_hosts)
+                   if not (ignore_special and hg_config.role))
+
+    def list_availability_zones(self):
+        return sorted(set(sg.availability_zone for sg in self.switchgroups))

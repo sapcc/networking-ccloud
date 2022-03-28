@@ -1,3 +1,6 @@
+global_config:
+  asn_region: 65132
+
 hostgroups:
 - binding_hosts:
   - node003-bm206

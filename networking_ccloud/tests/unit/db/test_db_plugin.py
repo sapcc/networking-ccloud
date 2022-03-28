@@ -111,7 +111,6 @@ class TestDBPluginNetworkSyncData(test_segment.SegmentTestCase, base.PortBinding
         ctx = context.get_admin_context()
         seg_foo = self._seg_a['foo']
         net_hosts = self._db.get_hosts_on_segments(ctx, segment_ids=[seg_foo['id']])
-        print(net_hosts)
         self.assertEqual(set([seg_foo['id']]), set(v['segment_id'] for e in net_hosts.values() for v in e.values()))
 
     def test_get_hosts_on_segments_by_network_ids(self):
@@ -171,6 +170,14 @@ class TestDBPluginNetworkSyncData(test_segment.SegmentTestCase, base.PortBinding
         self.assertEqual(1, len(segments))
         for key in ('id', 'network_id', 'network_type', 'segmentation_id', 'physical_network'):
             self.assertEqual(self._seg_a[None][key], getattr(segments[self._net_a['id']], key))
+
+    def test_get_segment_by_host(self):
+        ctx = context.get_admin_context()
+        segment = self._db.get_segment_by_host(ctx, network_id=self._net_a['id'], physical_network='bar')
+        self.assertEqual(self._seg_a['bar']['id'], segment.id)
+
+        segment = self._db.get_segment_by_host(ctx, network_id=self._net_a['id'], physical_network='invalid')
+        self.assertIsNone(segment)
 
     def test_double_portbinding_vlan_mixup(self):
         ctx = context.get_admin_context()

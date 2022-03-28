@@ -11,9 +11,12 @@
 #    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
 #    License for the specific language governing permissions and limitations
 #    under the License.
+import time
 
 from neutron import service
 from neutron_lib.api.definitions import portbindings as pb_api
+from neutron_lib.callbacks import events
+from neutron_lib.callbacks import registry
 from neutron_lib import constants as nl_const
 from neutron_lib.plugins import directory
 from neutron_lib.plugins.ml2 import api as ml2_api
@@ -71,6 +74,7 @@ class CCFabricMechanismDriver(ml2_api.MechanismDriver, CCFabricDriverAPI):
         called prior to this method being called.
         """
         self._plugin_property = None
+        self._deleted_networks = {}
         validate_ml2_vlan_ranges(self.drv_conf)
 
         self.db = CCDbPlugin()
@@ -167,6 +171,12 @@ class CCFabricMechanismDriver(ml2_api.MechanismDriver, CCFabricDriverAPI):
                         port['id'], binding_host)
             return
 
+        # binding hostgroups with roles (bgw/transit) is prohibited
+        if hg_config.role:
+            raise cc_exc.SpecialDevicesBindingProhibited(port_id=port['id'], host=binding_host)
+
+        # FIXME: [AZ awareness] check if network has AZ hints, which match hg AZ
+
         if not context.binding_levels:
             # Port has not been bound to any segment --> top level binding --> hpb
             self._bind_port_hierarchical(context, binding_host, hg_config)
@@ -197,8 +207,7 @@ class CCFabricMechanismDriver(ml2_api.MechanismDriver, CCFabricDriverAPI):
 
         # config update (direct bindings are handled in the next step)
         if not hg_config.direct_binding:
-            # send rpc call to agent (FIXME: cast or call?)
-            # FIXME: can we only apply new config if the binding host is bound for the first time?
+            # send rpc call to agent
             self.handle_binding_host_changed(context._plugin_context, context.current['network_id'],
                                              binding_host, hg_config, segment, next_segment)
 
@@ -230,6 +239,170 @@ class CCFabricMechanismDriver(ml2_api.MechanismDriver, CCFabricDriverAPI):
         LOG.info("Port %s directly bound to segment %s physnet %s segmentation id %s",
                  context.current['id'], segment['id'], segment[ml2_api.PHYSICAL_NETWORK],
                  segment[ml2_api.SEGMENTATION_ID])
+
+    def create_network_precommit(self, context):
+        """Allocate resources for a new network.
+
+        :param context: NetworkContext instance describing the new
+            network.
+
+        Create a new network, allocating resources as necessary in the
+        database. Called inside transaction context on session. Call
+        cannot block.  Raising an exception will result in a rollback
+        of the current transaction.
+        """
+        pass
+        # FIXME: [AZ awareness] only one AZ hint per network
+
+    def create_network_postcommit(self, context):
+        """Create a network.
+
+        :param context: NetworkContext instance describing the new
+            network.
+
+        Called after the transaction commits. Call can block, though
+        will block the entire process so care should be taken to not
+        drastically affect performance. Raising an exception will
+        cause the deletion of the resource.
+        """
+        # FIXME: [AZ awareness] only bind bordergateways for regional networks
+        # FIXME: [AZ awareness] only bind transit of OWN AZ for per AZ networks
+
+        # find top level segment
+        network_id = context.current['id']
+        for segment_0 in context.network_segments:
+            if segment_0[ml2_api.NETWORK_TYPE] == nl_const.TYPE_VXLAN and segment_0[ml2_api.PHYSICAL_NETWORK] is None:
+                break
+        else:
+            LOG.error("Network %s has no top level segment (vxlan / physnet None), aborting transit/BGW scheduling. "
+                      "Segment options were: %s",
+                      network_id, context.network_segments)
+            return
+
+        # allocate network interconnects (BGWs / Transits)
+        created_transits = []
+        scul = agent_msg.SwitchConfigUpdateList(agent_msg.OperationEnum.add, self.drv_conf)
+
+        LOG.info("Iterating over AZs")
+        for az in self.drv_conf.list_availability_zones():
+            for device_type in (cc_const.DEVICE_TYPE_BGW, cc_const.DEVICE_TYPE_TRANSIT):
+                LOG.info("AZ %s device %s", az, device_type)
+                device_created, device = self.db.ensure_interconnect_for_network(context._plugin_context, device_type,
+                                                                                 network_id, az)
+                if not device_created:
+                    # no config needed, already allocated
+                    continue
+
+                # new device allocated, create a segment and add the host to scul
+                device_hg = self.drv_conf.get_hostgroup_by_host(device.host)
+                if not device_hg:
+                    LOG.error("Could not bind device type %s host %s in network %s: Host not found in config",
+                              device_type, device.name, network_id)
+                    continue
+
+                segment_spec = {
+                    ml2_api.NETWORK_TYPE: nl_const.TYPE_VLAN,
+                    ml2_api.PHYSICAL_NETWORK: device_hg.get_vlan_pool_name(self.drv_conf),
+                }
+                device_segment = self._plugin.type_manager.allocate_dynamic_segment(context._plugin_context, network_id,
+                                                                                    segment_spec)
+                scul.add_binding_host_to_config(device_hg, network_id,
+                                                segment_0[ml2_api.SEGMENTATION_ID],
+                                                device_segment[ml2_api.SEGMENTATION_ID],
+                                                is_bgw=device_type == cc_const.DEVICE_TYPE_BGW)
+                if device_type == cc_const.DEVICE_TYPE_TRANSIT:
+                    # add to notify list later on
+                    created_transits.append((az, device.host, device_segment['id']))
+
+                LOG.info("Allocated device %s to %s for network %s in az %s on vlan %s",
+                         device_type, device.host, network_id, az, device_segment[ml2_api.SEGMENTATION_ID])
+
+        if not scul.execute(context):
+            LOG.warning("Scheduling network interconnects for network %s yielded no config updates", network_id)
+
+        for az, host, segment_id in created_transits:
+            # notify others
+            LOG.debug("Sending out notify for transit creation on %s for host %s az %s segment %s",
+                      network_id, az, host, segment_id)
+            payload_metadata = {
+                'network_id': network_id,
+                'availability_zone': az,
+                'host': host,
+                'segment_id': segment_id,
+            }
+            payload = events.DBEventPayload(context._plugin_context, metadata=payload_metadata)
+            registry.publish(cc_const.CC_TRANSIT, events.AFTER_CREATE, self, payload=payload)
+
+    def delete_network_precommit(self, context):
+        """Delete resources for a network.
+
+        :param context: NetworkContext instance describing the current
+            state of the network, prior to the call to delete it.
+
+        Delete network resources previously allocated by this
+        mechanism driver for a network. Called inside transaction
+        context on session. Runtime errors are not expected, but
+        raising an exception will result in rollback of the
+        transaction.
+        """
+        network_id = context.current['id']
+        for segment_0 in context.network_segments:
+            if segment_0[ml2_api.NETWORK_TYPE] == nl_const.TYPE_VXLAN and segment_0[ml2_api.PHYSICAL_NETWORK] is None:
+                break
+        else:
+            LOG.error("Network %s has no top level segment (vxlan / physnet None), cannot deallocate transits/BGWs. "
+                      "Segment options were: %s",
+                      network_id, context.network_segments)
+            return
+
+        # collect data for other process
+        devices = []
+        for device in self.db.get_interconnects_for_network(context._plugin_context, network_id):
+            seg = self.db.get_segment_by_host(context._plugin_context,
+                                              network_id=network_id, physical_network=device.host)
+            if not seg:
+                LOG.warning("Cannot deconfigure %s %s for network %s - no segment found in database",
+                            device.device_type, device.host, network_id)
+                continue
+
+            devices.append((device.device_type, device.host, seg.segmentation_id))
+        self._deleted_networks[network_id] = {
+            'devices': devices,
+            'entry_created': time.time(),
+            'segment_0_vni': segment_0[ml2_api.SEGMENTATION_ID],
+        }
+
+    def delete_network_postcommit(self, context):
+        """Delete a network.
+
+        :param context: NetworkContext instance describing the current
+            state of the network, prior to the call to delete it.
+
+        Called after the transaction commits. Call can block, though
+        will block the entire process so care should be taken to not
+        drastically affect performance. Runtime errors are not
+        expected, and will not prevent the resource from being
+        deleted.
+        """
+        network_id = context.current['id']
+        net_data = self._deleted_networks.get(network_id)
+        if not net_data:
+            LOG.error("Network %s was deleted but could not be found in deleted networks cache", network_id)
+            return
+
+        scul = agent_msg.SwitchConfigUpdateList(agent_msg.OperationEnum.remove, self.drv_conf)
+        for device_type, device_host, device_vlan in net_data['devices']:
+            device_hg = self.drv_conf.get_hostgroup_by_host(device_host)
+            if not device_hg:
+                LOG.warning("Tried to remove device %s host %s on network delete for %s, but is not present in config",
+                            device_type, device_host, network_id)
+                continue
+            scul.add_binding_host_to_config(device_hg, network_id, net_data['segment_0_vni'], device_vlan,
+                                            is_bgw=device_type == cc_const.DEVICE_TYPE_BGW)
+            LOG.debug("Removing config for %s %s on network delete of %s", device_type, device_host, network_id)
+
+        if not scul.execute(context):
+            LOG.warning("Deletion of network %s yielded no config updates!", network_id)
 
     def update_port_postcommit(self, context):
         """Update a port.
@@ -352,15 +525,6 @@ class CCFabricMechanismDriver(ml2_api.MechanismDriver, CCFabricDriverAPI):
         scul.add_binding_host_to_config(hg_config, network_id,
                                         segment_0[ml2_api.SEGMENTATION_ID], segment_1[ml2_api.SEGMENTATION_ID],
                                         trunk_vlan, keep_mapping, exclude_hosts)
-
-        # FIXME: we need to figure out if the network NOW has to get a BGW
-        # FIXME: we need to figure out if the network NOW needs an ACI segment
-
-        # handle border gateways if necessary
-        pass
-
-        # handle aci transit
-        pass
 
         if not scul.execute(context):
             LOG.warning("Update for host %s on %s yielded no config updates! add=%s, keep=%s, excl=%s",

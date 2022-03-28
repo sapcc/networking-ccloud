@@ -22,6 +22,8 @@ HANDOVER_MODES = [HANDOVER_VLAN]
 CC_DRIVER_NAME = 'cc-fabric'
 VIF_TYPE_CC_FABRIC = 'cc-fabric'
 
+CC_TRANSIT = 'cc-fabric-transit'
+
 DEVICE_TYPE_TRANSIT = 'transit'
 DEVICE_TYPE_BGW = 'bgw'
 

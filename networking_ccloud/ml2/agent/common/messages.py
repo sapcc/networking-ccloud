@@ -18,6 +18,7 @@ from typing import List
 from oslo_log import log as logging
 import pydantic
 
+from networking_ccloud.common.config.config_driver import validate_asn
 from networking_ccloud.ml2.agent.common.api import CCFabricSwitchAgentRPCClient
 
 LOG = logging.getLogger(__name__)
@@ -44,22 +45,28 @@ class BGPVlan(pydantic.BaseModel):
     rd: str
     vlan: pydantic.conint(gt=0, lt=4094)
     vni: pydantic.conint(gt=0, lt=2**24)
+    bgw_mode: bool = False
 
 
 class BGP(pydantic.BaseModel):
-    # FIXME: validator
     asn: str
+
+    # regional asn (only used for bgws)
+    asn_region: str
 
     vlans: List[BGPVlan] = None
     vrfs: None = None
 
-    def add_vlan(self, rd, vlan, vni):
+    _normalize_asn = pydantic.validator('asn', allow_reuse=True)(validate_asn)
+    _normalize_asn_region = pydantic.validator('asn_region', allow_reuse=True)(validate_asn)
+
+    def add_vlan(self, rd, vlan, vni, bgw_mode=False):
         if not self.vlans:
             self.vlans = []
         for bv in self.vlans:
             if bv.rd == rd and bv.vlan == vlan and bv.vni == vni:
                 return
-        self.vlans.append(BGPVlan(rd=rd, vlan=vlan, vni=vni))
+        self.vlans.append(BGPVlan(rd=rd, vlan=vlan, vni=vni, bgw_mode=bgw_mode))
 
 
 class VlanTranslation(pydantic.BaseModel):
@@ -170,8 +177,8 @@ class SwitchConfigUpdateList:
         return self.add_binding_host_to_config(hg_config, *args, **kwargs)
 
     def add_binding_host_to_config(self, hg_config, network_id, seg_vni, seg_vlan, trunk_vlan=None,
-                                   keep_mapping=False, exclude_hosts=None):
-        """Add default (vpod) config to all required switches
+                                   keep_mapping=False, exclude_hosts=None, is_bgw=False):
+        """Add binding host config to all required switches
 
         Given a hostgroup config this method generates and adds config to this
         config request. "Add" means that the config will be added, the overall
@@ -180,6 +187,7 @@ class SwitchConfigUpdateList:
         Params:
          * keep_mapping: determines if the vlan-vni mapping is kept on op=remove/replace
          * exclude_hosts: hosts to exclude if a metagroup is being bound
+         * is_bgw: bordergateway mode - no ifaces will be configured, bgp stanzas marked as bgw
         """
         add = self.operation == OperationEnum.add
         for switch_name, switchports in hg_config.iter_switchports(self.drv_conf, exclude_hosts=exclude_hosts):
@@ -190,8 +198,8 @@ class SwitchConfigUpdateList:
             if add or not keep_mapping:
                 if not scu.bgp:
                     sg = self.drv_conf.get_switchgroup_by_switch_name(switch.name)
-                    scu.bgp = BGP(asn=sg.asn)
-                scu.bgp.add_vlan(switch.get_rt(seg_vni), seg_vlan, seg_vni)
+                    scu.bgp = BGP(asn=sg.asn, asn_region=self.drv_conf.global_config.asn_region)
+                scu.bgp.add_vlan(switch.get_rt(seg_vni), seg_vlan, seg_vni, bgw_mode=is_bgw)
 
             # vlan-vxlan mapping
             if add or not keep_mapping:
@@ -199,15 +207,16 @@ class SwitchConfigUpdateList:
                 scu.add_vxlan_map(seg_vni, seg_vlan)
 
             # interface config
-            for sp in switchports:
-                iface = scu.get_or_create_iface(sp)
-                iface.add_trunk_vlan(seg_vlan)
+            if not is_bgw:
+                for sp in switchports:
+                    iface = scu.get_or_create_iface(sp)
+                    iface.add_trunk_vlan(seg_vlan)
 
-                if hg_config.direct_binding:
-                    if trunk_vlan:
-                        iface.add_vlan_translation(seg_vlan, trunk_vlan)
-                    else:
-                        iface.native_vlan = seg_vlan
+                    if hg_config.direct_binding and not hg_config.role:
+                        if trunk_vlan:
+                            iface.add_vlan_translation(seg_vlan, trunk_vlan)
+                        else:
+                            iface.native_vlan = seg_vlan
 
     def execute(self, context):
         platform_updates = {}
