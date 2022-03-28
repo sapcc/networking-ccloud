@@ -130,6 +130,18 @@ class CCDbPlugin(db_base_plugin_v2.NeutronDbPluginV2,
         return net_seg
 
     @db_api.retry_if_session_inactive()
+    def get_segment_by_host(self, context, network_id, physical_network, network_type=nl_const.TYPE_VLAN):
+        """Return a single segment defined by network, host and network_type"""
+        query = context.session.query(segment_models.NetworkSegment)
+        query = query.filter_by(network_id=network_id, physical_network=physical_network, network_type=network_type)
+        result = query.all()
+
+        if result:
+            return result[0]
+
+        return None
+
+    @db_api.retry_if_session_inactive()
     def get_azs_for_network(self, context, network_id, extra_binding_hosts=None):
         """Get all AZs in this network bound on this driver"""
         # get binding hosts on network
@@ -141,23 +153,26 @@ class CCDbPlugin(db_base_plugin_v2.NeutronDbPluginV2,
         for binding_host in binding_hosts:
             hg_config = self.drv_conf.get_hostgroup_by_host(binding_host)
             if hg_config:
-                az = hg_config.get_availability_zone()
+                az = hg_config.get_availability_zone(self.drv_conf)
                 azs.add(az)
 
         return azs
 
     @db_api.retry_if_session_inactive()
-    def get_interconnects_for_network(self, context, device_type, network_id):
+    def get_interconnects_for_network(self, context, network_id, device_type=None):
         query = context.session.query(cc_models.CCNetworkInterconnects)
-        query = query.filter_by(device_type=device_type, network_id=network_id)
+        filter_args = dict(network_id=network_id)
+        if device_type:
+            filter_args['device_type'] = device_type
+        query = query.filter_by(**filter_args)
 
         return list(query.all())
 
     def get_transits_for_network(self, context, network_id):
-        return self.get_interconnects_for_network(context, cc_const.DEVICE_TYPE_TRANSIT, network_id)
+        return self.get_interconnects_for_network(context, network_id, cc_const.DEVICE_TYPE_TRANSIT)
 
     def get_bgws_for_network(self, context, network_id):
-        return self.get_interconnects_for_network(context, cc_const.DEVICE_TYPE_BGW, network_id)
+        return self.get_interconnects_for_network(context, network_id, cc_const.DEVICE_TYPE_BGW)
 
     @db_api.retry_if_session_inactive()
     def ensure_interconnect_for_network(self, context, device_type, network_id, az):

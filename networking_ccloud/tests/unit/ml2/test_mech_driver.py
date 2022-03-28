@@ -20,6 +20,9 @@ from neutron.db import segments_db
 from neutron.plugins.ml2 import driver_context
 from neutron.plugins.ml2 import models as ml2_models
 from neutron.tests.unit.plugins.ml2 import test_plugin
+from neutron_lib.api.definitions import provider_net as pnet
+from neutron_lib.callbacks import events
+from neutron_lib.callbacks import registry
 from neutron_lib import context
 from neutron_lib import exceptions as nl_exc
 from neutron_lib.plugins import directory
@@ -28,15 +31,47 @@ from oslo_config import cfg
 from networking_ccloud.common.config import _override_driver_config
 from networking_ccloud.common.config import config_oslo  # noqa, make sure config opts are there
 from networking_ccloud.common import constants as cc_const
+from networking_ccloud.common import exceptions as cc_exc
 from networking_ccloud.ml2.agent.common.api import CCFabricSwitchAgentRPCClient
 from networking_ccloud.ml2.agent.common import messages as agent_msg
 from networking_ccloud.tests import base
 from networking_ccloud.tests.common import config_fixtures as cfix
 
 
-class TestCCFabricMechanismDriver(test_plugin.Ml2PluginV2TestCase, base.PortBindingHelper, base.TestCase):
+class CCFabricMechanismDriverTestBase(test_plugin.Ml2PluginV2TestCase, base.PortBindingHelper, base.TestCase):
     _mechanism_drivers = [cc_const.CC_DRIVER_NAME]
+    _vxlan_segment = {'network_type': 'vxlan', 'physical_network': None,
+                      'segmentation_id': 23, 'id': 'test-id'}
 
+    def _test_bind_port(self, fake_host, fake_segments=None, network=None, subnet=None, binding_levels=None):
+        if network is None:
+            with self.network() as network:
+                return self._test_bind_port(fake_host, fake_segments, network, binding_levels=binding_levels)
+        if subnet is None:
+            with self.subnet(network=network) as subnet:
+                return self._test_bind_port(fake_host, fake_segments, network, subnet, binding_levels)
+
+        with self.port(subnet=subnet) as port:
+            port['port']['binding:host_id'] = fake_host
+            if fake_segments is None:
+                fake_segments = [self._vxlan_segment]
+
+            with mock.patch('neutron.plugins.ml2.driver_context.PortContext.binding_levels',
+                            new_callable=mock.PropertyMock) as bl_mock:
+                bindings = ml2_models.PortBinding()
+                pc = driver_context.PortContext(self.plugin, self.context, port['port'], network['network'],
+                                                bindings, binding_levels=None)
+                bl_mock.return_value = binding_levels
+                pc._segments_to_bind = fake_segments
+
+                pc.continue_binding = mock.Mock()
+                pc.set_binding = mock.Mock()
+                pc._plugin_context = self.context
+                self.mech_driver.bind_port(pc)
+                return pc
+
+
+class TestCCFabricMechanismDriver(CCFabricMechanismDriverTestBase):
     def setUp(self):
         cfg.CONF.set_override('driver_config_path', 'invalid/path/to/conf.yaml', group='ml2_cc_fabric')
         cfg.CONF.set_override('network_vlan_ranges', ['seagull:23:42', 'cat:53:1337', 'crow:200:300', 'squirrel:17:17'],
@@ -73,36 +108,6 @@ class TestCCFabricMechanismDriver(test_plugin.Ml2PluginV2TestCase, base.PortBind
 
         mm = directory.get_plugin().mechanism_manager
         self.mech_driver = mm.mech_drivers[cc_const.CC_DRIVER_NAME].obj
-
-        self._vxlan_segment = {'network_type': 'vxlan', 'physical_network': None,
-                               'segmentation_id': 23, 'id': 'test-id'}
-
-    def _test_bind_port(self, fake_host, fake_segments=None, network=None, subnet=None, binding_levels=None):
-        if network is None:
-            with self.network() as network:
-                return self._test_bind_port(fake_host, fake_segments, network, binding_levels=binding_levels)
-        if subnet is None:
-            with self.subnet(network=network) as subnet:
-                return self._test_bind_port(fake_host, fake_segments, network, subnet, binding_levels)
-
-        with self.port(subnet=subnet) as port:
-            port['port']['binding:host_id'] = fake_host
-            if fake_segments is None:
-                fake_segments = [self._vxlan_segment]
-
-            with mock.patch('neutron.plugins.ml2.driver_context.PortContext.binding_levels',
-                            new_callable=mock.PropertyMock) as bl_mock:
-                bindings = ml2_models.PortBinding()
-                pc = driver_context.PortContext(self.plugin, self.context, port['port'], network['network'],
-                                                bindings, binding_levels=None)
-                bl_mock.return_value = binding_levels
-                pc._segments_to_bind = fake_segments
-
-                pc.continue_binding = mock.Mock()
-                pc.set_binding = mock.Mock()
-                pc._plugin_context = self.context
-                self.mech_driver.bind_port(pc)
-                return pc
 
     def test_bind_port_direct_level_0(self):
         with mock.patch.object(self.mech_driver, 'handle_binding_host_changed') as mock_bhc:
@@ -397,3 +402,137 @@ class TestCCFabricMechanismDriver(test_plugin.Ml2PluginV2TestCase, base.PortBind
                     pc.release_dynamic_segment.assert_called()
                     self.assertEqual(seg_1['id'], pc.release_dynamic_segment.call_args[0][0])
                     mock_acu.assert_called()
+
+
+class TestCCFabricMechanismDriverInterconnects(CCFabricMechanismDriverTestBase):
+    def setUp(self):
+        cfg.CONF.set_override('driver_config_path', 'invalid/path/to/conf.yaml', group='ml2_cc_fabric')
+        cfg.CONF.set_override('network_vlan_ranges', ['seagull:23:42', 'cat:53:1337', 'crow:200:300',
+                                                      'transit1:1000:2000', 'transit2:1000:2000',
+                                                      'bgw1:1000:2000', 'bgw2:1000:2000', 'bgw3:1000:2000'],
+                              group='ml2_type_vlan')
+        cfg.CONF.set_override('mechanism_drivers', self._mechanism_drivers, group='ml2')
+        cc_const.SWITCH_AGENT_TOPIC_MAP['test'] = 'cc-fabric-switch-agent-test'
+
+        switchgroups = [
+            cfix.make_switchgroup("seagull", availability_zone="qa-de-1a"),
+            cfix.make_switchgroup("transit1", availability_zone="qa-de-1a"),
+            cfix.make_switchgroup("bgw1", availability_zone="qa-de-1a"),
+
+            cfix.make_switchgroup("crow", availability_zone="qa-de-1b"),
+            cfix.make_switchgroup("transit2", availability_zone="qa-de-1b"),
+            cfix.make_switchgroup("bgw2", availability_zone="qa-de-1b"),
+
+            cfix.make_switchgroup("cat", availability_zone="qa-de-1c"),
+            cfix.make_switchgroup("bgw3", availability_zone="qa-de-1c"),
+        ]
+
+        # hostgroups
+        hg_seagull = cfix.make_metagroup("seagull")
+        hg_crow = cfix.make_metagroup("crow")
+        hg_cat = cfix.make_metagroup("cat")
+        interconnects = [
+            cfix.make_interconnect(cc_const.DEVICE_TYPE_TRANSIT, "transit1", "transit1", ["qa-de-1a"]),
+            cfix.make_interconnect(cc_const.DEVICE_TYPE_BGW, "bgw1", "bgw1", ["qa-de-1a"]),
+            cfix.make_interconnect(cc_const.DEVICE_TYPE_TRANSIT, "transit2", "transit2", ["qa-de-1b", "qa-de-1c"]),
+            cfix.make_interconnect(cc_const.DEVICE_TYPE_BGW, "bgw2", "bgw2", ["qa-de-1b"]),
+            cfix.make_interconnect(cc_const.DEVICE_TYPE_BGW, "bgw3", "bgw3", ["qa-de-1c"]),
+        ]
+        self._ic_devices = ["bgw1", "bgw2", "bgw3", "transit1", "transit2", "transit2"]
+
+        hostgroups = hg_seagull + hg_crow + hg_cat + interconnects
+
+        self.conf_drv = cfix.make_config(switchgroups=switchgroups, hostgroups=hostgroups)
+        _override_driver_config(self.conf_drv)
+
+        self.setup_parent()
+        self.plugin = directory.get_plugin()
+        self.context = context.get_admin_context()
+
+        mm = directory.get_plugin().mechanism_manager
+        self.mech_driver = mm.mech_drivers[cc_const.CC_DRIVER_NAME].obj
+
+    def test_transit_bgw_allocated_on_network_create(self):
+        with mock.patch.object(CCFabricSwitchAgentRPCClient, 'apply_config_update') as mock_acu:
+            net_attrs = {pnet.NETWORK_TYPE: "vxlan", pnet.SEGMENTATION_ID: 23}
+            net = self._make_network(self.fmt, "net1", True,
+                                     arg_list=(pnet.NETWORK_TYPE, pnet.SEGMENTATION_ID),
+                                     **net_attrs)['network']
+            mock_acu.assert_called()
+
+            # check DB
+            interconnects = self.mech_driver.db.get_interconnects_for_network(self.context, net['id'])
+            self.assertEqual(self._ic_devices, sorted([d.host for d in interconnects]))
+
+            # check config
+            swcfg = mock_acu.call_args[0][1]
+            self.assertEqual(5, len(swcfg))
+            self.assertEqual(sorted({f"{dev}-sw1" for dev in self._ic_devices}),
+                             sorted([s.switch_name for s in swcfg]))
+            for s in swcfg:
+                self.assertEqual(agent_msg.OperationEnum.add, s.operation)
+                self.assertEqual(1, len(s.vlans), "Only one VLAN config expected")
+                self.assertEqual(1, len(s.bgp.vlans))
+                if s.switch_name.startswith("bgw"):
+                    self.assertTrue(s.bgp.vlans[0].bgw_mode)
+                else:
+                    # transit
+                    for iface in s.ifaces:
+                        self.assertIsNone(iface.native_vlan, "No native vlan for transits")
+                        self.assertEqual(1, len(iface.trunk_vlans))
+
+    def test_transit_bgw_deallocation_on_network_delete(self):
+        with mock.patch.object(CCFabricSwitchAgentRPCClient, 'apply_config_update') as mock_acu:
+            # allocate (prerequisite for test)
+            net_attrs = {pnet.NETWORK_TYPE: "vxlan", pnet.SEGMENTATION_ID: 23}
+            net = self._make_network(self.fmt, "net1", True,
+                                     arg_list=(pnet.NETWORK_TYPE, pnet.SEGMENTATION_ID),
+                                     **net_attrs)['network']
+            mock_acu.assert_called()
+
+        with mock.patch.object(CCFabricSwitchAgentRPCClient, 'apply_config_update') as mock_acu:
+            # actual deletion test
+            req = self.new_delete_request('networks', net['id'])
+            res = req.get_response(self.api)
+            self.assertEqual(204, res.status_int)
+            mock_acu.assert_called()
+
+            # check config
+            swcfg = mock_acu.call_args[0][1]
+            self.assertEqual(5, len(swcfg))
+            self.assertEqual(sorted({f"{dev}-sw1" for dev in self._ic_devices}),
+                             sorted([s.switch_name for s in swcfg]))
+            for s in swcfg:
+                self.assertEqual(agent_msg.OperationEnum.remove, s.operation)
+
+    def test_cannot_bind_port_with_special_device_binding_host(self):
+        with mock.patch.object(self.mech_driver, 'handle_binding_host_changed') as mock_bhc:
+            for host in 'transit1', 'bgw1':
+                self.assertRaises(cc_exc.SpecialDevicesBindingProhibited, self._test_bind_port, fake_host=host)
+                mock_bhc.assert_not_called()
+
+    def test_publish_event_on_transit_allocation(self):
+        with mock.patch.object(CCFabricSwitchAgentRPCClient, 'apply_config_update') as mock_acu:
+            # our method to receive the hook
+            fake_method = mock.Mock()
+            try:
+                registry.subscribe(fake_method, cc_const.CC_TRANSIT, events.AFTER_CREATE)
+
+                # allocate (prerequisite for test)
+                net_attrs = {pnet.NETWORK_TYPE: "vxlan", pnet.SEGMENTATION_ID: 23}
+                net = self._make_network(self.fmt, "net1", True,
+                                         arg_list=(pnet.NETWORK_TYPE, pnet.SEGMENTATION_ID),
+                                         **net_attrs)['network']
+                mock_acu.assert_called()
+
+                self.assertEqual(2, fake_method.call_count)
+                hosts = set()
+                for call in fake_method.call_args_list:
+                    args, kwargs = call
+                    self.assertEqual((cc_const.CC_TRANSIT, events.AFTER_CREATE, self.mech_driver), args)
+                    payload = kwargs['payload']
+                    self.assertEqual(net['id'], payload.metadata['network_id'])
+                    hosts.add(payload.metadata['host'])
+                self.assertEqual({"transit1", "transit2"}, hosts)
+            finally:
+                registry.unsubscribe(fake_method, cc_const.CC_TRANSIT, events.AFTER_CREATE)

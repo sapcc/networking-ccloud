@@ -33,9 +33,9 @@ def make_switch(name, platform="test", **kwargs):
     return config_driver.Switch(**switch_vars)
 
 
-def make_switchgroup(name, members=None, switch_vars=None, **kwargs):
+def make_switchgroup(name, members=None, switch_vars=None, availability_zone=DEFAULT_AZ, **kwargs):
     switchgroup_vars = dict(
-        name=name, asn=65100, availability_zone=DEFAULT_AZ, role="vpod",
+        name=name, asn=65100, availability_zone=availability_zone, role="vpod",
         vtep_ip="1.1.1.3",  # FIXME: derive IPs from somewhere
     )
     switchgroup_vars.update(kwargs)
@@ -97,11 +97,23 @@ def make_metagroup(switchgroup, **kwargs):
 
 
 def make_interconnect(role, host, switch_base, handle_azs):
+    sp_name = f"{host}-1/1/1" if role != config_driver.HostgroupRole.bgw else None
     return config_driver.Hostgroup(binding_hosts=[host], role=role,
-                                   members=[make_switchport(f"{switch_base}-sw1", f"{host}-1/1/1")],
+                                   members=[make_switchport(f"{switch_base}-sw1", sp_name)],
                                    handle_availability_zones=handle_azs)
 
 
+def make_global_config(asn_region=65123, **kwargs):
+    return config_driver.GlobalConfig(asn_region=asn_region, **kwargs)
+
+
 # whole config
-def make_config(switchgroups=None, hostgroups=None):
-    return config_driver.DriverConfig(switchgroups=switchgroups or [], hostgroups=hostgroups or [])
+def make_config(switchgroups=None, hostgroups=None, global_config=None):
+    if not global_config:
+        global_config = make_global_config()
+
+    return config_driver.DriverConfig(
+        switchgroups=switchgroups or [],
+        hostgroups=hostgroups or [],
+        global_config=global_config
+    )

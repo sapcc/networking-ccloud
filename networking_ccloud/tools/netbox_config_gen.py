@@ -75,7 +75,7 @@ class ConfigGenerator:
                     kv_dict[kv_tag] = tag.slug[len(kv_tag) + 1:]
         return kv_dict
 
-    def calculate_ccloud_switch_number_resources(self, device, kv_tags, region_asn):
+    def calculate_ccloud_switch_number_resources(self, device, kv_tags, asn_region):
         """Calculate switch number resources specific to CCloud addressing schemes
 
         Should return loopback0, loopback1, loopback10, asn, role, switchgroup
@@ -120,14 +120,14 @@ class ConfigGenerator:
         data = {
             'loopback0': str(ipaddress.ip_address(f"{az_no}.{pod}.{switchgroup}.{leaf}")),
             'loopback1': str(ipaddress.ip_address(f"{az_no}.{pod}.{switchgroup}.0")),
-            'asn': f"{region_asn}.{az_no}{pod}{switchgroup:02d}",
+            'asn': f"{asn_region}.{az_no}{pod}{switchgroup:02d}",
             'role': role,
             'switchgroup': switchgroup_name,
             'host': host_ip,
         }
         return data
 
-    def get_region_asn(self, region):
+    def get_asn_region(self, region):
         sites = self.netbox.dcim.sites.filter(region=region)
         site_asns = {site.asn for site in sites if site.asn}
         if not site_asns:
@@ -137,7 +137,7 @@ class ConfigGenerator:
         return site_asns.pop()
 
     def get_netbox_data(self, region):
-        region_asn = self.get_region_asn(region)
+        asn_region = self.get_asn_region(region)
         switches = []
         clusters = {}
 
@@ -218,12 +218,13 @@ class ConfigGenerator:
                 'platform': platform,
                 'az': leaf.site.name,
             }
-            switch.update(self.calculate_ccloud_switch_number_resources(leaf, kv_tags, region_asn))
+            switch.update(self.calculate_ccloud_switch_number_resources(leaf, kv_tags, asn_region))
             switches.append(switch)
 
         data = {
             'switches': switches,
             'clusters': clusters,
+            'asn_region': asn_region,
         }
 
         return data
@@ -306,8 +307,11 @@ class ConfigGenerator:
 
         # FIXME: sort hostgroups
 
+        # build global config
+        global_config = conf.GlobalConfig(asn_region=nb_data['asn_region'])
+
         # build top config object
-        config = conf.DriverConfig(switchgroups=switchgroups, hostgroups=hostgroups)
+        config = conf.DriverConfig(global_config=global_config, switchgroups=switchgroups, hostgroups=hostgroups)
 
         return config
 

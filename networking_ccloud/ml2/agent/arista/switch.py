@@ -143,9 +143,18 @@ class AristaSwitch(SwitchBase):
                 for bgp_vlan in config.bgp.vlans:
                     if config.operation in (Op.add, Op.replace):
                         commands.append(f"vlan {bgp_vlan.vlan}")
-                        commands.append(f"route-target import {bgp_vlan.vni}:{bgp_vlan.vni}")
-                        commands.append(f"route-target export {bgp_vlan.vni}:{bgp_vlan.vni}")
+                        if not bgp_vlan.bgw_mode:
+                            # default / vpod mode
+                            commands.append(f"route-target import {bgp_vlan.vni}:{bgp_vlan.vni}")
+                            commands.append(f"route-target export {bgp_vlan.vni}:{bgp_vlan.vni}")
+                        else:
+                            # bgw
+                            commands.append(f"rd evpn domain all {config.bgp.asn}:{bgp_vlan.vni}")
+                            commands.append(f"route-target both {config.bgp.asn_region}:{bgp_vlan.vni}")
+                            commands.append("route-target import export evpn domain remote "
+                                            f"{config.bgp.asn_region}:{bgp_vlan.vni}")
                         commands.append("redistribute learned")
+
                         commands.append("exit")
                     else:
                         commands.append(f"no vlan {bgp_vlan.vlan}")

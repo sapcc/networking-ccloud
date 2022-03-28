@@ -29,3 +29,8 @@ class MissingPhysnetsInNeutronConfig(n_exc.NeutronException):
     """Raised when yaml driver config is not in sync with neutron segmentation config"""
     message = ("Not all physical networks defined in the driver config have a vlan pool assigned in "
                "ml2_type_vlan.network_vlan_ranges. Missing physical networks are: %(missing_physnets)s")
+
+
+class SpecialDevicesBindingProhibited(n_exc.BadRequest):
+    """Raised when a user tries to bind a transit or BGW"""
+    message = ("Binding special devices like transit or BGWs is prohibited (port %(port_id)s host %(host)s")

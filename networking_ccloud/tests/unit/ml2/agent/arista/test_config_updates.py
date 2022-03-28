@@ -99,7 +99,7 @@ class TestAristaConfigUpdates(base.TestCase):
         cu.add_vxlan_map(424242, 1001)
 
         # bgp stuff / vlans
-        cu.bgp = messages.BGP(asn="65000")
+        cu.bgp = messages.BGP(asn="65000", asn_region="65123")
         cu.bgp.add_vlan("1.1.1.1:232323", 1000, 232323)
 
         # interfaces
@@ -167,7 +167,7 @@ class TestAristaConfigUpdates(base.TestCase):
         cu.add_vxlan_map(424242, 1001)
 
         # bgp stuff / vlans
-        cu.bgp = messages.BGP(asn="65000")
+        cu.bgp = messages.BGP(asn="65000", asn_region="65123")
         cu.bgp.add_vlan("1.1.1.1:232323", 1000, 232323)
 
         # interfaces
@@ -357,8 +357,30 @@ class TestAristaConfigUpdates(base.TestCase):
 
         cu = messages.SwitchConfigUpdate(switch_name="seagull-sw1", operation=messages.OperationEnum.replace)
         # bgp vlans
-        cu.bgp = messages.BGP(asn="65000")
+        cu.bgp = messages.BGP(asn="65000", asn_region="65123")
         cu.bgp.add_vlan("1.1.1.1:232323", 1000, 232323)
+
+        self.switch.apply_config_update(cu)
+        self.switch._api.execute.assert_called_with(expected_config, format='json')
+
+    def test_bgp_vlans_bgw_mode(self):
+        expected_config = [
+            'configure',
+            'router bgp 65000',
+            'vlan 1000',
+            'rd evpn domain all 65000:232323',
+            'route-target both 65123:232323',
+            'route-target import export evpn domain remote 65123:232323',
+            'redistribute learned',
+            'exit',
+            'exit',
+            'end'
+        ]
+
+        cu = messages.SwitchConfigUpdate(switch_name="seagull-sw1", operation=messages.OperationEnum.add)
+        # bgp vlans
+        cu.bgp = messages.BGP(asn="65000", asn_region="65123")
+        cu.bgp.add_vlan("1.1.1.1:232323", 1000, 232323, bgw_mode=True)
 
         self.switch.apply_config_update(cu)
         self.switch._api.execute.assert_called_with(expected_config, format='json')
