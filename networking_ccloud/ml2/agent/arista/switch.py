@@ -170,7 +170,7 @@ class AristaSwitch(SwitchBase):
                 if config.operation in (Op.add, Op.replace):
                     generic_config.append(f"switchport trunk native vlan {iface.native_vlan}")
                 elif config.operation == Op.remove:
-                    generic_config.append(f"no switchport trunk native vlan")
+                    generic_config.append("no switchport trunk native vlan")
 
             # trunk vlans
             if iface.trunk_vlans:

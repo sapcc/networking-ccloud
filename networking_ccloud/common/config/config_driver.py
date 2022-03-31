@@ -214,7 +214,7 @@ class InfraNetwork(pydantic.BaseModel):
     def ensure_correct_value_combination(cls, values):
         # FIXME: we probably need a different logic here
         if bool(values['vni']) ^ bool(values['network']):
-            raise ValueError(f"If network is set vni needs to be set and vice versa")
+            raise ValueError("If network is set vni needs to be set and vice versa")
         return values
 
 
