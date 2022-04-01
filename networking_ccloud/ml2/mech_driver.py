@@ -14,10 +14,12 @@
 import time
 
 from neutron import service
+from neutron_lib.api.definitions import availability_zone as az_api
 from neutron_lib.api.definitions import portbindings as pb_api
 from neutron_lib.callbacks import events
 from neutron_lib.callbacks import registry
 from neutron_lib import constants as nl_const
+from neutron_lib.exceptions import availability_zone as az_exc
 from neutron_lib.plugins import directory
 from neutron_lib.plugins.ml2 import api as ml2_api
 from neutron_lib import rpc as n_rpc
@@ -175,8 +177,6 @@ class CCFabricMechanismDriver(ml2_api.MechanismDriver, CCFabricDriverAPI):
         if hg_config.role:
             raise cc_exc.SpecialDevicesBindingProhibited(port_id=port['id'], host=binding_host)
 
-        # FIXME: [AZ awareness] check if network has AZ hints, which match hg AZ
-
         if not context.binding_levels:
             # Port has not been bound to any segment --> top level binding --> hpb
             self._bind_port_hierarchical(context, binding_host, hg_config)
@@ -251,8 +251,12 @@ class CCFabricMechanismDriver(ml2_api.MechanismDriver, CCFabricDriverAPI):
         cannot block.  Raising an exception will result in a rollback
         of the current transaction.
         """
-        pass
-        # FIXME: [AZ awareness] only one AZ hint per network
+        az_hints = context.current.get(az_api.AZ_HINTS)
+        if len(az_hints) > 1:
+            raise cc_exc.OnlyOneAZHintAllowed()
+
+        if az_hints and az_hints[0] not in self.drv_conf.list_availability_zones():
+            raise az_exc.AvailabilityZoneNotFound(availability_zone=az_hints[0])
 
     def create_network_postcommit(self, context):
         """Create a network.
@@ -265,9 +269,6 @@ class CCFabricMechanismDriver(ml2_api.MechanismDriver, CCFabricDriverAPI):
         drastically affect performance. Raising an exception will
         cause the deletion of the resource.
         """
-        # FIXME: [AZ awareness] only bind bordergateways for regional networks
-        # FIXME: [AZ awareness] only bind transit of OWN AZ for per AZ networks
-
         # find top level segment
         network_id = context.current['id']
         for segment_0 in context.network_segments:
@@ -280,15 +281,20 @@ class CCFabricMechanismDriver(ml2_api.MechanismDriver, CCFabricDriverAPI):
             return
 
         # allocate network interconnects (BGWs / Transits)
+        az_hints = context.current.get(az_api.AZ_HINTS, [])
         created_transits = []
         scul = agent_msg.SwitchConfigUpdateList(agent_msg.OperationEnum.add, self.drv_conf)
 
-        LOG.info("Iterating over AZs")
-        for az in self.drv_conf.list_availability_zones():
+        net_azs = az_hints or self.drv_conf.list_availability_zones()
+        for az in net_azs:
             for device_type in (cc_const.DEVICE_TYPE_BGW, cc_const.DEVICE_TYPE_TRANSIT):
-                LOG.info("AZ %s device %s", az, device_type)
+                if device_type == cc_const.DEVICE_TYPE_BGW and az_hints:
+                    # we don't allocate BGWs for AZ-local networks
+                    continue
+
                 device_created, device = self.db.ensure_interconnect_for_network(context._plugin_context, device_type,
-                                                                                 network_id, az)
+                                                                                 network_id, az,
+                                                                                 only_own_az=bool(az_hints))
                 if not device_created:
                     # no config needed, already allocated
                     continue
@@ -403,6 +409,52 @@ class CCFabricMechanismDriver(ml2_api.MechanismDriver, CCFabricDriverAPI):
 
         if not scul.execute(context):
             LOG.warning("Deletion of network %s yielded no config updates!", network_id)
+
+    def create_port_precommit(self, context):
+        """Allocate resources for a new port.
+
+        :param context: PortContext instance describing the port.
+
+        Create a new port, allocating resources as necessary in the
+        database. Called inside transaction context on session. Call
+        cannot block.  Raising an exception will result in a rollback
+        of the current transaction.
+        """
+        self._check_port_az_affinity(context.network.current, context.current)
+
+    def update_port_precommit(self, context):
+        """Update resources of a port.
+
+        :param context: PortContext instance describing the new
+            state of the port, as well as the original state prior
+            to the update_port call.
+
+        Called inside transaction context on session to complete a
+        port update as defined by this mechanism driver. Raising an
+        exception will result in rollback of the transaction.
+
+        update_port_precommit is called for all changes to the port
+        state. It is up to the mechanism driver to ignore state or
+        state changes that it does not know or care about.
+        """
+        old_host = helper.get_binding_host_from_port(context.original)
+        new_host = helper.get_binding_host_from_port(context.current)
+        if old_host != new_host:
+            self._check_port_az_affinity(context.network.current, context.current)
+
+    def _check_port_az_affinity(self, network, port):
+        az_hints = network.get(az_api.AZ_HINTS, [])
+        if len(az_hints) == 0:
+            return
+
+        host = helper.get_binding_host_from_port(port)
+        hg_config = self.drv_conf.get_hostgroup_by_host(host)
+        if not hg_config:
+            return  # ignore unknown binding_hosts
+
+        hg_az = hg_config.get_availability_zone(self.drv_conf)
+        if hg_az not in az_hints or len(az_hints) > 1:
+            raise cc_exc.HostNetworkAZAffinityError(host=host, hostgroup_az=hg_az, network_az=", ".join(az_hints))
 
     def update_port_postcommit(self, context):
         """Update a port.

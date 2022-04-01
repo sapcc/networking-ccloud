@@ -19,7 +19,9 @@ from unittest import mock
 from neutron.db import segments_db
 from neutron.plugins.ml2 import driver_context
 from neutron.plugins.ml2 import models as ml2_models
+from neutron.tests.common import helpers as neutron_test_helpers
 from neutron.tests.unit.plugins.ml2 import test_plugin
+
 from neutron_lib.api.definitions import provider_net as pnet
 from neutron_lib.callbacks import events
 from neutron_lib.callbacks import registry
@@ -42,6 +44,11 @@ class CCFabricMechanismDriverTestBase(test_plugin.Ml2PluginV2TestCase, base.Port
     _mechanism_drivers = [cc_const.CC_DRIVER_NAME]
     _vxlan_segment = {'network_type': 'vxlan', 'physical_network': None,
                       'segmentation_id': 23, 'id': 'test-id'}
+
+    def _register_azs(self):
+        self.agent1 = neutron_test_helpers.register_dhcp_agent(host='network-agent-a-1', az='qa-de-1a')
+        self.agent2 = neutron_test_helpers.register_dhcp_agent(host='network-agent-b-1', az='qa-de-1b')
+        self.agent3 = neutron_test_helpers.register_dhcp_agent(host='network-agent-c-1', az='qa-de-1c')
 
     def _test_bind_port(self, fake_host, fake_segments=None, network=None, subnet=None, binding_levels=None):
         if network is None:
@@ -80,10 +87,10 @@ class TestCCFabricMechanismDriver(CCFabricMechanismDriverTestBase):
         cc_const.SWITCH_AGENT_TOPIC_MAP['test'] = 'cc-fabric-switch-agent-test'
 
         switchgroups = [
-            cfix.make_switchgroup("seagull"),
-            cfix.make_switchgroup("crow"),
-            cfix.make_switchgroup("cat"),
-            cfix.make_switchgroup("squirrel")
+            cfix.make_switchgroup("seagull", availability_zone="qa-de-1a"),
+            cfix.make_switchgroup("crow", availability_zone="qa-de-1b"),
+            cfix.make_switchgroup("cat", availability_zone="qa-de-1c"),
+            cfix.make_switchgroup("squirrel", availability_zone="qa-de-1d")
         ]
 
         # hostgroups:
@@ -103,6 +110,7 @@ class TestCCFabricMechanismDriver(CCFabricMechanismDriverTestBase):
         _override_driver_config(self.conf_drv)
 
         self.setup_parent()
+        self._register_azs()
         self.plugin = directory.get_plugin()
         self.context = context.get_admin_context()
 
@@ -403,6 +411,40 @@ class TestCCFabricMechanismDriver(CCFabricMechanismDriverTestBase):
                     self.assertEqual(seg_1['id'], pc.release_dynamic_segment.call_args[0][0])
                     mock_acu.assert_called()
 
+    def test_create_network_multiple_az_hints_fail(self):
+        res = self._create_network(self.fmt, "net1", admin_state_up=True,
+                                   availability_zone_hints=["qa-de-1a", "qa-de-1b"])
+        self.assertEqual(res.status_int, 400)
+        self.assertEqual(res.json["NeutronError"]["type"], "OnlyOneAZHintAllowed")
+
+    def test_create_network_az_hint_not_in_driver_config(self):
+        self.agent_not_in_cfg = neutron_test_helpers.register_dhcp_agent(host='network-agent-y-1', az='qa-de-1y')
+        import networking_ccloud
+        with mock.patch.object(networking_ccloud.ml2.mech_driver.CCFabricMechanismDriver, 'create_network_precommit',
+                               wraps=self.mech_driver.create_network_precommit) as cnp:
+            res = self._create_network(self.fmt, "net1", admin_state_up=True,
+                                       availability_zone_hints=["qa-de-1y"])
+            cnp.assert_called()
+            self.assertEqual(res.status_int, 404)
+            self.assertEqual(res.json["NeutronError"]["type"], "AvailabilityZoneNotFound")
+
+    def test_bind_port_az_hint_fail_on_mismatch(self):
+        with self.network(availability_zone_hints=["qa-de-1b"]) as network:
+            with self.subnet(network=network):
+                res = self._create_port(self.fmt, network['network']['id'], expected_res=400,
+                                        arg_list=('binding:host_id',), **{'binding:host_id': 'node001-seagull'})
+                self.assertEqual(res.json["NeutronError"]["type"], "HostNetworkAZAffinityError")
+
+    def test_bind_port_az_hint_match(self):
+        with self.network(availability_zone_hints=["qa-de-1a"]) as network:
+            with self.subnet(network=network):
+                with mock.patch('neutron.plugins.ml2.plugin.Ml2Plugin._after_create_port') as acp:
+                    acp.return_value = {}
+                    res = self._create_port(self.fmt, network['network']['id'], expected_res=200,
+                                            arg_list=('binding:host_id',), **{'binding:host_id': 'node001-seagull'})
+                    acp.assert_called()
+                    self.assertEqual(res.status_int, 201)
+
 
 class TestCCFabricMechanismDriverInterconnects(CCFabricMechanismDriverTestBase):
     def setUp(self):
@@ -446,6 +488,7 @@ class TestCCFabricMechanismDriverInterconnects(CCFabricMechanismDriverTestBase):
         _override_driver_config(self.conf_drv)
 
         self.setup_parent()
+        self._register_azs()
         self.plugin = directory.get_plugin()
         self.context = context.get_admin_context()
 
@@ -504,6 +547,43 @@ class TestCCFabricMechanismDriverInterconnects(CCFabricMechanismDriverTestBase):
                              sorted([s.switch_name for s in swcfg]))
             for s in swcfg:
                 self.assertEqual(agent_msg.OperationEnum.remove, s.operation)
+
+    def test_transit_no_bgw_allocation_and_only_one_transit_for_az_hints(self):
+        with mock.patch.object(CCFabricSwitchAgentRPCClient, 'apply_config_update') as mock_acu:
+            net_attrs = {pnet.NETWORK_TYPE: "vxlan", pnet.SEGMENTATION_ID: 23}
+            net = self._make_network(self.fmt, "net1", True,
+                                     availability_zone_hints=["qa-de-1a"],
+                                     arg_list=(pnet.NETWORK_TYPE, pnet.SEGMENTATION_ID),
+                                     **net_attrs)['network']
+            mock_acu.assert_called()
+
+            # no BGWs
+            bgws = self.mech_driver.db.get_bgws_for_network(self.context, net['id'])
+            self.assertEqual([], bgws)
+
+            # only one transit, in AZ
+            transits = self.mech_driver.db.get_transits_for_network(self.context, net['id'])
+            self.assertEqual(1, len(transits))
+            self.assertEqual("qa-de-1a", transits[0].availability_zone)
+
+    def test_transit_no_bgw_allocation_and_no_transit_if_transit_is_in_other_az(self):
+        with mock.patch.object(CCFabricSwitchAgentRPCClient, 'apply_config_update') as mock_acu:
+            net_attrs = {pnet.NETWORK_TYPE: "vxlan", pnet.SEGMENTATION_ID: 23}
+            net = self._make_network(self.fmt, "net1", True,
+                                     availability_zone_hints=["qa-de-1c"],
+                                     arg_list=(pnet.NETWORK_TYPE, pnet.SEGMENTATION_ID),
+                                     **net_attrs)['network']
+
+            # no device available --> no config update
+            mock_acu.assert_not_called()
+
+            # no BGWs
+            bgws = self.mech_driver.db.get_bgws_for_network(self.context, net['id'])
+            self.assertEqual([], bgws)
+
+            # only one transit, in AZ
+            transits = self.mech_driver.db.get_transits_for_network(self.context, net['id'])
+            self.assertEqual([], transits)
 
     def test_cannot_bind_port_with_special_device_binding_host(self):
         with mock.patch.object(self.mech_driver, 'handle_binding_host_changed') as mock_bhc:

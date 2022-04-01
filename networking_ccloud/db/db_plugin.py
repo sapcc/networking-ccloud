@@ -175,7 +175,7 @@ class CCDbPlugin(db_base_plugin_v2.NeutronDbPluginV2,
         return self.get_interconnects_for_network(context, network_id, cc_const.DEVICE_TYPE_BGW)
 
     @db_api.retry_if_session_inactive()
-    def ensure_interconnect_for_network(self, context, device_type, network_id, az):
+    def ensure_interconnect_for_network(self, context, device_type, network_id, az, only_own_az=False):
         """Make sure a network has an interconnect of device_type allocated for an AZ
 
         Returns a bool indicating if a new interconnect had to be allocated plus the
@@ -193,7 +193,8 @@ class CCDbPlugin(db_base_plugin_v2.NeutronDbPluginV2,
                 return False, query.all()[0]
 
             # we need to assign a device - find candidates from config
-            avail_devices = [t.binding_host_name for t in self.drv_conf.get_interconnects_for_az(device_type, az)]
+            avail_devices = [t.binding_host_name for t in self.drv_conf.get_interconnects_for_az(device_type, az)
+                             if not only_own_az or t.get_availability_zone(self.drv_conf) == az]
             if not avail_devices:
                 LOG.warning("Can't schedule interconnect %s for network %s - no %s available for AZ %s in config",
                             device_type, network_id, device_type, az)
