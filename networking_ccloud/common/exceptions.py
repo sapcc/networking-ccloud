@@ -34,3 +34,11 @@ class MissingPhysnetsInNeutronConfig(n_exc.NeutronException):
 class SpecialDevicesBindingProhibited(n_exc.BadRequest):
     """Raised when a user tries to bind a transit or BGW"""
     message = ("Binding special devices like transit or BGWs is prohibited (port %(port_id)s host %(host)s")
+
+
+class OnlyOneAZHintAllowed(n_exc.BadRequest):
+    message = "Only one availability zone hint allowed per object"
+
+
+class HostNetworkAZAffinityError(n_exc.BadRequest):
+    message = "Host %(host)s resides in AZ %(hostgroup_az)s, network requires AZ %(network_az)s"
