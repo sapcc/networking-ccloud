@@ -201,7 +201,7 @@ class SwitchPort(pydantic.BaseModel):
 
 class InfraNetwork(pydantic.BaseModel):
     name: str
-    native_vlan_pool: None
+    native_vlan_pool: str = None
     vlan: pydantic.conint(gt=0, lt=4096)
     networks: List[str] = None
     vni: pydantic.conint(gt=0, lt=2**24) = None
