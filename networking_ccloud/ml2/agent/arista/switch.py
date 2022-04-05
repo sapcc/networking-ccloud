@@ -123,7 +123,7 @@ class AristaSwitch(SwitchBase):
             commands.append("exit")
 
         # bgp section
-        if config.bgp and (config.bgp.vlans or config.bgp.vrfs):
+        if config.bgp and config.bgp.vlans:
             commands.append(f"router bgp {config.bgp.asn}")
 
             # bgp vlan sections

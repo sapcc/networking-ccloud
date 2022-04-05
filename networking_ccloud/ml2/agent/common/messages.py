@@ -55,7 +55,6 @@ class BGP(pydantic.BaseModel):
     asn_region: str
 
     vlans: List[BGPVlan] = None
-    vrfs: None = None
 
     _normalize_asn = pydantic.validator('asn', allow_reuse=True)(validate_asn)
     _normalize_asn_region = pydantic.validator('asn_region', allow_reuse=True)(validate_asn)
