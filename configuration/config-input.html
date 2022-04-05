@@ -117,7 +117,7 @@ ga('send', 'pageview');
 
   <section id="generator-input">
 <h1>Generator Input<a class="headerlink" href="#generator-input" title="Permalink to this headline">¶</a></h1>
-<p>The driver configuration is generated based on input from external toooling (Netbox) and the following conventions.</p>
+<p>The driver configuration is generated based on input from external tooling (Netbox) and the following conventions.</p>
 <section id="leaf-pair">
 <h2>Leaf Pair<a class="headerlink" href="#leaf-pair" title="Permalink to this headline">¶</a></h2>
 <p>All EVPN fabric members will be of the following Netbox roles:</p>
@@ -125,24 +125,50 @@ ga('send', 'pageview');
 <li><p><strong>EVPN Spine</strong>: Used for all spine switches, not configured by driver</p></li>
 <li><p><strong>EVPN Leaf</strong>: Used for all leaf switches in the EVPN fabric</p></li>
 </ul>
-<section id="uniq-pair-id">
-<h3>Uniq Pair ID<a class="headerlink" href="#uniq-pair-id" title="Permalink to this headline">¶</a></h3>
-<p>Each leaf pair (MLAG/VPC) requires a fabric uniq 4 digit ID (XYZZn) with an a/b identifier for leaf in group per leaf pair used to generate device specifig configuration settings (ASN etc.)</p>
-<ul class="simple">
-<li><p>X: CCloud AZ a=1, b=2, etc.</p></li>
-<li><p>Y: EVPN Spine POD in AZ 1,2,3… etc.</p></li>
-<li><p>ZZ: Two digit uniq leaf pair identifier 01-99</p></li>
-<li><p>n: a=fist leaf in pair, b=second leaf in pair</p></li>
-</ul>
+<section id="hostname-convention">
+<h3>Hostname Convention<a class="headerlink" href="#hostname-convention" title="Permalink to this headline">¶</a></h3>
+<p>Leaf pair hostnames must be compliant with the following regex:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span>^(?P&lt;region&gt;\w{2}-\w{2}-\d)-sw(?P&lt;az&gt;\d)(?P&lt;pod&gt;\d)(?P&lt;switchgroup&gt;\d{2})(?P&lt;leaf&gt;[ab])(?:-(?P&lt;role&gt;[a-z0-9-]+))$
+</pre></div>
+</div>
+<p>Or in a more readable way:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="p">[</span><span class="n">region</span><span class="p">]</span><span class="o">-</span><span class="n">sw</span><span class="p">[</span><span class="n">az</span><span class="p">][</span><span class="n">pod</span><span class="p">][</span><span class="n">switchgroup</span><span class="p">][</span><span class="n">leaf</span><span class="p">][</span><span class="n">role</span><span class="p">]</span>
+<span class="n">i</span><span class="o">.</span><span class="n">e</span><span class="o">.</span><span class="p">:</span> <span class="n">eu</span><span class="o">-</span><span class="n">de</span><span class="o">-</span><span class="mi">1</span><span class="o">-</span><span class="n">sw4223a</span><span class="o">-</span><span class="n">bb147</span>
+</pre></div>
+</div>
+<p>Where the following conditions apply to the variables:</p>
+<dl class="simple">
+<dt>region:</dt><dd><p>in the fashion like ‘eu-de-1’,</p>
+</dd>
+</dl>
+<p>Each leaf pair (MLAG/VPC) requires a fabric unique 4 digit ID ([az][pod][switchgroup]) with an a/b identifier for leaf in group per leaf pair used to generate device specific configuration settings (ASN etc.)</p>
+<dl class="simple">
+<dt>az:</dt><dd><p>single digit indicating the AZ, 1: AZ a, 2: AZ b, …</p>
+</dd>
+<dt>pod:</dt><dd><p>single non zero digit indicating the pod</p>
+</dd>
+<dt>switchgroup:</dt><dd><p>a 2 digit number uniquely identifying the leaf pair in a region</p>
+</dd>
+<dt>leaf:</dt><dd><p>a=fist leaf in pair, b=second leaf in pair</p>
+</dd>
+<dt>role:</dt><dd><p>optional, any sequence of numbers and lower case digits, such as bb147</p>
+</dd>
+</dl>
 <p>Netbox Query:</p>
 <div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">Role</span><span class="p">:</span> <span class="n">EVPN</span> <span class="n">Leaf</span>
 <span class="n">Name</span><span class="p">:</span> <span class="o">.*</span><span class="p">(</span>\<span class="n">d</span>\<span class="n">d</span>\<span class="n">d</span>\<span class="n">d</span><span class="p">)([</span><span class="n">a</span><span class="o">-</span><span class="n">b</span><span class="p">])</span><span class="o">.*</span> <span class="c1">#\1=leaf_id \2=leaf_a_b</span>
 </pre></div>
 </div>
 </section>
-<section id="ccloud-pod-leafs">
-<h3>CCloud Pod leafs<a class="headerlink" href="#ccloud-pod-leafs" title="Permalink to this headline">¶</a></h3>
-<p>All CCloud pod types will be tagged to the leaf to identify sub-role:</p>
+<section id="leaf-types">
+<h3>Leaf Types<a class="headerlink" href="#leaf-types" title="Permalink to this headline">¶</a></h3>
+<p>All fabric leaf switches must be tagged with exactly one of below subrole identifiers.</p>
+<section id="ccloud-pod-leaves">
+<h4>CCloud Pod Leaves<a class="headerlink" href="#ccloud-pod-leaves" title="Permalink to this headline">¶</a></h4>
+<p>Any leaf connecting any CC platform equipment must be tagged with the applicable tag of the following:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">CC</span><span class="o">-</span><span class="n">APOD</span><span class="o">|</span><span class="n">CC</span><span class="o">-</span><span class="n">BPOD</span><span class="o">|</span><span class="n">CC</span><span class="o">-</span><span class="n">NETPOD</span><span class="o">|</span><span class="n">CC</span><span class="o">-</span><span class="n">STPOD</span><span class="o">|</span><span class="n">CC</span><span class="o">-</span><span class="n">VPOD</span>
+</pre></div>
+</div>
 <p>Netbox Query:</p>
 <div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">Role</span><span class="p">:</span> <span class="n">EVPN</span> <span class="n">Leaf</span>
 <span class="n">Name</span><span class="p">:</span> <span class="o">.*</span><span class="p">(</span>\<span class="n">d</span>\<span class="n">d</span>\<span class="n">d</span>\<span class="n">d</span><span class="p">)([</span><span class="n">a</span><span class="o">-</span><span class="n">b</span><span class="p">])</span><span class="o">.*</span> <span class="c1">#\1=leaf_id \2=leaf_a_b</span>
@@ -151,11 +177,11 @@ ga('send', 'pageview');
 </div>
 </section>
 <section id="cnd-evpn-leaf-types">
-<h3>CND EVPN leaf types:<a class="headerlink" href="#cnd-evpn-leaf-types" title="Permalink to this headline">¶</a></h3>
+<h4>CND EVPN Leaf Types:<a class="headerlink" href="#cnd-evpn-leaf-types" title="Permalink to this headline">¶</a></h4>
 <p>The driver needs to identify certain non-pod leaf pairs to
 push tenant configuration:</p>
 <ul class="simple">
-<li><p><strong>CND-NET-EVPN-BL</strong>: Border leaf connectng to core routing, required for subnet pool summarization</p></li>
+<li><p><strong>CND-NET-EVPN-BL</strong>: Border leaf connecting to core routing, required for subnet pool summarization</p></li>
 <li><p><strong>CND-NET-EVPN-TL</strong>: Transit leaf connecting to a legacy fabric for migration purposes</p></li>
 <li><p><strong>CND-NET-EVPN-BG</strong>: Used for all gateways interconnecting CC AZ’s in a multi AZ fabric</p></li>
 </ul>
@@ -175,6 +201,7 @@ push tenant configuration:</p>
 </div>
 </section>
 </section>
+</section>
 <section id="l2-l3-networks">
 <h2>L2/L3 Networks<a class="headerlink" href="#l2-l3-networks" title="Permalink to this headline">¶</a></h2>
 <section id="tenant-network-vlan-range">
@@ -183,7 +210,7 @@ push tenant configuration:</p>
 <div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="mi">2000</span><span class="o">-</span><span class="mi">3750</span>
 </pre></div>
 </div>
-<p>If for a device a different (or reduced) range is in effect it must be expressed in the Netbox device config context as a list of single values or ranges for that device, ranges are including first and last value:</p>
+<p>If for a device a different (or reduced) range is in effect it must be expressed in the Netbox device config context as a list of single values or ranges for that device, ranges are including first and last value</p>
 <div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="p">{</span>
 <span class="s2">&quot;cc&quot;</span><span class="p">:</span> <span class="p">{</span>
     <span class="s2">&quot;net&quot;</span><span class="p">:</span> <span class="p">{</span>
@@ -198,53 +225,154 @@ push tenant configuration:</p>
 </pre></div>
 </div>
 </section>
-<section id="infra-network-dhcp-relay">
-<h3>Infra Network DHCP Relay<a class="headerlink" href="#infra-network-dhcp-relay" title="Permalink to this headline">¶</a></h3>
-<p>For infra networks requiring a DHCP relay one or more Netbox Tags
-must be added to the vlan object, one for each dhcp relay server
+<section id="infrastructure-networks">
+<h3>Infrastructure Networks<a class="headerlink" href="#infrastructure-networks" title="Permalink to this headline">¶</a></h3>
+<p>Infrastructure networks (infra networks) are required to deliver the platform’s control plane communication.
+These can be used for hypervisor specific purposes, management access or provisioning.</p>
+<p>Infra networks can be pure layer 2 networks or routed layer 3 networks with an anycast gateway bound on the leaf switch.
+Pure layer 2 infra networks will be modelled using Netbox <em>VLAN groups</em> and <em>VLANs</em>. If a infra network is layer 3 enabled,
+we use Netbox <em>prefixes</em> and <em>IP address</em> objects to associate the layer 3 portion.</p>
+<p>Each pod must have its infra <em>VLAN</em> created in a <em>VLAN group</em>. <em>VLAN groups</em> must have the <em>site</em> of the pod assigned.
+The group must be named in accordance with the pod type. Find the following exemplary python code for illustration:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span> <span class="nn">pynetbox</span>
+<span class="n">nb</span> <span class="o">=</span> <span class="n">pynetbox</span><span class="o">.</span><span class="n">api</span><span class="p">(</span><span class="o">...</span><span class="p">)</span>
+<span class="n">site</span> <span class="o">=</span> <span class="n">nb</span><span class="o">.</span><span class="n">dcim</span><span class="o">.</span><span class="n">sites</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">slug</span><span class="o">=</span><span class="s1">&#39;qa-de-1d&#39;</span><span class="p">)</span>
+<span class="n">bb</span> <span class="o">=</span> <span class="mi">271</span>
+<span class="n">pod_type</span> <span class="o">=</span> <span class="s1">&#39;CC-vPOD&#39;</span>
+<span class="n">vgroup</span> <span class="o">=</span> <span class="n">nb</span><span class="o">.</span><span class="n">ipam</span><span class="o">.</span><span class="n">vlan_groups</span><span class="o">.</span><span class="n">create</span><span class="p">({</span><span class="s1">&#39;name&#39;</span><span class="p">:</span> <span class="sa">f</span><span class="s1">&#39;</span><span class="si">{</span><span class="n">pod_type</span><span class="si">}{</span><span class="n">bb</span><span class="si">:</span><span class="s1">03d</span><span class="si">}</span><span class="s1">&#39;</span><span class="p">,</span> <span class="s1">&#39;slug&#39;</span><span class="p">:</span> <span class="sa">f</span><span class="s1">&#39;</span><span class="si">{</span><span class="n">pod_type</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span><span class="si">}{</span><span class="n">bb</span><span class="si">:</span><span class="s1">03d</span><span class="si">}</span><span class="s1">&#39;</span><span class="p">,</span> <span class="n">site</span><span class="o">=</span><span class="n">site</span><span class="o">.</span><span class="n">id</span><span class="p">})</span>
+</pre></div>
+</div>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">pod_type</span><span class="p">:</span> <span class="n">aPOD</span><span class="o">|</span><span class="n">CC</span><span class="o">-</span><span class="n">bPOD</span><span class="o">|</span><span class="n">CC</span><span class="o">-</span><span class="n">netPOD</span><span class="o">|</span><span class="n">CC</span><span class="o">-</span><span class="n">stPOD</span><span class="o">|</span><span class="n">CC</span><span class="o">-</span><span class="n">vPOD</span>
+<span class="n">pod_number</span><span class="p">:</span> <span class="n">a</span> <span class="mi">3</span> <span class="n">digit</span> <span class="n">zero</span><span class="o">-</span><span class="n">padded</span> <span class="n">number</span> <span class="n">indicating</span> <span class="n">the</span> <span class="n">pod</span>
+</pre></div>
+</div>
+<p>Each infra network must be present in Netbox as a <em>VLAN</em> object in the corresponding <em>VLAN group</em>, with correct <em>site</em> and <em>role</em> assignments.</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">mgmt_role</span> <span class="o">=</span> <span class="n">nb</span><span class="o">.</span><span class="n">ipam</span><span class="o">.</span><span class="n">roles</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">slug</span><span class="o">=</span><span class="s1">&#39;cc-management&#39;</span><span class="p">)</span>
+<span class="n">cc_tenant</span> <span class="o">=</span> <span class="n">nb</span><span class="o">.</span><span class="n">tenancy</span><span class="o">.</span><span class="n">tenants</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">slug</span><span class="o">=</span><span class="s1">&#39;converged-cloud&#39;</span><span class="p">)</span>
+<span class="n">mgmt_vlan</span> <span class="o">=</span> <span class="n">nb</span><span class="o">.</span><span class="n">ipam</span><span class="o">.</span><span class="n">vlans</span><span class="o">.</span><span class="n">create</span><span class="p">({</span><span class="s1">&#39;name&#39;</span><span class="p">:</span> <span class="s1">&#39;BB Mgmt&#39;</span><span class="p">,</span><span class="s1">&#39;role&#39;</span><span class="p">:</span> <span class="n">mgmt_role</span><span class="o">.</span><span class="n">id</span><span class="p">,</span> <span class="s1">&#39;site&#39;</span><span class="p">:</span> <span class="n">site</span><span class="o">.</span><span class="n">id</span><span class="p">,</span>
+                      <span class="s1">&#39;tenant&#39;</span><span class="p">:</span> <span class="n">cc_tenant</span><span class="o">.</span><span class="n">id</span><span class="p">,</span> <span class="s1">&#39;group&#39;</span><span class="p">:</span><span class="n">vgroup</span><span class="o">.</span><span class="n">id</span><span class="p">,</span> <span class="s1">&#39;vid&#39;</span><span class="p">:</span> <span class="mi">101</span><span class="p">,</span> <span class="s1">&#39;status&#39;</span><span class="p">:</span> <span class="s1">&#39;active&#39;</span><span class="p">})</span>
+</pre></div>
+</div>
+<p>Any layer 3 infra network local to that building-block must subnetted from a precreated building-block specific supernet.
+We retreive the precreated network assignments follows:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">cc_mgmt_vrf</span> <span class="o">=</span> <span class="n">nb</span><span class="o">.</span><span class="n">ipam</span><span class="o">.</span><span class="n">vrfs</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s1">&#39;CC-MGMT&#39;</span><span class="p">)</span>
+<span class="n">candidate_nets</span> <span class="o">=</span> <span class="p">[</span><span class="n">x</span> <span class="k">for</span> <span class="n">x</span> <span class="ow">in</span> <span class="n">nb</span><span class="o">.</span><span class="n">ipam</span><span class="o">.</span><span class="n">prefixes</span><span class="o">.</span><span class="n">filter</span><span class="p">(</span><span class="n">role</span><span class="o">=</span><span class="s1">&#39;cc-building-block&#39;</span><span class="p">,</span> <span class="n">site_id</span><span class="o">=</span><span class="n">site</span><span class="o">.</span><span class="n">id</span><span class="p">,</span> <span class="n">vrf_id</span><span class="o">=</span><span class="n">cc_mgmt_vrf</span><span class="o">.</span><span class="n">id</span><span class="p">)</span>
+                  <span class="k">if</span> <span class="n">x</span><span class="o">.</span><span class="n">description</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="sa">f</span><span class="s1">&#39;BB</span><span class="si">{</span><span class="n">bb</span><span class="si">:</span><span class="s1">03d</span><span class="si">}</span><span class="s1">&#39;</span><span class="p">)]</span>
+<span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">candidate_nets</span><span class="p">)</span> <span class="o">!=</span> <span class="mi">1</span><span class="p">:</span>
+    <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s1">&#39;Could not find a mgmt supernet for BB</span><span class="si">{</span><span class="n">bb</span><span class="si">:</span><span class="s1">03d</span><span class="si">}</span><span class="s1"> or found more than 1&#39;</span><span class="p">)</span>
+<span class="n">bb_net</span> <span class="o">=</span> <span class="n">candidate_nets</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+</pre></div>
+</div>
+<p>Any layer 3 infra network must be created as a prefix object in Netbox. The prefix object must carry the correct <em>VRF</em> assignment,
+<em>tenant</em>, <em>VLAN</em> association, <em>role</em> assignment. It must be set to active and may not be a pool.</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">ip_address</span> <span class="kn">import</span> <span class="n">ip_network</span>
+
+<span class="n">prefixes_26</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">ip_network</span><span class="p">(</span><span class="n">mgmt_net</span><span class="o">.</span><span class="n">prefix</span><span class="p">)</span><span class="o">.</span><span class="n">subnets</span><span class="p">(</span><span class="n">new_prefix</span><span class="o">=</span><span class="mi">26</span><span class="p">))</span>
+<span class="n">prefixes_27</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">ip_network</span><span class="p">(</span><span class="n">mgmt_net</span><span class="o">.</span><span class="n">prefix</span><span class="p">)</span><span class="o">.</span><span class="n">subnets</span><span class="p">(</span><span class="n">new_prefix</span><span class="o">=</span><span class="mi">27</span><span class="p">))</span>
+
+<span class="n">mgmt_prefix</span> <span class="o">=</span> <span class="n">nb</span><span class="o">.</span><span class="n">ipam</span><span class="o">.</span><span class="n">prefixes</span><span class="o">.</span><span class="n">create</span><span class="p">({</span> <span class="s1">&#39;family&#39;</span><span class="p">:</span> <span class="mi">4</span><span class="p">,</span> <span class="s1">&#39;vrf&#39;</span><span class="p">:</span> <span class="n">cc_mgmt_vrf</span><span class="o">.</span><span class="n">id</span><span class="p">,</span> <span class="s1">&#39;tenant&#39;</span><span class="p">:</span> <span class="n">cc_tenant</span><span class="o">.</span><span class="n">id</span><span class="p">,</span>
+                                        <span class="s1">&#39;prefix&#39;</span><span class="p">:</span> <span class="nb">str</span><span class="p">(</span><span class="n">prefixes_26</span><span class="p">[</span><span class="mi">1</span><span class="p">]),</span> <span class="s1">&#39;site&#39;</span><span class="p">:</span> <span class="n">site</span><span class="o">.</span><span class="n">id</span><span class="p">,</span> <span class="s1">&#39;vlan&#39;</span><span class="p">:</span> <span class="n">mgmt_vlan</span><span class="o">.</span><span class="n">id</span><span class="p">,</span>
+                                        <span class="s1">&#39;role&#39;</span><span class="p">:</span> <span class="n">mgmt_vlan</span><span class="o">.</span><span class="n">role</span><span class="o">.</span><span class="n">id</span><span class="p">,</span> <span class="s1">&#39;status&#39;</span><span class="p">:</span> <span class="s1">&#39;active&#39;</span><span class="p">,</span> <span class="s1">&#39;is_pool&#39;</span><span class="p">:</span> <span class="kc">False</span><span class="p">})</span>
+</pre></div>
+</div>
+<section id="anycast-gateway">
+<h4>Anycast Gateway<a class="headerlink" href="#anycast-gateway" title="Permalink to this headline">¶</a></h4>
+<p>If a local anycast gateway for an layer 3 infra network shall be configured, a corresponding  SVI interface must be created in Netbox in order to reflect the anycast gateway.
+The SVI interface must be created on both leaf switches of a pod and must be exactly named as SVI interfaces are named
+in the device specific configuration. Each SVI interface must have an <em>IP Address</em> object linked that associates to
+the <em>VRF</em> it routes and must be of type <em>anycast</em>.
+An SVI interface must also have the VLAN it corresponds to set as <em>unatagged_vlan</em>. Find the details in below code snippet:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">prefix</span> <span class="o">=</span> <span class="n">ip_network</span><span class="p">(</span><span class="n">mgmt_prefix</span><span class="o">.</span><span class="n">prefix</span><span class="p">)</span>
+<span class="n">gateway</span> <span class="o">=</span> <span class="sa">f</span><span class="s1">&#39;</span><span class="si">{</span><span class="nb">next</span><span class="p">(</span><span class="n">prefix</span><span class="o">.</span><span class="n">hosts</span><span class="p">())</span><span class="si">}</span><span class="s1">/</span><span class="si">{</span><span class="n">prefix</span><span class="o">.</span><span class="n">prefixlen</span><span class="si">}</span><span class="s1">&#39;</span> <span class="c1"># always first address of network</span>
+<span class="k">for</span> <span class="n">leaf</span> <span class="ow">in</span> <span class="n">leaves</span><span class="p">:</span>
+    <span class="c1"># f&#39;Vlan{id}&#39; is naming compliant to Arista EOS</span>
+    <span class="n">svi</span> <span class="o">=</span> <span class="n">nb</span><span class="o">.</span><span class="n">dcim</span><span class="o">.</span><span class="n">interfaces</span><span class="o">.</span><span class="n">create</span><span class="p">(</span>
+        <span class="p">{</span><span class="s1">&#39;name&#39;</span><span class="p">:</span> <span class="sa">f</span><span class="s1">&#39;Vlan</span><span class="si">{</span><span class="n">mgmt_vlan</span><span class="o">.</span><span class="n">vid</span><span class="si">}</span><span class="s1">&#39;</span><span class="p">,</span> <span class="s1">&#39;device&#39;</span><span class="p">:</span> <span class="n">leaf</span><span class="o">.</span><span class="n">id</span><span class="p">,</span> <span class="s1">&#39;type&#39;</span><span class="p">:</span> <span class="s1">&#39;virtual&#39;</span><span class="p">,</span> <span class="s1">&#39;unatagged_vlan&#39;</span><span class="p">:</span> <span class="n">mgmt_vlan</span><span class="o">.</span><span class="n">id</span><span class="p">,</span> <span class="s1">&#39;mode&#39;</span><span class="p">:</span> <span class="s1">&#39;access&#39;</span> <span class="p">})</span>
+    <span class="n">nb</span><span class="o">.</span><span class="n">ipam</span><span class="o">.</span><span class="n">ip_addresses</span><span class="o">.</span><span class="n">create</span><span class="p">({</span>
+        <span class="s1">&#39;address&#39;</span><span class="p">:</span> <span class="n">gateway</span><span class="p">,</span> <span class="s1">&#39;family&#39;</span><span class="p">:</span> <span class="mi">4</span><span class="p">,</span> <span class="s1">&#39;vrf&#39;</span><span class="p">:</span> <span class="n">cc_mgmt_vrf</span><span class="o">.</span><span class="n">id</span><span class="p">,</span>
+        <span class="s1">&#39;tenant&#39;</span><span class="p">:</span> <span class="n">cc_tenant</span><span class="o">.</span><span class="n">id</span><span class="p">,</span> <span class="s1">&#39;status&#39;</span><span class="p">:</span> <span class="s1">&#39;active&#39;</span><span class="p">,</span> <span class="s1">&#39;role&#39;</span><span class="p">:</span> <span class="s1">&#39;anycast&#39;</span><span class="p">,</span>
+        <span class="s1">&#39;assigned_object_type&#39;</span><span class="p">:</span> <span class="s1">&#39;dcim.interface&#39;</span><span class="p">,</span> <span class="s1">&#39;assigned_object_id&#39;</span><span class="p">:</span> <span class="n">svi</span><span class="o">.</span><span class="n">id</span><span class="p">})</span>
+</pre></div>
+</div>
+</section>
+<section id="dhcp-relay">
+<h4>DHCP Relay<a class="headerlink" href="#dhcp-relay" title="Permalink to this headline">¶</a></h4>
+<p>For infra networks requiring a DHCP relay one or more Netbox <em>Tags</em>
+must be added to the <em>VLAN</em> object, one for each DHCP relay server
 in the form:</p>
 <div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">CC</span><span class="o">-</span><span class="n">NET</span><span class="o">-</span><span class="n">EVPN</span><span class="o">-</span><span class="n">DHCP</span><span class="o">-</span><span class="n">RELAY</span><span class="p">:</span><span class="mf">10.10.10.10</span>
 <span class="n">CC</span><span class="o">-</span><span class="n">NET</span><span class="o">-</span><span class="n">EVPN</span><span class="o">-</span><span class="n">DHCP</span><span class="o">-</span><span class="n">RELAY</span><span class="p">:</span><span class="mf">10.11.11.11</span>
 </pre></div>
 </div>
 </section>
+</section>
 <section id="l2-networks-vlan-to-vni-mapping">
 <h3>L2 Networks VLAN to VNI mapping<a class="headerlink" href="#l2-networks-vlan-to-vni-mapping" title="Permalink to this headline">¶</a></h3>
-<p>Netbox does not yet support a model for overlay network VNIs, the following conventions are used</p>
-<ul class="simple">
-<li><p><strong>Infra Regional</strong>: VLAN X uses VNI X (VLAN 100 -&gt; VNI 100)</p></li>
-<li><p><strong>Infra AZ-wide</strong>: VLAN X uses VNI [AZ-Prefix]X (VLAN 800, AZ=a -&gt; 100800, VLAN 800, AZ=b -&gt; 200800)</p></li>
-<li><p><strong>Infra Pod-specific</strong>: VLAN X re-used in many pods as local vlan, 1PPPPVVV with P=Pod ID 4-Digit with leading zeros, V=Local VLAN id 3-Digit with leading zeros. Vlan 100 in vPOD 371 -&gt; VNI=10371100</p></li>
-<li><p><strong>Tenant</strong>: CCloud platform driver should use range 10000 - 99999</p></li>
-</ul>
-</section>
-</section>
-<section id="ports">
-<h2>Ports<a class="headerlink" href="#ports" title="Permalink to this headline">¶</a></h2>
-<p>the driver is responsible for front ports on pod equipment, some port types require
-certain infra VLANs to be provisioned as well as ports being assembled into port-channels
-based on current port function</p>
-<section id="port-infra-vlans">
-<h3>Port infra VLANs<a class="headerlink" href="#port-infra-vlans" title="Permalink to this headline">¶</a></h3>
-<p>Infra VLAN’s required on ports are recorded on the Netbox port they are reuqired on,
-for port-channels the required vlans do only need to be provided on the LAG interface,
-VLAN’s defined on member interfaces will be ignored for port-channel members:</p>
-<p>Netbox config:</p>
-<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="s2">&quot;802.1Q Mode&quot;</span> <span class="o">=</span> <span class="n">Tagged</span><span class="o">|</span><span class="n">Untagged</span>
-<span class="s2">&quot;Untagged VLAN&quot;</span> <span class="o">=</span> <span class="n">Single</span> <span class="n">VLAN</span> <span class="n">reference</span>
-<span class="s2">&quot;Tagged VLAN&#39;s&quot;</span> <span class="o">=</span> <span class="n">List</span> <span class="n">of</span> <span class="n">VLAN</span> <span class="n">references</span>
-</pre></div>
+<p>Netbox does not yet support a model for overlay network VNIs, the following conventions are used:</p>
+<table class="docutils align-default">
+<colgroup>
+<col style="width: 26%" />
+<col style="width: 74%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Network Type</p></th>
+<th class="head"><p>VNI Allocation</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>Infra Regional</p></td>
+<td><p>VLAN X uses VNI X (VLAN 100 -&gt; VNI 100)</p></td>
+</tr>
+<tr class="row-odd"><td><div class="line-block">
+<div class="line">Infra AZ-wide</div>
+<div class="line"><br /></div>
 </div>
+</td>
+<td><div class="line-block">
+<div class="line">VLAN X uses VNI [AZ-Prefix]X</div>
+<div class="line">i.e VLAN 800, AZ=a -&gt; 100800, VLAN = 800, AZ=b -&gt; 200800</div>
+</div>
+</td>
+</tr>
+<tr class="row-even"><td><div class="line-block">
+<div class="line">Infra Pod-specific</div>
+<div class="line"><br /></div>
+<div class="line"><br /></div>
+<div class="line"><br /></div>
+</div>
+</td>
+<td><div class="line-block">
+<div class="line">VLAN X re-used in many pods as local vlan,</div>
+<div class="line">1PPPPVVV with P=Pod ID 4-Digit with leading zeros,</div>
+<div class="line">V=Local VLAN id 3-Digit with leading zeros.</div>
+<div class="line">i.e Vlan 100 in vPOD 371 -&gt; VNI=10371100</div>
+</div>
+</td>
+</tr>
+<tr class="row-odd"><td><p>Tenant</p></td>
+<td><p>CCloud platform driver should use range 10000 - 99999</p></td>
+</tr>
+</tbody>
+</table>
 </section>
-<section id="port-channels">
-<h3>Port Channels<a class="headerlink" href="#port-channels" title="Permalink to this headline">¶</a></h3>
-<p>There are two types port-channels, static which are defined in Netbox as LAG
-with member interfaces and dynamic which are defined via CCloud port groups
-self service.
-To ensure port-channel definitions do not conflict the id range is distinct for
+</section>
+<section id="ports-and-interfaces">
+<h2>Ports and Interfaces<a class="headerlink" href="#ports-and-interfaces" title="Permalink to this headline">¶</a></h2>
+<p>The driver is responsible for front ports on pod equipment, configures certain infra networks on such ports or
+bundles ports in LAG and MLAG logical interfaces. This section describes Netbox modelling requirements for the driver’s input.</p>
+<section id="cables">
+<h3>Cables<a class="headerlink" href="#cables" title="Permalink to this headline">¶</a></h3>
+<p>All cables must be modelled according to physical connections. Cables must be marked as <cite>installed</cite> when installed.
+This does also include Leaf to Spine links, which are necessary for diagnostic tooling.</p>
+</section>
+<section id="link-aggregation-groups">
+<h3>Link Aggregation Groups<a class="headerlink" href="#link-aggregation-groups" title="Permalink to this headline">¶</a></h3>
+<p>There are two types Link Aggregation Groups (LAGs)), static which are defined in Netbox as LAG
+with member interfaces and dynamic which are defined via CCloud port groups self service.</p>
+<p>To ensure LAG definitions do not conflict, the id range is distinct for
 both use cases as follows.</p>
 <table class="colwidths-given docutils align-default" id="id1">
-<caption><span class="caption-text">Port-Channel Ranges</span><a class="headerlink" href="#id1" title="Permalink to this table">¶</a></caption>
+<caption><span class="caption-text">LAG Ranges</span><a class="headerlink" href="#id1" title="Permalink to this table">¶</a></caption>
 <colgroup>
 <col style="width: 25%" />
 <col style="width: 25%" />
@@ -279,11 +407,30 @@ both use cases as follows.</p>
 </tr>
 </tbody>
 </table>
-<p>Port-channels can either have ports only on one device or be spanned across two
-devices (MLAG/vPC) the following convention will be used to distinguish the two
+<p>Static LAGs must be defined in Netbox by creating a new interface of type <em>LAG</em>, the interface must be <em>enabled</em>. A LAG interface’s
+name must exact-match the full name in the vendor specific configuration, i.e <em>Port-Channel</em> for Arista EOS, <em>Port-channel</em> for Cisco NXOS.
+All member interfaces must be made a member of the LAG interface in Netbox.</p>
+<p>LAGs can either have ports only on one leaf or be spanned across two leaves (MLAG/vPC).
+The following convention will be used to distinguish the two
 variants:</p>
 <div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">port</span><span class="o">-</span><span class="n">channel100</span> <span class="n">defined</span> <span class="n">on</span> <span class="n">device</span> <span class="mi">1110</span><span class="n">a</span> <span class="n">only</span><span class="p">:</span> <span class="n">a</span> <span class="n">regular</span> <span class="n">port</span><span class="o">-</span><span class="n">channel</span> <span class="n">will</span> <span class="n">be</span> <span class="n">configured</span>
 <span class="n">port</span><span class="o">-</span><span class="n">channel100</span> <span class="n">defined</span> <span class="n">on</span> <span class="n">device</span> <span class="mi">1110</span><span class="n">a</span> <span class="n">AND</span> <span class="mi">1110</span><span class="n">b</span><span class="p">:</span> <span class="n">a</span> <span class="n">MLAG</span><span class="o">/</span><span class="n">vPC</span> <span class="n">will</span> <span class="n">be</span> <span class="n">configured</span>
+</pre></div>
+</div>
+</section>
+<section id="infrastructure-network-assignment">
+<h3>Infrastructure Network Assignment<a class="headerlink" href="#infrastructure-network-assignment" title="Permalink to this headline">¶</a></h3>
+<p>In order to bind infra networks to interfaces, the <em>VLAN</em> must be bound to the <em>interface</em> object in Netbox.
+<em>VLANs</em> must only be bound to the logical interface, so if an interface is a LAG member, the VLAN object must be bound on the LAG.</p>
+<p><em>VLANs</em> can either be bound as <em>tagged_vlans</em> or one VLAN may be bound as <em>untagged_vlan</em> on the interface.
+The interface mode must be set to ‘tagged’ in order to server the ‘tagged_vlans’.</p>
+<p>Our current use case only includes tagged infra networks, which derives to the following snippet:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="c1"># server_interfaces: all interfaces on both leaf switches on a building block that are connecting a server</span>
+<span class="n">infra_vlans</span> <span class="o">=</span> <span class="p">[</span><span class="n">vlan_console</span><span class="p">,</span> <span class="n">vlan_mgmt</span><span class="p">,</span> <span class="n">vlan_vmotion</span><span class="p">,</span> <span class="n">vlan_backdoor</span><span class="p">]</span>
+<span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="n">server_interfaces</span><span class="p">:</span>
+    <span class="n">i</span><span class="o">.</span><span class="n">mode</span> <span class="o">=</span> <span class="s1">&#39;tagged&#39;</span>
+    <span class="n">i</span><span class="o">.</span><span class="n">tagged_vlans</span> <span class="o">=</span> <span class="n">infra_vlans</span>
+    <span class="n">i</span><span class="o">.</span><span class="n">save</span><span class="p">()</span>
 </pre></div>
 </div>
 </section>
@@ -303,7 +450,7 @@ variants:</p>
           
           </div>
           <div class="row docs-byline bottom">
-            <div class="docs-updated">this page last updated: 2022-03-31 11:46:31</div>
+            <div class="docs-updated">this page last updated: 2022-03-11 15:54:48</div>
           </div>
           <div class="row">
             <div class="col-lg-8 col-md-8 col-sm-8 docs-license">
@@ -347,20 +494,28 @@ variants:</p>
       <ul>
 <li><a class="reference internal" href="#">Generator Input</a><ul>
 <li><a class="reference internal" href="#leaf-pair">Leaf Pair</a><ul>
-<li><a class="reference internal" href="#uniq-pair-id">Uniq Pair ID</a></li>
-<li><a class="reference internal" href="#ccloud-pod-leafs">CCloud Pod leafs</a></li>
-<li><a class="reference internal" href="#cnd-evpn-leaf-types">CND EVPN leaf types:</a></li>
+<li><a class="reference internal" href="#hostname-convention">Hostname Convention</a></li>
+<li><a class="reference internal" href="#leaf-types">Leaf Types</a><ul>
+<li><a class="reference internal" href="#ccloud-pod-leaves">CCloud Pod Leaves</a></li>
+<li><a class="reference internal" href="#cnd-evpn-leaf-types">CND EVPN Leaf Types:</a></li>
+</ul>
+</li>
 </ul>
 </li>
 <li><a class="reference internal" href="#l2-l3-networks">L2/L3 Networks</a><ul>
 <li><a class="reference internal" href="#tenant-network-vlan-range">Tenant Network VLAN range</a></li>
-<li><a class="reference internal" href="#infra-network-dhcp-relay">Infra Network DHCP Relay</a></li>
+<li><a class="reference internal" href="#infrastructure-networks">Infrastructure Networks</a><ul>
+<li><a class="reference internal" href="#anycast-gateway">Anycast Gateway</a></li>
+<li><a class="reference internal" href="#dhcp-relay">DHCP Relay</a></li>
+</ul>
+</li>
 <li><a class="reference internal" href="#l2-networks-vlan-to-vni-mapping">L2 Networks VLAN to VNI mapping</a></li>
 </ul>
 </li>
-<li><a class="reference internal" href="#ports">Ports</a><ul>
-<li><a class="reference internal" href="#port-infra-vlans">Port infra VLANs</a></li>
-<li><a class="reference internal" href="#port-channels">Port Channels</a></li>
+<li><a class="reference internal" href="#ports-and-interfaces">Ports and Interfaces</a><ul>
+<li><a class="reference internal" href="#cables">Cables</a></li>
+<li><a class="reference internal" href="#link-aggregation-groups">Link Aggregation Groups</a></li>
+<li><a class="reference internal" href="#infrastructure-network-assignment">Infrastructure Network Assignment</a></li>
 </ul>
 </li>
 </ul>
