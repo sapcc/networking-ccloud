@@ -109,6 +109,10 @@ class HostgroupRole(str, Enum):
     bgw = cc_const.DEVICE_TYPE_BGW
 
 
+class HandoverMode(str, Enum):
+    vlan = cc_const.HANDOVER_VLAN
+
+
 class SwitchGroup(pydantic.BaseModel):
     name: str
     members: List[Switch]
@@ -222,7 +226,7 @@ class Hostgroup(pydantic.BaseModel):
     # FIXME: proper handover mode checking (like with roles)
     # FIXME: shall lacp member ports explicitly have their ports listed as single members or explicitly not
     # FIXME: add computed value "vlan_pool" or name or anything like this
-    handover_mode: Union['vlan'] = cc_const.HANDOVER_VLAN
+    handover_mode: HandoverMode = cc_const.HANDOVER_VLAN
 
     binding_hosts: List[str]
     metagroup: bool = False
