@@ -21,33 +21,33 @@ if not os.environ.get('DISABLE_EVENTLET_PATCHING'):
 from oslo_log import log as logging
 
 from networking_ccloud.common import constants as cc_const
-from networking_ccloud.ml2.agent.arista.switch import AristaSwitch
 from networking_ccloud.ml2.agent.common.agent import CCFabricSwitchAgent
+from networking_ccloud.ml2.agent.eos.switch import EOSSwitch
 
 LOG = logging.getLogger(__name__)
 
 
-class CCFabricAristaSwitchAgent(CCFabricSwitchAgent):
-    """Switch Agent implementing Arista functions"""
+class CCFabricEOSSwitchAgent(CCFabricSwitchAgent):
+    """Switch Agent implementing Arista EOS functions"""
 
     @classmethod
     def get_binary_name(cls):
-        return 'cc-fabric-arista-agent'
+        return 'cc-eos-switch-agent'
 
     @classmethod
     def get_agent_topic(cls):
-        return cc_const.SWITCH_AGENT_ARISTA_TOPIC
+        return cc_const.SWITCH_AGENT_EOS_TOPIC
 
     @classmethod
     def get_switch_class(cls):
-        return AristaSwitch
+        return EOSSwitch
 
     def status(self, context):
         status = super().status(context=context)
-        status['arista'] = "Present"
+        status['eos'] = "Present"
 
         return status
 
 
 def main():
-    CCFabricAristaSwitchAgent.run_agent_main()
+    CCFabricEOSSwitchAgent.run_agent_main()

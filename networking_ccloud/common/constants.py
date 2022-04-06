@@ -31,10 +31,10 @@ AGENT_TYPE_CC_FABRIC = 'CC fabric agent'
 
 # rpc topics
 CC_DRIVER_TOPIC = 'cc-fabric-driver'
-SWITCH_AGENT_ARISTA_TOPIC = 'cc-fabric-switch-agent-arista'
+SWITCH_AGENT_EOS_TOPIC = 'cc-fabric-switch-agent-eos'
 SWITCH_AGENT_NXOS_TOPIC = 'cc-fabric-switch-agent-nxos'
 
 SWITCH_AGENT_TOPIC_MAP = {
-    PLATFORM_EOS: SWITCH_AGENT_ARISTA_TOPIC,
+    PLATFORM_EOS: SWITCH_AGENT_EOS_TOPIC,
     PLATFORM_NXOS: SWITCH_AGENT_NXOS_TOPIC,
 }

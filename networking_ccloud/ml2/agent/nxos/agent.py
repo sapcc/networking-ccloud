@@ -44,7 +44,7 @@ class CCFabricNXOSSwitchAgent(CCFabricSwitchAgent):
 
     def status(self, context):
         status = super().status(context=context)
-        status['arista'] = "Present"
+        status['nxos'] = "Present"
 
         return status
 

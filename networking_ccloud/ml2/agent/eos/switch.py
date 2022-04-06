@@ -25,7 +25,7 @@ from networking_ccloud.ml2.agent.common.switch import SwitchBase
 LOG = logging.getLogger(__name__)
 
 
-class AristaSwitch(SwitchBase):
+class EOSSwitch(SwitchBase):
     @classmethod
     def get_platform(self):
         return cc_const.PLATFORM_EOS
