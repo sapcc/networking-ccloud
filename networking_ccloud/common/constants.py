@@ -27,6 +27,8 @@ CC_TRANSIT = 'cc-fabric-transit'
 DEVICE_TYPE_TRANSIT = 'transit'
 DEVICE_TYPE_BGW = 'bgw'
 
+AGENT_TYPE_CC_FABRIC = 'CC fabric agent'
+
 # rpc topics
 CC_DRIVER_TOPIC = 'cc-fabric-driver'
 SWITCH_AGENT_ARISTA_TOPIC = 'cc-fabric-switch-agent-arista'

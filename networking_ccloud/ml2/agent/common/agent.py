@@ -22,6 +22,7 @@ from oslo_log import log as logging
 from oslo_service import service
 
 from networking_ccloud.common.config import get_driver_config
+from networking_ccloud.common import constants as cc_const
 from networking_ccloud.ml2.agent.common import api as cc_agent_api
 from networking_ccloud.ml2.agent.common import messages as agent_msg
 
@@ -92,6 +93,7 @@ class CCFabricSwitchAgent(manager.Manager, cc_agent_api.CCFabricSwitchAgentAPI):
 
         server = neutron_service.Service.create(
             binary=cls.get_binary_name(),
+            agent_type=cc_const.AGENT_TYPE_CC_FABRIC,
             topic=cls.get_agent_topic(),
             report_interval=0,
             periodic_interval=10,
