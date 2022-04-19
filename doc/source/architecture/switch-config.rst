@@ -162,6 +162,12 @@ Sample Driver Configuration
 ###########################
 ::
 
+   [ml2_cc_fabric]
+   regional_l3 = false
+   az_l3 = qa-de-1d
+
+::
+
    global:
       asn_region: 65130
       infra_network_default_vrf: CC-MGMT
@@ -396,6 +402,14 @@ Sample Subnet Definition
      "id": "f2fd984c-45b1-4465-9f99-e72f86b896fa",
      "name": "hcp03-public",
    }
+   ######### Example Subnet Pool
+   {
+     "address_scope_id": "f2fd984c-45b1-4465-9f99-e72f86b896fa",
+     "id": "e6df3de0-16dd-46e3-850f-5418fd6dd820",
+     "prefixes": [
+       "10.47.10.0/24",
+     ],
+   }
    ######### Example External Network
    {
      "id": "aeec9fd4-30f7-4398-8554-34acb36b7712",
@@ -450,7 +464,7 @@ On Device configuration
          route-target import evpn 65130.1103:102
          route-target export evpn 65130.1103:102
          network 10.47.8.192/27
-         network 10.47.10.0/24
+         network 10.47.10.0/24 route-map RM-CC-AGGREGATE
 
 **NX-OS**:
 ::
@@ -475,7 +489,7 @@ On Device configuration
       vrf CC-CLOUD02
          address-family ipv4 unicast
             network 10.47.8.192/27
-            network 10.47.10.0/24
+            network 10.47.10.0/24 route-map RM-CC-AGGREGATE
 
 DAPnet Directly Accessible Private Network
 ##########################################
@@ -667,27 +681,6 @@ Sample Subnet Pool Definition
 On Device Configuration
 #######################
 
-Border Leaf
------------
-
-**EOS**:
-::
-
-   #Sample for a availability zone
-   ip prefix-list PL-CC-CLOUD02
-      seq 10 deny 130.214.202.0/24 ge 25 le 31
-      seq 20 deny 130.214.215.0/26 ge 27 le 31
-      seq 20 deny 130.214.215.64/26 ge 27 le 31
-      seq 30 deny 10.188.16.0/21 ge 22 le 31
-      seq 40 deny 10.236.100.0/22 ge 23 le 31
-
-   #Sample for b availability zone
-   ip prefix-list PL-CC-CLOUD02
-      seq 10 deny 130.214.202.0/24 ge 25 le 31
-      seq 20 deny 130.214.215.0/26 ge 27 le 31
-      seq 30 deny 10.188.16.0/21 ge 22 le 31
-      seq 40 deny 10.236.100.0/22 ge 23 le 31
-
 aPOD/vPOD/stPOD/netPOD/bPOD/Transit leafs
 -----------------------------------------
 
@@ -696,9 +689,9 @@ aPOD/vPOD/stPOD/netPOD/bPOD/Transit leafs
 
    router bgp 65130.1103
       vrf CC-CLOUD02
-         aggregate-address 130.214.202.0/24
-         aggregate-address 130.214.215.0/26
-         aggregate-address 10.236.100.0/22
+         aggregate-address 130.214.202.0/24 route-map RM-CC-AGGREGATE
+         aggregate-address 130.214.215.0/26 route-map RM-CC-AGGREGATE
+         aggregate-address 10.236.100.0/22 route-map RM-CC-AGGREGATE
 
 **NX-OS**:
 ::
@@ -706,9 +699,9 @@ aPOD/vPOD/stPOD/netPOD/bPOD/Transit leafs
    router bgp 65130.1103
       vrf CC-CLOUD02
          address-family ipv4 unicast
-            aggregate-address 130.214.202.0/24
-            aggregate-address 130.214.215.0/26
-            aggregate-address 10.236.100.0/22
+            aggregate-address 130.214.202.0/24 route-map RM-CC-AGGREGATE
+            aggregate-address 130.214.215.0/26 route-map RM-CC-AGGREGATE
+            aggregate-address 10.236.100.0/22 route-map RM-CC-AGGREGATE
 
 ***********
 Floating IP
@@ -825,12 +818,6 @@ Sample Port Definition
 
   # Network
   {
-    "admin_state_up": true,
-    "availability_zones": [
-      "qa-de-1a",
-      "qa-de-1b",
-      "qa-de-1d"
-    ],
     "id": "aeec9fd4-30f7-4398-8554-34acb36b7712",
     "segments": [
       {
