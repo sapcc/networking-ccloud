@@ -6,7 +6,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="generator" content="Docutils 0.17.1: http://docutils.sourceforge.net/" />
 
-    <title>Switch Config &#8212; networking-ccloud 0.0.0 documentation</title>
+    <title>Device Config &#8212; networking-ccloud 0.0.0 documentation</title>
     <link rel="stylesheet" type="text/css" href="../_static/pygments.css" />
     <link rel="stylesheet" type="text/css" href="../_static/css/basic.css" />
     <script data-url_root="../" id="documentation_options" src="../_static/documentation_options.js"></script>
@@ -99,7 +99,7 @@ ga('send', 'pageview');
         <div class="col-lg-9 col-md-8 col-sm-8 col-lg-push-3 col-md-push-4 col-sm-push-4">
 <div class="row docs-title">
   <div class="col-lg-8">
-      <h1>Switch Config</h1>
+      <h1>Device Config</h1>
     
   </div>
   <div class="docs-actions">
@@ -115,118 +115,951 @@ ga('send', 'pageview');
             <div class="col-lg-12">
               <div class="docs-body" role="main">
 
-  <section id="switch-config">
-<h1>Switch Config<a class="headerlink" href="#switch-config" title="Permalink to this headline">¶</a></h1>
-<p>This part describes the on-device config for all feature and vendor combinations.</p>
-<section id="normal-vm-portbinding">
-<h2>Normal VM portbinding<a class="headerlink" href="#normal-vm-portbinding" title="Permalink to this headline">¶</a></h2>
-<ul class="simple">
-<li><p>VXLAN &lt;-&gt; VLAN mapping</p></li>
-<li><p>Add a VLAN to ports in questions</p></li>
-</ul>
+  <section id="device-config">
+<h1>Device Config<a class="headerlink" href="#device-config" title="Permalink to this headline">¶</a></h1>
+<p>This document describes the mapping of Openstack Neutron objects to device configuration including limits and supported feature combinations.</p>
+<section id="network">
+<h2>Network<a class="headerlink" href="#network" title="Permalink to this headline">¶</a></h2>
+<p>A Neutron Network is the basis for all other operations it is an assumed L2 broadcast domain.</p>
+<section id="overview">
+<h3>Overview<a class="headerlink" href="#overview" title="Permalink to this headline">¶</a></h3>
+<p>This driver implements Neutron networks by way of establishing a 1:1 mapping between a Neutron Network and a VXLAN-EVPN VNI.
+The VNI ID is managed by the Neutron server and is recorded as top level segment in the neutron segments table for a specific network.The driver will on demand create sub-segments (hierarchical port binding) whenever a specific network is required on a EVPN leaf switch or group of leaf switches. Those sub segments include a segmentation ID of type VLAN which is the switch/group local VLAN ID which will be used for VNI to VLAN mapping by the driver.</p>
+<section id="single-az">
+<h4>Single AZ<a class="headerlink" href="#single-az" title="Permalink to this headline">¶</a></h4>
+<p>Single AZ networks are only configured within one EVPN domain. Inter-AZ traffic for single AZ
+networks is routed L3 only.</p>
 </section>
-<section id="baremetal-on-fabric-portbinding">
-<h2>Baremetal-on-Fabric portbinding<a class="headerlink" href="#baremetal-on-fabric-portbinding" title="Permalink to this headline">¶</a></h2>
-<ul class="simple">
-<li><p>VXLAN &lt;-&gt; VLAN mapping</p></li>
-<li><p>Add a VLAN to ports in question</p></li>
-<li><p>Set it as native vlan</p></li>
-</ul>
+<section id="multi-az">
+<h4>Multi AZ<a class="headerlink" href="#multi-az" title="Permalink to this headline">¶</a></h4>
+<p>Multi AZ networks span over multiple EVPN Domains, the network is extended between EVPN domains
+using EVPN border gateway or EVPN multi site functionality. The driver will configure ALL
+border gateways when the first port is going through ml2 port binding for a given network
+and will remove the configuration when the last port in the network is removed.</p>
 </section>
-<section id="baremetal-on-fabric-trunk">
-<h2>Baremetal-on-Fabric trunk<a class="headerlink" href="#baremetal-on-fabric-trunk" title="Permalink to this headline">¶</a></h2>
-<p>…basically same as normal VM portbinding, but port in OpenStack looks different</p>
+<section id="workflow">
+<h4>Workflow<a class="headerlink" href="#workflow" title="Permalink to this headline">¶</a></h4>
+<p>All fabric configuration is triggered by ml2 port binding requests, depending on the
+network settings the below workflow is triggered to determine the config and scope
+that is required to extend the neutron network to the devices.</p>
+<figure class="align-center">
+<a class="reference internal image-reference" href="../_images/network_provisioning_flow.svg"><img alt="../_images/network_provisioning_flow.svg" src="../_images/network_provisioning_flow.svg" width="400px" /></a>
+</figure>
 </section>
-<section id="external-network-config-l3-gateway">
-<h2>External network config + l3 gateway<a class="headerlink" href="#external-network-config-l3-gateway" title="Permalink to this headline">¶</a></h2>
-<p>TBD</p>
 </section>
-<section id="management-networks">
-<h2>Management Networks<a class="headerlink" href="#management-networks" title="Permalink to this headline">¶</a></h2>
-<p>TBD, config is also not yet specified for this</p>
-</section>
-<section id="host-lending">
-<h2>Host lending<a class="headerlink" href="#host-lending" title="Permalink to this headline">¶</a></h2>
-<p>Mass VLAN translations in original home of server.
-FIXME: Scalability considerations</p>
-</section>
-<section id="aci-transit-connection">
-<h2>ACI transit connection<a class="headerlink" href="#aci-transit-connection" title="Permalink to this headline">¶</a></h2>
-<p>The Transit (or ACI Transit) is used to connect the fabric to another ml2
-top level driver, like our networking-arista driver. The ACI driver and this
-driver (networking-ccloud) both share responsibility for the top hierarchy.
+<section id="legacy-fabric-integration">
+<h3>Legacy Fabric Integration<a class="headerlink" href="#legacy-fabric-integration" title="Permalink to this headline">¶</a></h3>
+<p>The driver supports the integration with a legacy network fabric managed by
+another neutron driver in a multi-az environment.</p>
+<section id="legacy-driver-coordination">
+<h4>Legacy driver coordination<a class="headerlink" href="#legacy-driver-coordination" title="Permalink to this headline">¶</a></h4>
+<p>The transit (a L2 trunk between fabrics) is used to connect the fabric to
+another network environment managed by a different ml2
+top level driver. The legacy driver and this driver (networking-ccloud) both
+share responsibility for the top segment.
 For this to work they need to be interconnected. This means that whenever
-an OpenStack network should be present both on ACI and networking-ccloud side
-it needs a transit between these two fabrics.</p>
-<p>The transit is done by having two switches connected with each other, one on
-each side and having the drivers coordinate on the VLANs used there. networking-ccloud
-will create the necessary segment, as it is on top of the hierarchy.</p>
+an OpenStack network should be present both on legacy and networking-ccloud side
+it requires a transit segment between these two fabrics. Those transit points
+have to be coordinated between the two drivers (VLAN allocation, etc.).</p>
 <dl class="simple">
 <dt>Other drivers will have to be notified of this change, options are:</dt><dd><ul class="simple">
 <li><p>having an own signal in bind_port</p></li>
-<li><p>use <cite>(create|update|delete)_port_postcommit</cite> (or something alike)</p></li>
+<li><p>use ml2 <cite>(create|update|delete)_port_postcommit</cite> hooks</p></li>
 </ul>
 </dd>
 </dl>
-<p>In config (and NetBox) each Transit will have a list of AZs associated with it
-that it feels respnosible for. Whenever a network is either stretched across
-AZs or is present in at least one AZ and on the “other side” (e.g. ACI) the
-driver will schedule the network to an ACI transit for each AZ it is in.
-One Transit can be responsible for multiple AZs. If a Transit is in a
-different AZ than other portbindings, BGWs will be configured for inter-AZ
-communication inside the fabric. When the Transit is no longer needed (e.g.
-when the last port in one AZ is removed and no other AZ is using this transit
-then the scheduling of this (AZ, Transit, Network) and its respective segment / VLAN
-allocation will be removed.</p>
-<dl class="simple">
-<dt>How scheduling / binding roughly works:</dt><dd><ul class="simple">
-<li><p>find AZs of network</p></li>
-<li><p>make sure every (network / AZ) combination has a Transit assigned (if available)</p></li>
-<li><dl class="simple">
-<dt>if new transit is scheduled</dt><dd><ul>
-<li><p>allocate segment</p></li>
-<li><p>schedule / handle BGWs (if Transit is in different zone)</p></li>
-<li><p>add transit to binding hosts? (FIXME)</p></li>
-<li><p>bind segment</p></li>
-<li><p>notify others</p></li>
-</ul>
-</dd>
-</dl>
-</li>
-</ul>
-</dd>
-</dl>
-<p>Note: Scheduling of BGWs is something we need to take care of here as well. Not every
-AZ has to have a Transit. In some cases Tranits of other AZs take over. If the Transit
-is the first binding in a new AZ we need to schedule the BGW for this AZ and then, again,
-a Transit for this AZ. We probably should make sure this is the same Transit and enforce
-via config that a Transit has to serve at least its own AZ.</p>
-<blockquote>
-<div><ul class="simple">
-<li><p>[0,n] transit pairs per AZ</p></li>
-<li><p>1750 vlans per transit</p></li>
-<li><dl class="simple">
-<dt>transit in one AZ needs to be bound when port present in AZ x and</dt><dd><ul>
-<li><p>port in ACI</p></li>
-<li><p>port in AZ y != x</p></li>
-</ul>
-</dd>
-</dl>
-</li>
-<li><dl class="simple">
-<dt>each AZ needs a transit that handles its traffic</dt><dd><ul>
-<li><p>each transit has one or more AZs it’s responsible for</p></li>
-<li><p>driver will schedule each AZ the network is in onto a transit</p></li>
-</ul>
-</dd>
-</dl>
-</li>
-</ul>
-</div></blockquote>
+<p>In config each Transit will have a list of AZs associated with it
+that it can service. Whenever a network is potentially present in
+both environments the driver will pick a transit point in each az
+(multiple transits per AZ are allowed and will be scheduled least-used)
+which has transits defined.</p>
+<p>The guarantee of loop free forwarding is outside of the scope of the driver
+and is guaranteed to be solved in the underlying base configuration.</p>
 </section>
-<section id="inter-az-communication-bordergateways-bgws">
-<h2>Inter-AZ communication / BorderGateWays (BGWs)<a class="headerlink" href="#inter-az-communication-bordergateways-bgws" title="Permalink to this headline">¶</a></h2>
-<p>Configure something on the borderleafs, devicerole foo.</p>
+<section id="legacy-fabric-interconnection">
+<h4>Legacy fabric interconnection<a class="headerlink" href="#legacy-fabric-interconnection" title="Permalink to this headline">¶</a></h4>
+<p>The transit is done by having switch pairs connected back-to-back, one on
+each side and having the drivers coordinate on the VLANs used on both sides.
+Networking-ccloud will create the necessary segment, as it is on top of the hierarchy.
+If more networks need to be transited than a single switch pair can service
+and there are more than one transit pair available in an AZ the driver
+will schedule to the least used pair.</p>
+<p>The driver is not responsible for loop avoidance or migration of flows between fabric interconnections, this is expected to be handled via the static non-driver controlled configuration.
+The following topology variations need to be supported, for below scenarios it is expected that the network is already in use in legacy.</p>
+</section>
+<section id="id1">
+<h4>Single AZ<a class="headerlink" href="#id1" title="Permalink to this headline">¶</a></h4>
+<p>There exists only a single AZ and both fabrics are interconnected with one or more transit pairs.</p>
+<figure class="align-center">
+<a class="reference internal image-reference" href="../_images/legacy_fabric_type_single_az.svg"><img alt="../_images/legacy_fabric_type_single_az.svg" src="../_images/legacy_fabric_type_single_az.svg" width="300px" /></a>
+</figure>
+<ul class="simple">
+<li><dl class="simple">
+<dt>Single AZ Network a</dt><dd><ol class="arabic simple">
+<li><p>Additional segment for L2 trunk EVPN&lt;-&gt;Legacy in AZa is added.</p></li>
+</ol>
+</dd>
+</dl>
+</li>
+</ul>
+</section>
+<section id="dual-az-with-dual-legacy-az">
+<h4>Dual AZ with Dual Legacy AZ<a class="headerlink" href="#dual-az-with-dual-legacy-az" title="Permalink to this headline">¶</a></h4>
+<p>There are two AZs and both have a legacy and a EVPN deployment.</p>
+<figure class="align-center">
+<a class="reference internal image-reference" href="../_images/legacy_fabric_type_dual_az.svg"><img alt="../_images/legacy_fabric_type_dual_az.svg" src="../_images/legacy_fabric_type_dual_az.svg" width="300px" /></a>
+</figure>
+<ul class="simple">
+<li><dl class="simple">
+<dt>Single AZ Network a or b</dt><dd><ol class="arabic simple">
+<li><p>Additional segment for L2 trunk EVPN&lt;-&gt;Legacy in network local AZ</p></li>
+</ol>
+</dd>
+</dl>
+</li>
+<li><dl class="simple">
+<dt>Multi AZ Network</dt><dd><ol class="arabic simple">
+<li><p>Additional segment for L2 trunk EVPN&lt;-&gt;Legacy in ALL AZs</p></li>
+<li><p>Additional segment for BGW in ALL AZs</p></li>
+</ol>
+</dd>
+</dl>
+</li>
+</ul>
+</section>
+<section id="dual-az-with-single-legacy-az">
+<h4>Dual AZ with Single Legacy AZ<a class="headerlink" href="#dual-az-with-single-legacy-az" title="Permalink to this headline">¶</a></h4>
+<p>There are two AZs and both have a legacy and a EVPN deployment.</p>
+<figure class="align-center">
+<a class="reference internal image-reference" href="../_images/legacy_fabric_type_dual_az_evpn.svg"><img alt="../_images/legacy_fabric_type_dual_az_evpn.svg" src="../_images/legacy_fabric_type_dual_az_evpn.svg" width="300px" /></a>
+</figure>
+<ul class="simple">
+<li><dl class="simple">
+<dt>Single AZ Network a</dt><dd><ol class="arabic simple">
+<li><p>Additional segment for L2 trunk EVPN&lt;-&gt;Legacy in network local AZ</p></li>
+</ol>
+</dd>
+</dl>
+</li>
+<li><dl class="simple">
+<dt>Single AZ Network b</dt><dd><ol class="arabic simple">
+<li><p>No additional action required</p></li>
+</ol>
+</dd>
+</dl>
+</li>
+<li><dl class="simple">
+<dt>Multi AZ Network</dt><dd><ol class="arabic simple">
+<li><p>Additional segment for L2 trunk EVPN&lt;-&gt;Legacy in AZ a</p></li>
+<li><p>Additional segment for BGW in ALL AZs</p></li>
+</ol>
+</dd>
+</dl>
+</li>
+</ul>
+</section>
+<section id="multi-az-with-multi-legacy-az">
+<h4>Multi AZ with Multi Legacy AZ<a class="headerlink" href="#multi-az-with-multi-legacy-az" title="Permalink to this headline">¶</a></h4>
+<figure class="align-center">
+<a class="reference internal image-reference" href="../_images/legacy_fabric_type_multi_az.svg"><img alt="../_images/legacy_fabric_type_multi_az.svg" src="../_images/legacy_fabric_type_multi_az.svg" width="450px" /></a>
+</figure>
+<ul class="simple">
+<li><dl class="simple">
+<dt>Single AZ Network</dt><dd><ol class="arabic simple">
+<li><p>Additional segment for L2 trunk EVPN&lt;-&gt;Legacy in network local AZ</p></li>
+</ol>
+</dd>
+</dl>
+</li>
+<li><dl class="simple">
+<dt>Multi AZ Network</dt><dd><ol class="arabic simple">
+<li><p>Additional segment for L2 trunk EVPN&lt;-&gt;Legacy in ALL AZs</p></li>
+<li><p>Additional segment for BGW in ALL AZs</p></li>
+</ol>
+</dd>
+</dl>
+</li>
+</ul>
+</section>
+<section id="multi-az-with-dual-legacy-az">
+<h4>Multi AZ with Dual Legacy AZ<a class="headerlink" href="#multi-az-with-dual-legacy-az" title="Permalink to this headline">¶</a></h4>
+<figure class="align-center">
+<a class="reference internal image-reference" href="../_images/legacy_fabric_type_multi_az_evpn.svg"><img alt="../_images/legacy_fabric_type_multi_az_evpn.svg" src="../_images/legacy_fabric_type_multi_az_evpn.svg" width="450px" /></a>
+</figure>
+<ul class="simple">
+<li><dl class="simple">
+<dt>Single AZ Network a/b</dt><dd><ol class="arabic simple">
+<li><p>Additional segment for L2 trunk EVPN&lt;-&gt;Legacy in network local AZ</p></li>
+</ol>
+</dd>
+</dl>
+</li>
+<li><dl class="simple">
+<dt>Single AZ Network c</dt><dd><ol class="arabic simple">
+<li><p>No additional action required</p></li>
+</ol>
+</dd>
+</dl>
+</li>
+<li><dl class="simple">
+<dt>Multi AZ Network</dt><dd><ol class="arabic simple">
+<li><p>Additional segment for L2 trunk EVPN&lt;-&gt;Legacy in AZa AND AZb</p></li>
+<li><p>Additional segment for BGW in ALL AZs</p></li>
+</ol>
+</dd>
+</dl>
+</li>
+</ul>
+</section>
+</section>
+<section id="sample-driver-configuration">
+<h3>Sample Driver Configuration<a class="headerlink" href="#sample-driver-configuration" title="Permalink to this headline">¶</a></h3>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="p">[</span><span class="n">ml2_cc_fabric</span><span class="p">]</span>
+<span class="n">regional_l3</span> <span class="o">=</span> <span class="n">false</span>
+<span class="n">az_l3</span> <span class="o">=</span> <span class="n">qa</span><span class="o">-</span><span class="n">de</span><span class="o">-</span><span class="mi">1</span><span class="n">d</span>
+</pre></div>
+</div>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="k">global</span><span class="p">:</span>
+   <span class="n">asn_region</span><span class="p">:</span> <span class="mi">65130</span>
+   <span class="n">infra_network_default_vrf</span><span class="p">:</span> <span class="n">CC</span><span class="o">-</span><span class="n">MGMT</span>
+   <span class="n">vrfs</span><span class="p">:</span>
+     <span class="n">CC</span><span class="o">-</span><span class="n">MGMT</span><span class="p">:</span>
+       <span class="n">rd</span><span class="p">:</span> <span class="mi">900</span>
+
+<span class="n">hostgroups</span><span class="p">:</span>
+<span class="o">-</span> <span class="n">binding_hosts</span><span class="p">:</span>
+  <span class="o">-</span> <span class="n">node001</span><span class="o">-</span><span class="n">bb301</span>
+  <span class="n">members</span><span class="p">:</span>
+  <span class="o">-</span> <span class="n">name</span><span class="p">:</span> <span class="n">Ethernet1</span><span class="o">/</span><span class="mi">1</span>
+    <span class="n">switch</span><span class="p">:</span> <span class="n">qa</span><span class="o">-</span><span class="n">de</span><span class="o">-</span><span class="mi">3</span><span class="o">-</span><span class="n">sw1103a</span><span class="o">-</span><span class="n">bb301</span>
+  <span class="o">-</span> <span class="n">name</span><span class="p">:</span> <span class="n">Ethernet1</span><span class="o">/</span><span class="mi">1</span>
+    <span class="n">switch</span><span class="p">:</span> <span class="n">qa</span><span class="o">-</span><span class="n">de</span><span class="o">-</span><span class="mi">3</span><span class="o">-</span><span class="n">sw1103b</span><span class="o">-</span><span class="n">bb301</span>
+<span class="o">-</span> <span class="n">binding_hosts</span><span class="p">:</span>
+  <span class="o">-</span> <span class="n">node002</span><span class="o">-</span><span class="n">bb301</span>
+  <span class="n">members</span><span class="p">:</span>
+  <span class="o">-</span> <span class="n">name</span><span class="p">:</span> <span class="n">Ethernet2</span><span class="o">/</span><span class="mi">1</span>
+    <span class="n">switch</span><span class="p">:</span> <span class="n">qa</span><span class="o">-</span><span class="n">de</span><span class="o">-</span><span class="mi">3</span><span class="o">-</span><span class="n">sw1103a</span><span class="o">-</span><span class="n">bb301</span>
+  <span class="o">-</span> <span class="n">name</span><span class="p">:</span> <span class="n">Ethernet2</span><span class="o">/</span><span class="mi">1</span>
+    <span class="n">switch</span><span class="p">:</span> <span class="n">qa</span><span class="o">-</span><span class="n">de</span><span class="o">-</span><span class="mi">3</span><span class="o">-</span><span class="n">sw1103b</span><span class="o">-</span><span class="n">bb301</span>
+  <span class="o">-</span> <span class="n">name</span><span class="p">:</span> <span class="n">Port</span><span class="o">-</span><span class="n">Channel</span> <span class="mi">201</span>
+    <span class="n">switch</span><span class="p">:</span> <span class="n">qa</span><span class="o">-</span><span class="n">de</span><span class="o">-</span><span class="mi">3</span><span class="o">-</span><span class="n">sw1103a</span><span class="o">-</span><span class="n">bb301</span>
+    <span class="n">lacp</span><span class="p">:</span> <span class="n">true</span>
+    <span class="n">members</span><span class="p">:</span> <span class="p">[</span><span class="n">Ethernet3</span><span class="o">/</span><span class="mi">1</span><span class="p">]</span>
+  <span class="o">-</span> <span class="n">name</span><span class="p">:</span> <span class="n">Port</span><span class="o">-</span><span class="n">Channel</span> <span class="mi">201</span>
+    <span class="n">switch</span><span class="p">:</span> <span class="n">qa</span><span class="o">-</span><span class="n">de</span><span class="o">-</span><span class="mi">3</span><span class="o">-</span><span class="n">sw1103b</span><span class="o">-</span><span class="n">bb301</span>
+    <span class="n">lacp</span><span class="p">:</span> <span class="n">true</span>
+    <span class="n">members</span><span class="p">:</span> <span class="p">[</span><span class="n">Ethernet3</span><span class="o">/</span><span class="mi">1</span><span class="p">]</span>
+<span class="o">-</span> <span class="n">binding_hosts</span><span class="p">:</span>
+  <span class="o">-</span> <span class="n">nova</span><span class="o">-</span><span class="n">compute</span><span class="o">-</span><span class="n">bb301</span>
+  <span class="n">members</span><span class="p">:</span>
+  <span class="o">-</span> <span class="n">node001</span><span class="o">-</span><span class="n">bb301</span>
+  <span class="o">-</span> <span class="n">node002</span><span class="o">-</span><span class="n">bb301</span>
+  <span class="n">infra_networks</span><span class="p">:</span>
+  <span class="o">-</span> <span class="n">vni</span><span class="p">:</span> <span class="mi">10301100</span>
+    <span class="n">vlan</span><span class="p">:</span> <span class="mi">100</span>
+    <span class="n">vrf</span><span class="p">:</span> <span class="n">CC</span><span class="o">-</span><span class="n">MGMT</span>
+    <span class="n">untagged</span><span class="p">:</span> <span class="n">true</span>
+    <span class="n">networks</span><span class="p">:</span> <span class="p">[</span> <span class="mf">10.246.100.1</span><span class="o">/</span><span class="mi">24</span> <span class="p">]</span>
+    <span class="n">dhcp_relays</span><span class="p">:</span> <span class="p">[</span><span class="mf">147.204.1.45</span><span class="p">,</span> <span class="mf">10.247.3.122</span><span class="p">]</span>
+  <span class="o">-</span> <span class="n">vni</span><span class="p">:</span> <span class="mi">10301101</span>
+    <span class="n">vlan</span><span class="p">:</span> <span class="mi">101</span>
+  <span class="n">metagroup</span><span class="p">:</span> <span class="n">true</span>
+
+<span class="n">switchgroups</span><span class="p">:</span>
+<span class="o">-</span> <span class="n">asn</span><span class="p">:</span> <span class="s1">&#39;65130.1103&#39;</span>
+  <span class="n">availability_zone</span><span class="p">:</span> <span class="n">qa</span><span class="o">-</span><span class="n">de</span><span class="o">-</span><span class="mi">1</span><span class="n">a</span>
+  <span class="n">members</span><span class="p">:</span>
+  <span class="o">-</span> <span class="n">bgp_source_ip</span><span class="p">:</span> <span class="mf">1.1.03.1</span>
+    <span class="n">host</span><span class="p">:</span> <span class="mf">10.114.0.203</span>
+    <span class="n">name</span><span class="p">:</span> <span class="n">qa</span><span class="o">-</span><span class="n">de</span><span class="o">-</span><span class="mi">1</span><span class="o">-</span><span class="n">sw1103a</span><span class="o">-</span><span class="n">bb301</span>
+    <span class="n">password</span><span class="p">:</span> <span class="n">nope</span>
+    <span class="n">user</span><span class="p">:</span> <span class="n">admin2</span>
+    <span class="n">platform</span><span class="p">:</span> <span class="n">arista</span><span class="o">-</span><span class="n">eos</span>
+  <span class="o">-</span> <span class="n">bgp_source_ip</span><span class="p">:</span> <span class="mf">1.1.03.2</span>
+    <span class="n">host</span><span class="p">:</span> <span class="mf">10.114.0.204</span>
+    <span class="n">name</span><span class="p">:</span> <span class="n">qa</span><span class="o">-</span><span class="n">de</span><span class="o">-</span><span class="mi">3</span><span class="o">-</span><span class="n">sw1103b</span><span class="o">-</span><span class="n">bb301</span>
+    <span class="n">password</span><span class="p">:</span> <span class="n">api</span><span class="o">-</span><span class="n">password</span>
+    <span class="n">user</span><span class="p">:</span> <span class="n">api</span><span class="o">-</span><span class="n">user</span>
+    <span class="n">platform</span><span class="p">:</span> <span class="n">arista</span><span class="o">-</span><span class="n">eos</span>
+  <span class="n">name</span><span class="p">:</span> <span class="n">bb301</span>
+  <span class="n">role</span><span class="p">:</span> <span class="n">vpod</span>
+  <span class="n">vtep_ip</span><span class="p">:</span> <span class="mf">1.1.03.0</span>
+</pre></div>
+</div>
+</section>
+<section id="sample-network-definition">
+<h3>Sample Network Definition<a class="headerlink" href="#sample-network-definition" title="Permalink to this headline">¶</a></h3>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="p">{</span>
+  <span class="s2">&quot;admin_state_up&quot;</span><span class="p">:</span> <span class="n">true</span><span class="p">,</span>
+  <span class="s2">&quot;availability_zones&quot;</span><span class="p">:</span> <span class="p">[</span>
+    <span class="s2">&quot;qa-de-1a&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;qa-de-1b&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;qa-de-1d&quot;</span>
+  <span class="p">],</span>
+  <span class="s2">&quot;id&quot;</span><span class="p">:</span> <span class="s2">&quot;aeec9fd4-30f7-4398-8554-34acb36b7712&quot;</span><span class="p">,</span>
+  <span class="s2">&quot;ipv4_address_scope&quot;</span><span class="p">:</span> <span class="s2">&quot;24908a2d-55e8-4c03-87a9-e1493cd0d995&quot;</span><span class="p">,</span>
+  <span class="s2">&quot;mtu&quot;</span><span class="p">:</span> <span class="mi">8950</span><span class="p">,</span>
+  <span class="s2">&quot;name&quot;</span><span class="p">:</span> <span class="s2">&quot;FloatingIP-external-sfh03-eude1&quot;</span><span class="p">,</span>
+  <span class="s2">&quot;project_id&quot;</span><span class="p">:</span> <span class="s2">&quot;07ed7aa018584972b40d94697b70a37b&quot;</span><span class="p">,</span>
+  <span class="s2">&quot;router:external&quot;</span><span class="p">:</span> <span class="n">true</span><span class="p">,</span>
+  <span class="s2">&quot;segments&quot;</span><span class="p">:</span> <span class="p">[</span>
+    <span class="p">{</span>
+      <span class="s2">&quot;provider:network_type&quot;</span><span class="p">:</span> <span class="s2">&quot;vxlan&quot;</span><span class="p">,</span>
+      <span class="s2">&quot;provider:physical_network&quot;</span><span class="p">:</span> <span class="n">null</span><span class="p">,</span>
+      <span class="s2">&quot;provider:segmentation_id&quot;</span><span class="p">:</span> <span class="mi">10394</span>
+    <span class="p">},</span>
+    <span class="p">{</span>
+      <span class="s2">&quot;provider:network_type&quot;</span><span class="p">:</span> <span class="s2">&quot;vlan&quot;</span><span class="p">,</span>
+      <span class="s2">&quot;provider:physical_network&quot;</span><span class="p">:</span> <span class="s2">&quot;bb301&quot;</span><span class="p">,</span>
+      <span class="s2">&quot;provider:segmentation_id&quot;</span><span class="p">:</span> <span class="mi">3150</span>
+    <span class="p">},</span>
+    <span class="p">{</span>
+      <span class="s2">&quot;provider:network_type&quot;</span><span class="p">:</span> <span class="s2">&quot;vlan&quot;</span><span class="p">,</span>
+      <span class="s2">&quot;provider:physical_network&quot;</span><span class="p">:</span> <span class="s2">&quot;transit-leaf&quot;</span><span class="p">,</span>
+      <span class="s2">&quot;provider:segmentation_id&quot;</span><span class="p">:</span> <span class="mi">2300</span>
+    <span class="p">}</span>
+    <span class="p">{</span>
+      <span class="s2">&quot;provider:network_type&quot;</span><span class="p">:</span> <span class="s2">&quot;vlan&quot;</span><span class="p">,</span>
+      <span class="s2">&quot;provider:physical_network&quot;</span><span class="p">:</span> <span class="s2">&quot;bgw&quot;</span><span class="p">,</span>
+      <span class="s2">&quot;provider:segmentation_id&quot;</span><span class="p">:</span> <span class="mi">2340</span>
+    <span class="p">}</span>
+  <span class="p">],</span>
+  <span class="s2">&quot;status&quot;</span><span class="p">:</span> <span class="s2">&quot;ACTIVE&quot;</span><span class="p">,</span>
+  <span class="s2">&quot;subnets&quot;</span><span class="p">:</span> <span class="p">[</span>
+    <span class="s2">&quot;14b7b745-8d5d-4667-a3e3-2be0facbb23d&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;72f96182-d93d-4aa7-a987-edb315875c9e&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;bbe371ae-341b-4f86-931a-e9c808cb312e&quot;</span>
+  <span class="p">],</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+<section id="single-az-network">
+<h4>Single AZ Network<a class="headerlink" href="#single-az-network" title="Permalink to this headline">¶</a></h4>
+<p>Networks with a single AZ are identified by having a availability_zones list of size 1.
+Networks with multiple hints are not supported by the driver and will be rejected.</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="p">{</span>
+ <span class="s2">&quot;availability_zone_hints&quot;</span><span class="p">:</span> <span class="p">[</span>
+   <span class="s2">&quot;qa-de-1a&quot;</span><span class="p">,</span>
+ <span class="p">],</span>
+ <span class="s2">&quot;availability_zones&quot;</span><span class="p">:</span> <span class="p">[</span>
+   <span class="s2">&quot;qa-de-1a&quot;</span><span class="p">,</span>
+ <span class="p">],</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+</section>
+<section id="multi-az-network">
+<h4>Multi AZ Network<a class="headerlink" href="#multi-az-network" title="Permalink to this headline">¶</a></h4>
+<p>Networks with a single AZ are identified by having a availability_zones list of size N.
+Regional networks are expected to not have an AZ hint set.</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="p">{</span>
+ <span class="s2">&quot;availability_zone_hints&quot;</span><span class="p">:</span> <span class="p">[</span>
+ <span class="p">],</span>
+ <span class="s2">&quot;availability_zones&quot;</span><span class="p">:</span> <span class="p">[</span>
+   <span class="s2">&quot;qa-de-1a&quot;</span><span class="p">,</span>
+   <span class="s2">&quot;qa-de-1b&quot;</span><span class="p">,</span>
+   <span class="s2">&quot;qa-de-1d&quot;</span>
+ <span class="p">],</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+</section>
+</section>
+<section id="on-device-configuration">
+<h3>On Device configuration<a class="headerlink" href="#on-device-configuration" title="Permalink to this headline">¶</a></h3>
+<section id="apod-vpod-stpod-netpod-bpod-transit-leafs">
+<h4>aPOD/vPOD/stPOD/netPOD/bPOD/Transit leafs<a class="headerlink" href="#apod-vpod-stpod-netpod-bpod-transit-leafs" title="Permalink to this headline">¶</a></h4>
+<p><strong>EOS</strong>:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">interface</span> <span class="n">Vxlan1</span>
+   <span class="n">vxlan</span> <span class="n">vlan</span> <span class="mi">3150</span> <span class="n">vni</span> <span class="mi">10394</span>
+
+<span class="n">vlan</span> <span class="mi">3150</span>
+   <span class="n">name</span> <span class="n">aeec9fd4</span><span class="o">-</span><span class="mi">30</span><span class="n">f7</span><span class="o">-</span><span class="mi">4398</span><span class="o">-</span><span class="mi">8554</span><span class="o">-</span><span class="mi">34</span><span class="n">acb36b7712</span><span class="o">/</span><span class="n">bb301</span>
+
+<span class="n">router</span> <span class="n">bgp</span> <span class="mf">65130.1112</span>
+  <span class="n">vlan</span> <span class="mi">3150</span>
+      <span class="n">rd</span> <span class="mf">65130.1112</span><span class="p">:</span><span class="mi">10394</span>
+      <span class="n">route</span><span class="o">-</span><span class="n">target</span> <span class="n">both</span> <span class="mi">65130</span><span class="p">:</span><span class="mi">10394</span>
+      <span class="n">redistribute</span> <span class="n">learned</span>
+</pre></div>
+</div>
+<p><strong>NX-OS</strong>:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">interface</span> <span class="n">nve1</span>
+   <span class="n">member</span> <span class="n">vni</span> <span class="mi">10394</span>
+      <span class="n">ingress</span><span class="o">-</span><span class="n">replication</span> <span class="n">protocol</span> <span class="n">bgp</span>
+      <span class="n">suppress</span><span class="o">-</span><span class="n">arp</span>
+
+<span class="n">vlan</span> <span class="mi">2420</span>
+   <span class="n">name</span> <span class="n">aeec9fd4</span><span class="o">-</span><span class="mi">30</span><span class="n">f7</span><span class="o">-</span><span class="mi">4398</span><span class="o">-</span><span class="mi">8554</span><span class="o">-</span><span class="mi">34</span><span class="n">acb36b7712</span><span class="o">/</span><span class="n">bb301</span>
+   <span class="n">vn</span><span class="o">-</span><span class="n">segment</span> <span class="mi">10394</span>
+
+<span class="n">router</span> <span class="n">bgp</span> <span class="mf">65130.1103</span>
+   <span class="n">evpn</span>
+      <span class="n">vni</span> <span class="mi">10394</span> <span class="n">l2</span>
+         <span class="n">rd</span> <span class="mf">65130.1103</span><span class="p">:</span><span class="mi">10394</span>
+         <span class="n">route</span><span class="o">-</span><span class="n">target</span> <span class="n">both</span> <span class="mi">65130</span><span class="p">:</span><span class="mi">10394</span>
+</pre></div>
+</div>
+</section>
+<section id="border-gateway">
+<h4>Border Gateway<a class="headerlink" href="#border-gateway" title="Permalink to this headline">¶</a></h4>
+<p><strong>EOS</strong>:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">interface</span> <span class="n">Vxlan1</span>
+   <span class="n">vxlan</span> <span class="n">vlan</span> <span class="mi">2340</span> <span class="n">vni</span> <span class="mi">10394</span>
+
+<span class="n">vlan</span> <span class="mi">2340</span>
+   <span class="n">name</span> <span class="n">aeec9fd4</span><span class="o">-</span><span class="mi">30</span><span class="n">f7</span><span class="o">-</span><span class="mi">4398</span><span class="o">-</span><span class="mi">8554</span><span class="o">-</span><span class="mi">34</span><span class="n">acb36b7712</span><span class="o">/</span><span class="n">bgw</span>
+
+<span class="n">router</span> <span class="n">bgp</span> <span class="mf">65130.1103</span>
+   <span class="n">vlan</span> <span class="mi">2340</span>
+      <span class="n">rd</span> <span class="n">evpn</span> <span class="n">domain</span> <span class="nb">all</span> <span class="mf">65130.1103</span><span class="p">:</span><span class="mi">10394</span>
+      <span class="n">route</span><span class="o">-</span><span class="n">target</span> <span class="n">both</span> <span class="mi">65130</span><span class="p">:</span><span class="mi">10394</span>
+      <span class="n">route</span><span class="o">-</span><span class="n">target</span> <span class="kn">import</span> <span class="nn">export</span> <span class="n">evpn</span> <span class="n">domain</span> <span class="n">remote</span> <span class="mi">65130</span><span class="p">:</span><span class="mi">10394</span>
+      <span class="n">redistribute</span> <span class="n">learned</span>
+</pre></div>
+</div>
+<p><strong>NX-OS</strong>:</p>
+</section>
+</section>
+</section>
+<section id="subnet">
+<h2>Subnet<a class="headerlink" href="#subnet" title="Permalink to this headline">¶</a></h2>
+<section id="external-network">
+<h3>External Network<a class="headerlink" href="#external-network" title="Permalink to this headline">¶</a></h3>
+<section id="id2">
+<h4>Sample Driver Configuration<a class="headerlink" href="#id2" title="Permalink to this headline">¶</a></h4>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="p">[</span><span class="n">address</span><span class="o">-</span><span class="n">scope</span><span class="p">:</span><span class="n">hcp03</span><span class="o">-</span><span class="n">public</span><span class="p">]</span>
+<span class="n">export_rt_suffix</span> <span class="o">=</span> <span class="mi">102</span>
+<span class="n">import_rt_suffix</span> <span class="o">=</span> <span class="mi">102</span>
+<span class="n">vrf</span> <span class="o">=</span> <span class="n">cc</span><span class="o">-</span><span class="n">cloud02</span>
+</pre></div>
+</div>
+</section>
+<section id="sample-subnet-definition">
+<h4>Sample Subnet Definition<a class="headerlink" href="#sample-subnet-definition" title="Permalink to this headline">¶</a></h4>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="c1">######### Example External Address Scope</span>
+<span class="p">{</span>
+  <span class="s2">&quot;id&quot;</span><span class="p">:</span> <span class="s2">&quot;f2fd984c-45b1-4465-9f99-e72f86b896fa&quot;</span><span class="p">,</span>
+  <span class="s2">&quot;name&quot;</span><span class="p">:</span> <span class="s2">&quot;hcp03-public&quot;</span><span class="p">,</span>
+<span class="p">}</span>
+<span class="c1">######### Example Subnet Pool</span>
+<span class="p">{</span>
+  <span class="s2">&quot;address_scope_id&quot;</span><span class="p">:</span> <span class="s2">&quot;f2fd984c-45b1-4465-9f99-e72f86b896fa&quot;</span><span class="p">,</span>
+  <span class="s2">&quot;id&quot;</span><span class="p">:</span> <span class="s2">&quot;e6df3de0-16dd-46e3-850f-5418fd6dd820&quot;</span><span class="p">,</span>
+  <span class="s2">&quot;prefixes&quot;</span><span class="p">:</span> <span class="p">[</span>
+    <span class="s2">&quot;10.47.10.0/24&quot;</span><span class="p">,</span>
+  <span class="p">],</span>
+<span class="p">}</span>
+<span class="c1">######### Example External Network</span>
+<span class="p">{</span>
+  <span class="s2">&quot;id&quot;</span><span class="p">:</span> <span class="s2">&quot;aeec9fd4-30f7-4398-8554-34acb36b7712&quot;</span><span class="p">,</span>
+  <span class="s2">&quot;ipv4_address_scope&quot;</span><span class="p">:</span> <span class="s2">&quot;24908a2d-55e8-4c03-87a9-e1493cd0d995&quot;</span><span class="p">,</span>
+  <span class="s2">&quot;router:external&quot;</span><span class="p">:</span> <span class="n">true</span><span class="p">,</span>
+<span class="p">}</span>
+<span class="c1">######### Subnets</span>
+<span class="p">{</span>
+  <span class="s2">&quot;cidr&quot;</span><span class="p">:</span> <span class="s2">&quot;10.47.8.192/27&quot;</span><span class="p">,</span>
+  <span class="s2">&quot;gateway_ip&quot;</span><span class="p">:</span> <span class="s2">&quot;10.47.8.193&quot;</span><span class="p">,</span>
+  <span class="s2">&quot;host_routes&quot;</span><span class="p">:</span> <span class="p">[],</span>
+  <span class="s2">&quot;id&quot;</span><span class="p">:</span> <span class="s2">&quot;bbe371ae-341b-4f86-931a-e9c808cb312e&quot;</span><span class="p">,</span>
+  <span class="s2">&quot;ip_version&quot;</span><span class="p">:</span> <span class="mi">4</span><span class="p">,</span>
+  <span class="s2">&quot;name&quot;</span><span class="p">:</span> <span class="s2">&quot;FloatingIP-sap-sfh03-eude1-01&quot;</span><span class="p">,</span>
+  <span class="s2">&quot;network_id&quot;</span><span class="p">:</span> <span class="s2">&quot;aeec9fd4-30f7-4398-8554-34acb36b7712&quot;</span><span class="p">,</span>
+  <span class="s2">&quot;subnetpool_id&quot;</span><span class="p">:</span> <span class="s2">&quot;e8556528-01e6-4ccd-9286-0145ac7a75f4&quot;</span><span class="p">,</span>
+<span class="p">}</span>
+<span class="p">{</span>
+  <span class="s2">&quot;cidr&quot;</span><span class="p">:</span> <span class="s2">&quot;10.47.10.0/24&quot;</span><span class="p">,</span>
+  <span class="s2">&quot;gateway_ip&quot;</span><span class="p">:</span> <span class="s2">&quot;10.47.10.1&quot;</span><span class="p">,</span>
+  <span class="s2">&quot;host_routes&quot;</span><span class="p">:</span> <span class="p">[],</span>
+  <span class="s2">&quot;id&quot;</span><span class="p">:</span> <span class="s2">&quot;14b7b745-8d5d-4667-a3e3-2be0facbb23d&quot;</span><span class="p">,</span>
+  <span class="s2">&quot;ip_version&quot;</span><span class="p">:</span> <span class="mi">4</span><span class="p">,</span>
+  <span class="s2">&quot;name&quot;</span><span class="p">:</span> <span class="s2">&quot;FloatingIP-sap-sfh03-eude1-02&quot;</span><span class="p">,</span>
+  <span class="s2">&quot;network_id&quot;</span><span class="p">:</span> <span class="s2">&quot;aeec9fd4-30f7-4398-8554-34acb36b7712&quot;</span><span class="p">,</span>
+  <span class="s2">&quot;subnetpool_id&quot;</span><span class="p">:</span> <span class="s2">&quot;e8556528-01e6-4ccd-9286-0145ac7a75f4&quot;</span><span class="p">,</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+</section>
+<section id="id3">
+<h4>On Device configuration<a class="headerlink" href="#id3" title="Permalink to this headline">¶</a></h4>
+<p><strong>EOS</strong>:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span>vrf instance CC-CLOUD02
+
+ip routing vrf CC-CLOUD02
+
+interface vlan 3150
+   description aeec9fd4-30f7-4398-8554-34acb36b7712
+   vrf CC-CLOUD02
+   ip address virtual 10.47.8.193/27
+   ip address virtual 10.47.10.1/24 secondary
+
+interface vxlan1
+   vxlan vlan 3150 vni 10394
+   vxlan vrf CC-CLOUD02 vni 102
+!
+router bgp 65130.1103
+   vrf CC-CLOUD02
+      rd 65130.1103:102
+      route-target import evpn 65130.1103:102
+      route-target export evpn 65130.1103:102
+      network 10.47.8.192/27
+      network 10.47.10.0/24 route-map RM-CC-AGGREGATE
+</pre></div>
+</div>
+<p><strong>NX-OS</strong>:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">interface</span> <span class="n">Vlan</span> <span class="mi">3150</span>
+   <span class="n">description</span> <span class="n">aeec9fd4</span><span class="o">-</span><span class="mi">30</span><span class="n">f7</span><span class="o">-</span><span class="mi">4398</span><span class="o">-</span><span class="mi">8554</span><span class="o">-</span><span class="mi">34</span><span class="n">acb36b7712</span>
+   <span class="n">no</span> <span class="n">shutdown</span>
+   <span class="n">vrf</span> <span class="n">member</span> <span class="n">CC</span><span class="o">-</span><span class="n">CLOUD02</span>
+   <span class="n">ip</span> <span class="n">forward</span>
+
+<span class="n">interface</span> <span class="n">nve1</span>
+   <span class="n">member</span> <span class="n">vni</span> <span class="mi">102</span> <span class="n">associate</span><span class="o">-</span><span class="n">vrf</span>
+
+<span class="n">vrf</span> <span class="n">context</span> <span class="n">CC</span><span class="o">-</span><span class="n">CLOUD02</span>
+   <span class="n">vni</span> <span class="mi">102</span>
+   <span class="n">rd</span> <span class="mf">65130.1103</span><span class="p">:</span><span class="mi">102</span>
+   <span class="n">address</span><span class="o">-</span><span class="n">family</span> <span class="n">ipv4</span> <span class="n">unicast</span>
+      <span class="n">route</span><span class="o">-</span><span class="n">target</span> <span class="n">both</span> <span class="mf">65130.1103</span><span class="p">:</span><span class="mi">102</span>
+      <span class="n">route</span><span class="o">-</span><span class="n">target</span> <span class="n">both</span> <span class="mf">65130.1103</span><span class="p">:</span><span class="mi">102</span> <span class="n">evpn</span>
+
+<span class="n">router</span> <span class="n">bgp</span> <span class="mf">65130.1103</span>
+   <span class="n">vrf</span> <span class="n">CC</span><span class="o">-</span><span class="n">CLOUD02</span>
+      <span class="n">address</span><span class="o">-</span><span class="n">family</span> <span class="n">ipv4</span> <span class="n">unicast</span>
+         <span class="n">network</span> <span class="mf">10.47.8.192</span><span class="o">/</span><span class="mi">27</span>
+         <span class="n">network</span> <span class="mf">10.47.10.0</span><span class="o">/</span><span class="mi">24</span> <span class="n">route</span><span class="o">-</span><span class="nb">map</span> <span class="n">RM</span><span class="o">-</span><span class="n">CC</span><span class="o">-</span><span class="n">AGGREGATE</span>
+</pre></div>
+</div>
+</section>
+</section>
+<section id="dapnet-directly-accessible-private-network">
+<h3>DAPnet Directly Accessible Private Network<a class="headerlink" href="#dapnet-directly-accessible-private-network" title="Permalink to this headline">¶</a></h3>
+<p>The driver supports tenant networks that are router internal (Neutron Router is the default gw)
+but exempt from NAT. Those networks are identified in Neutron by comparing the address-scope
+of a routers internal and external network, if they match it is assumed that no NAT is required
+since the scope is the same. The driver needs to identify if there are tenant routers in a subnet
+and if those currently have DAPnets assigned to them. If this is the case the fabric as the upstream
+router must have routes set to those networks pointing to the respective tenant router.</p>
+<section id="sample-dapnet-definition">
+<h4>Sample DAPnet Definition<a class="headerlink" href="#sample-dapnet-definition" title="Permalink to this headline">¶</a></h4>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="c1">######### Example External Network</span>
+<span class="p">{</span>
+  <span class="s2">&quot;id&quot;</span><span class="p">:</span> <span class="s2">&quot;aeec9fd4-30f7-4398-8554-34acb36b7712&quot;</span><span class="p">,</span>
+  <span class="s2">&quot;ipv4_address_scope&quot;</span><span class="p">:</span> <span class="s2">&quot;24908a2d-55e8-4c03-87a9-e1493cd0d995&quot;</span><span class="p">,</span>
+<span class="p">}</span>
+
+<span class="c1">####### Router Port which is next hop for DAPnet</span>
+<span class="p">{</span>
+<span class="s2">&quot;binding_vif_type&quot;</span><span class="p">:</span> <span class="s2">&quot;asr1k&quot;</span><span class="p">,</span>
+<span class="s2">&quot;device_owner&quot;</span><span class="p">:</span> <span class="s2">&quot;network:router_gateway&quot;</span><span class="p">,</span>
+<span class="s2">&quot;fixed_ips&quot;</span><span class="p">:</span> <span class="p">[</span>
+  <span class="p">{</span>
+    <span class="s2">&quot;subnet_id&quot;</span><span class="p">:</span> <span class="s2">&quot;bbe371ae-341b-4f86-931a-e9c808cb312e&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;ip_address&quot;</span><span class="p">:</span> <span class="s2">&quot;10.47.8.197&quot;</span>
+  <span class="p">}</span>
+<span class="p">],</span>
+<span class="p">}</span>
+
+<span class="c1">######### Example DAPnet Network</span>
+<span class="p">{</span>
+  <span class="s2">&quot;id&quot;</span><span class="p">:</span> <span class="s2">&quot;8a307448-ef2a-4cae-9b2a-2edf0287e194&quot;</span><span class="p">,</span>
+  <span class="s2">&quot;ipv4_address_scope&quot;</span><span class="p">:</span> <span class="s2">&quot;24908a2d-55e8-4c03-87a9-e1493cd0d995&quot;</span><span class="p">,</span>
+<span class="p">}</span>
+
+<span class="c1">######### Example DAPnet Subnet</span>
+<span class="p">{</span>
+  <span class="s2">&quot;cidr&quot;</span><span class="p">:</span> <span class="s2">&quot;10.47.100.0/24&quot;</span><span class="p">,</span>
+  <span class="s2">&quot;gateway_ip&quot;</span><span class="p">:</span> <span class="s2">&quot;10.47.100.1&quot;</span><span class="p">,</span>
+  <span class="s2">&quot;host_routes&quot;</span><span class="p">:</span> <span class="p">[],</span>
+  <span class="s2">&quot;id&quot;</span><span class="p">:</span> <span class="s2">&quot;ab16807f-9c82-45e8-8e8d-da615eb8505a&quot;</span><span class="p">,</span>
+  <span class="s2">&quot;ip_version&quot;</span><span class="p">:</span> <span class="mi">4</span><span class="p">,</span>
+  <span class="s2">&quot;name&quot;</span><span class="p">:</span> <span class="s2">&quot;FloatDAPnet Sample 1&quot;</span><span class="p">,</span>
+  <span class="s2">&quot;network_id&quot;</span><span class="p">:</span> <span class="s2">&quot;8a307448-ef2a-4cae-9b2a-2edf0287e194&quot;</span><span class="p">,</span>
+  <span class="s2">&quot;subnetpool_id&quot;</span><span class="p">:</span> <span class="s2">&quot;e8556528-01e6-4ccd-9286-0145ac7a75f4&quot;</span><span class="p">,</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+</section>
+<section id="id4">
+<h4>On Device configuration<a class="headerlink" href="#id4" title="Permalink to this headline">¶</a></h4>
+<p><strong>EOS</strong>:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">ip</span> <span class="n">route</span> <span class="n">vrf</span> <span class="n">CC</span><span class="o">-</span><span class="n">CLOUD02</span> <span class="mf">10.47.100.0</span><span class="o">/</span><span class="mi">24</span> <span class="mf">10.47.8.197</span>
+
+<span class="n">router</span> <span class="n">bgp</span> <span class="mf">65130.1103</span>
+   <span class="n">vrf</span> <span class="n">CC</span><span class="o">-</span><span class="n">CLOUD02</span>
+      <span class="n">network</span> <span class="mf">10.47.100.0</span><span class="o">/</span><span class="mi">24</span>
+</pre></div>
+</div>
+<p><strong>NX-OS</strong>:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">vrf</span> <span class="n">context</span> <span class="n">CC</span><span class="o">-</span><span class="n">CLOUD02</span>
+   <span class="n">ip</span> <span class="n">route</span> <span class="mf">10.47.100.0</span><span class="o">/</span><span class="mi">24</span> <span class="mf">10.47.8.197</span>
+
+<span class="n">router</span> <span class="n">bgp</span> <span class="mf">65130.1103</span>
+   <span class="n">vrf</span> <span class="n">CC</span><span class="o">-</span><span class="n">CLOUD02</span>
+      <span class="n">address</span><span class="o">-</span><span class="n">family</span> <span class="n">ipv4</span> <span class="n">unicast</span>
+         <span class="n">network</span> <span class="mf">10.47.100.0</span><span class="o">/</span><span class="mi">24</span>
+</pre></div>
+</div>
+</section>
+</section>
+</section>
+<section id="subnet-pool">
+<h2>Subnet Pool<a class="headerlink" href="#subnet-pool" title="Permalink to this headline">¶</a></h2>
+<p>The external subnets which are fabric relevant are identified by being created from
+a subnet pool belonging to an address-scope which is listed in the driver configuration.
+If a subnet is matching this criteria it is created as described in the subnet section.
+In addition the driver will manage summarization of routes from and across subnet pools
+within the same address-scope. The summary routes are maintained on the pod leafs the
+suppression of more specific prefixes towards core routing is done on the leaf
+connecting to the upstream router, this is done by maintaining a prefix list filtering
+out undesired prefixes. It is assumed this list will be used in BGP policy towards
+core routers, policy and bgp configuration for those peerings are not in scope
+of the driver managed configuration. For each vrf the driver will do:</p>
+<ol class="arabic simple">
+<li><p><strong>All</strong>: Collect all address-scopes belonging to the vrf</p></li>
+<li><p><strong>All</strong>: Continue processing individually for each AZ and Regional address-scopes</p></li>
+<li><p><strong>All</strong>: From the subnet pools collect all prefixes</p></li>
+<li><p><strong>All</strong>: Compress the list by merging all adjacent prefixes (supernetting)</p></li>
+<li><p><strong>BGW only</strong>: Set list as ip prefix list on border leaf (perAZ or ALL)</p></li>
+<li><p><strong>POD leaf only</strong>: Remove all list entries where there exists a subnet equal to the entry (summary would conflict subnet)</p></li>
+<li><p><strong>POD leaf only</strong>: Add BGP summary for remainder of list</p></li>
+</ol>
+<figure class="align-center">
+<a class="reference internal image-reference" href="../_images/subnet_aggregation_flow.svg"><img alt="../_images/subnet_aggregation_flow.svg" src="../_images/subnet_aggregation_flow.svg" width="300px" /></a>
+</figure>
+<section id="driver-configuration">
+<h3>Driver Configuration<a class="headerlink" href="#driver-configuration" title="Permalink to this headline">¶</a></h3>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="p">[</span><span class="n">address</span><span class="o">-</span><span class="n">scope</span><span class="p">:</span><span class="n">hcp03</span><span class="o">-</span><span class="n">public</span><span class="p">]</span>
+<span class="n">export_rt_suffix</span> <span class="o">=</span> <span class="mi">102</span>
+<span class="n">import_rt_suffix</span> <span class="o">=</span> <span class="mi">102</span>
+<span class="n">vrf</span> <span class="o">=</span> <span class="n">cc</span><span class="o">-</span><span class="n">cloud02</span>
+
+<span class="p">[</span><span class="n">address</span><span class="o">-</span><span class="n">scope</span><span class="p">:</span><span class="n">bs</span><span class="o">-</span><span class="n">public</span><span class="p">]</span>
+<span class="n">export_rt_suffix</span> <span class="o">=</span> <span class="mi">102</span>
+<span class="n">import_rt_suffix</span> <span class="o">=</span> <span class="mi">102</span>
+<span class="n">vrf</span> <span class="o">=</span> <span class="n">cc</span><span class="o">-</span><span class="n">cloud02</span>
+
+<span class="p">[</span><span class="n">address</span><span class="o">-</span><span class="n">scope</span><span class="p">:</span><span class="n">bs</span><span class="o">-</span><span class="n">public</span><span class="o">-</span><span class="n">a</span><span class="p">]</span>
+<span class="n">availability_zone</span> <span class="o">=</span> <span class="n">a</span>
+<span class="n">export_rt_suffix</span> <span class="o">=</span> <span class="mi">1102</span>
+<span class="n">import_rt_suffix</span> <span class="o">=</span> <span class="mi">1102</span>
+<span class="n">vrf</span> <span class="o">=</span> <span class="n">cc</span><span class="o">-</span><span class="n">cloud02</span>
+
+<span class="p">[</span><span class="n">address</span><span class="o">-</span><span class="n">scope</span><span class="p">:</span><span class="n">bs</span><span class="o">-</span><span class="n">public</span><span class="o">-</span><span class="n">b</span><span class="p">]</span>
+<span class="n">availability_zone</span> <span class="o">=</span> <span class="n">b</span>
+<span class="n">export_rt_suffix</span> <span class="o">=</span> <span class="mi">2102</span>
+<span class="n">import_rt_suffix</span> <span class="o">=</span> <span class="mi">2102</span>
+<span class="n">vrf</span> <span class="o">=</span> <span class="n">cc</span><span class="o">-</span><span class="n">cloud02</span>
+</pre></div>
+</div>
+</section>
+<section id="sample-subnet-pool-definition">
+<h3>Sample Subnet Pool Definition<a class="headerlink" href="#sample-subnet-pool-definition" title="Permalink to this headline">¶</a></h3>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="p">{</span>
+  <span class="s2">&quot;id&quot;</span><span class="p">:</span> <span class="s2">&quot;f2fd984c-45b1-4465-9f99-e72f86b896fa&quot;</span><span class="p">,</span>
+  <span class="s2">&quot;ip_version&quot;</span><span class="p">:</span> <span class="mi">4</span><span class="p">,</span>
+  <span class="s2">&quot;name&quot;</span><span class="p">:</span> <span class="s2">&quot;hcp03-public&quot;</span><span class="p">,</span>
+<span class="p">}</span>
+<span class="p">{</span>
+  <span class="s2">&quot;id&quot;</span><span class="p">:</span> <span class="s2">&quot;10c48c80-b250-4452-a253-7f88b7a0deec&quot;</span><span class="p">,</span>
+  <span class="s2">&quot;ip_version&quot;</span><span class="p">:</span> <span class="mi">4</span><span class="p">,</span>
+  <span class="s2">&quot;name&quot;</span><span class="p">:</span> <span class="s2">&quot;bs-public&quot;</span><span class="p">,</span>
+<span class="p">}</span>
+<span class="p">{</span>
+  <span class="s2">&quot;id&quot;</span><span class="p">:</span> <span class="s2">&quot;ff3452d0-c968-49c6-b1c7-152e5ffb11ae&quot;</span><span class="p">,</span>
+  <span class="s2">&quot;ip_version&quot;</span><span class="p">:</span> <span class="mi">4</span><span class="p">,</span>
+  <span class="s2">&quot;name&quot;</span><span class="p">:</span> <span class="s2">&quot;bs-public-a&quot;</span><span class="p">,</span>
+<span class="p">}</span>
+
+<span class="p">{</span>
+ <span class="s2">&quot;address_scope_id&quot;</span><span class="p">:</span> <span class="s2">&quot;f2fd984c-45b1-4465-9f99-e72f86b896fa&quot;</span><span class="p">,</span>
+ <span class="s2">&quot;id&quot;</span><span class="p">:</span> <span class="s2">&quot;e6df3de0-16dd-46e3-850f-5418fd6dd820&quot;</span><span class="p">,</span>
+ <span class="s2">&quot;ip_version&quot;</span><span class="p">:</span> <span class="mi">4</span><span class="p">,</span>
+ <span class="s2">&quot;name&quot;</span><span class="p">:</span> <span class="s2">&quot;sap-hcp03&quot;</span><span class="p">,</span>
+ <span class="s2">&quot;prefixes&quot;</span><span class="p">:</span> <span class="p">[</span>
+   <span class="s2">&quot;130.214.202.0/25&quot;</span><span class="p">,</span>
+   <span class="s2">&quot;10.188.16.0/21&quot;</span><span class="p">,</span>
+   <span class="s2">&quot;10.236.100.0/22&quot;</span>
+ <span class="p">],</span>
+<span class="p">}</span>
+<span class="p">{</span>
+ <span class="s2">&quot;address_scope_id&quot;</span><span class="p">:</span> <span class="s2">&quot;10c48c80-b250-4452-a253-7f88b7a0deec&quot;</span><span class="p">,</span>
+ <span class="s2">&quot;id&quot;</span><span class="p">:</span> <span class="s2">&quot;438157b9-3ce3-4370-8bb5-59131ff105f9&quot;</span><span class="p">,</span>
+ <span class="s2">&quot;ip_version&quot;</span><span class="p">:</span> <span class="mi">4</span><span class="p">,</span>
+ <span class="s2">&quot;name&quot;</span><span class="p">:</span> <span class="s2">&quot;internet-bs&quot;</span><span class="p">,</span>
+ <span class="s2">&quot;prefixes&quot;</span><span class="p">:</span> <span class="p">[</span>
+   <span class="s2">&quot;130.214.202.0/25&quot;</span><span class="p">,</span>
+   <span class="s2">&quot;130.214.215.0/26&quot;</span>
+ <span class="p">],</span>
+<span class="p">}</span>
+<span class="p">{</span>
+ <span class="s2">&quot;address_scope_id&quot;</span><span class="p">:</span> <span class="s2">&quot;ff3452d0-c968-49c6-b1c7-152e5ffb11ae&quot;</span><span class="p">,</span>
+ <span class="s2">&quot;id&quot;</span><span class="p">:</span> <span class="s2">&quot;438157b9-3ce3-4370-8bb5-59131ff105f9&quot;</span><span class="p">,</span>
+ <span class="s2">&quot;ip_version&quot;</span><span class="p">:</span> <span class="mi">4</span><span class="p">,</span>
+ <span class="s2">&quot;name&quot;</span><span class="p">:</span> <span class="s2">&quot;internet-bs&quot;</span><span class="p">,</span>
+ <span class="s2">&quot;prefixes&quot;</span><span class="p">:</span> <span class="p">[</span>
+   <span class="s2">&quot;130.214.215.64/26&quot;</span>
+ <span class="p">],</span>
+<span class="p">}</span>
+
+<span class="p">{</span>
+  <span class="s2">&quot;cidr&quot;</span><span class="p">:</span> <span class="s2">&quot;10.188.16.0/21&quot;</span><span class="p">,</span>
+  <span class="s2">&quot;id&quot;</span><span class="p">:</span> <span class="s2">&quot;5051685d-37c5-4bab-98bf-8e797453ab03&quot;</span><span class="p">,</span>
+  <span class="s2">&quot;ip_version&quot;</span><span class="p">:</span> <span class="mi">4</span><span class="p">,</span>
+  <span class="s2">&quot;name&quot;</span><span class="p">:</span> <span class="s2">&quot;FloatingIP-sap-hcp03-03&quot;</span><span class="p">,</span>
+  <span class="s2">&quot;subnetpool_id&quot;</span><span class="p">:</span> <span class="s2">&quot;e6df3de0-16dd-46e3-850f-5418fd6dd820&quot;</span><span class="p">,</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+</section>
+<section id="id5">
+<h3>On Device Configuration<a class="headerlink" href="#id5" title="Permalink to this headline">¶</a></h3>
+<section id="id6">
+<h4>aPOD/vPOD/stPOD/netPOD/bPOD/Transit leafs<a class="headerlink" href="#id6" title="Permalink to this headline">¶</a></h4>
+<p><strong>EOS</strong>:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">router</span> <span class="n">bgp</span> <span class="mf">65130.1103</span>
+   <span class="n">vrf</span> <span class="n">CC</span><span class="o">-</span><span class="n">CLOUD02</span>
+      <span class="n">aggregate</span><span class="o">-</span><span class="n">address</span> <span class="mf">130.214.202.0</span><span class="o">/</span><span class="mi">24</span> <span class="n">route</span><span class="o">-</span><span class="nb">map</span> <span class="n">RM</span><span class="o">-</span><span class="n">CC</span><span class="o">-</span><span class="n">AGGREGATE</span>
+      <span class="n">aggregate</span><span class="o">-</span><span class="n">address</span> <span class="mf">130.214.215.0</span><span class="o">/</span><span class="mi">26</span> <span class="n">route</span><span class="o">-</span><span class="nb">map</span> <span class="n">RM</span><span class="o">-</span><span class="n">CC</span><span class="o">-</span><span class="n">AGGREGATE</span>
+      <span class="n">aggregate</span><span class="o">-</span><span class="n">address</span> <span class="mf">10.236.100.0</span><span class="o">/</span><span class="mi">22</span> <span class="n">route</span><span class="o">-</span><span class="nb">map</span> <span class="n">RM</span><span class="o">-</span><span class="n">CC</span><span class="o">-</span><span class="n">AGGREGATE</span>
+</pre></div>
+</div>
+<p><strong>NX-OS</strong>:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">router</span> <span class="n">bgp</span> <span class="mf">65130.1103</span>
+   <span class="n">vrf</span> <span class="n">CC</span><span class="o">-</span><span class="n">CLOUD02</span>
+      <span class="n">address</span><span class="o">-</span><span class="n">family</span> <span class="n">ipv4</span> <span class="n">unicast</span>
+         <span class="n">aggregate</span><span class="o">-</span><span class="n">address</span> <span class="mf">130.214.202.0</span><span class="o">/</span><span class="mi">24</span> <span class="n">route</span><span class="o">-</span><span class="nb">map</span> <span class="n">RM</span><span class="o">-</span><span class="n">CC</span><span class="o">-</span><span class="n">AGGREGATE</span>
+         <span class="n">aggregate</span><span class="o">-</span><span class="n">address</span> <span class="mf">130.214.215.0</span><span class="o">/</span><span class="mi">26</span> <span class="n">route</span><span class="o">-</span><span class="nb">map</span> <span class="n">RM</span><span class="o">-</span><span class="n">CC</span><span class="o">-</span><span class="n">AGGREGATE</span>
+         <span class="n">aggregate</span><span class="o">-</span><span class="n">address</span> <span class="mf">10.236.100.0</span><span class="o">/</span><span class="mi">22</span> <span class="n">route</span><span class="o">-</span><span class="nb">map</span> <span class="n">RM</span><span class="o">-</span><span class="n">CC</span><span class="o">-</span><span class="n">AGGREGATE</span>
+</pre></div>
+</div>
+</section>
+</section>
+</section>
+<section id="floating-ip">
+<h2>Floating IP<a class="headerlink" href="#floating-ip" title="Permalink to this headline">¶</a></h2>
+<p>The high churn rate and mac-to-ip mobility cause significant ARP traffic in the fabric if
+not otherwise mitigated. To reduce the number of ARP packets required the driver will
+in combination with the Neutron L3 driver create and maintain static arp entries to
+reduce the number of ARP packets significantly and allow for Floating Ip operations to
+be instantaneous. Static ARP entries will be defined on every leaf pair a certain
+FIP is expected to be at. If there are multiple leaf pairs where the IP could be located
+it is expected that only the leaf pair also having the destination MAC in its local
+endpoint table generate a Type-2 MAC/IP route for the entry. Other leafs are not
+to generate Type-2 until such point as the destination MAC address becomes active
+at that leaf.</p>
+<section id="sample-floating-ip-definition">
+<h3>Sample Floating IP Definition<a class="headerlink" href="#sample-floating-ip-definition" title="Permalink to this headline">¶</a></h3>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="c1"># Neutron Router external Port connected to netPOD leaf serving the Floating IP</span>
+<span class="p">{</span>
+  <span class="s2">&quot;binding_vif_type&quot;</span><span class="p">:</span> <span class="s2">&quot;asr1k&quot;</span><span class="p">,</span>
+  <span class="s2">&quot;device_owner&quot;</span><span class="p">:</span> <span class="s2">&quot;network:router_gateway&quot;</span><span class="p">,</span>
+  <span class="s2">&quot;mac_address&quot;</span><span class="p">:</span> <span class="s2">&quot;fa:16:3e:6d:d3:33&quot;</span><span class="p">,</span>
+<span class="p">}</span>
+<span class="p">{</span>
+  <span class="s2">&quot;fixed_ip_address&quot;</span><span class="p">:</span> <span class="s2">&quot;10.180.1.7&quot;</span><span class="p">,</span>
+  <span class="s2">&quot;floating_ip_address&quot;</span><span class="p">:</span> <span class="s2">&quot;10.47.104.75&quot;</span><span class="p">,</span>
+  <span class="s2">&quot;floating_network_id&quot;</span><span class="p">:</span> <span class="s2">&quot;aeec9fd4-30f7-4398-8554-34acb36b7712&quot;</span><span class="p">,</span>
+  <span class="s2">&quot;id&quot;</span><span class="p">:</span> <span class="s2">&quot;fb8a5ddd-611b-415a-8bd7-64d3033ab840&quot;</span><span class="p">,</span>
+  <span class="s2">&quot;router_id&quot;</span><span class="p">:</span> <span class="s2">&quot;260c2d26-2904-4073-8407-7f94ed1e88b8&quot;</span><span class="p">,</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+</section>
+<section id="id7">
+<h3>On Device Configuration<a class="headerlink" href="#id7" title="Permalink to this headline">¶</a></h3>
+<section id="netpod-leafs">
+<h4>netPOD leafs<a class="headerlink" href="#netpod-leafs" title="Permalink to this headline">¶</a></h4>
+<p><strong>EOS</strong>:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">arp</span> <span class="n">vrf</span> <span class="n">CC</span><span class="o">-</span><span class="n">CLOUD02</span> <span class="mf">10.47.104.75</span> <span class="n">fa16</span><span class="mf">.3e6</span><span class="n">d</span><span class="o">.</span><span class="n">d333</span>
+</pre></div>
+</div>
+<p><strong>NX-OS</strong>:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">interface</span> <span class="n">vlan</span> <span class="mi">3150</span>
+  <span class="n">vrf</span> <span class="n">member</span> <span class="n">CC</span><span class="o">-</span><span class="n">CLOUD02</span>
+  <span class="n">ip</span> <span class="n">arp</span> <span class="mf">10.47.104.75</span> <span class="n">fa16</span><span class="mf">.3e6</span><span class="n">d</span><span class="o">.</span><span class="n">d333</span>
+</pre></div>
+</div>
+</section>
+</section>
+</section>
+<section id="port">
+<h2>Port<a class="headerlink" href="#port" title="Permalink to this headline">¶</a></h2>
+<p>The driver handles multiple types of ports or port binding requests,
+for all requests the driver manages the top level segment, segment creation for HPB
+and configuring the relevant front ports for handing off networks
+to attached equipment which is configured by a ml2 driver further down the processing
+chain and execute final port binding. For bare metal ports / servers directly
+attached to the fabric the driver will do the final port binding as no
+other driver is subsequently called.</p>
+<section id="vlan-handoff">
+<h3>VLAN Handoff<a class="headerlink" href="#vlan-handoff" title="Permalink to this headline">¶</a></h3>
+<p>This type of handoff is the most commonly used, the driver will allocate
+and configure a VNI to VLAN mapping (HPB segment) on all leaf switches relevant for the
+hostgroup in the port binding request as well as adding the vlan to all relevant ports on the switches.
+The subsequent driver will pick up the partial binding and use the provided vlan information to configure
+the attached device accordingly and finalize the port binding afterwards.</p>
+<p>In addition to the Neutron networks in question the relevant infra networks defined in driver configuration
+for the ports will be added.</p>
+<section id="sample-driver-config">
+<h4>Sample Driver Config<a class="headerlink" href="#sample-driver-config" title="Permalink to this headline">¶</a></h4>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">hostgroups</span><span class="p">:</span>
+   <span class="o">-</span> <span class="n">binding_hosts</span><span class="p">:</span>
+     <span class="o">-</span> <span class="n">node001</span><span class="o">-</span><span class="n">bb301</span>
+     <span class="n">members</span><span class="p">:</span>
+     <span class="o">-</span> <span class="n">name</span><span class="p">:</span> <span class="n">Ethernet1</span><span class="o">/</span><span class="mi">1</span>
+       <span class="n">switch</span><span class="p">:</span> <span class="n">qa</span><span class="o">-</span><span class="n">de</span><span class="o">-</span><span class="mi">3</span><span class="o">-</span><span class="n">sw1103a</span><span class="o">-</span><span class="n">bb301</span>
+     <span class="o">-</span> <span class="n">name</span><span class="p">:</span> <span class="n">Ethernet1</span><span class="o">/</span><span class="mi">1</span>
+       <span class="n">switch</span><span class="p">:</span> <span class="n">qa</span><span class="o">-</span><span class="n">de</span><span class="o">-</span><span class="mi">3</span><span class="o">-</span><span class="n">sw1103b</span><span class="o">-</span><span class="n">bb301</span>
+   <span class="o">-</span> <span class="n">binding_hosts</span><span class="p">:</span>
+     <span class="o">-</span> <span class="n">node002</span><span class="o">-</span><span class="n">bb301</span>
+     <span class="n">members</span><span class="p">:</span>
+     <span class="o">-</span> <span class="n">name</span><span class="p">:</span> <span class="n">Port</span><span class="o">-</span><span class="n">Channel</span> <span class="mi">201</span>
+       <span class="n">switch</span><span class="p">:</span> <span class="n">qa</span><span class="o">-</span><span class="n">de</span><span class="o">-</span><span class="mi">3</span><span class="o">-</span><span class="n">sw1103a</span><span class="o">-</span><span class="n">bb301</span>
+       <span class="n">lacp</span><span class="p">:</span> <span class="n">true</span>
+       <span class="n">members</span><span class="p">:</span> <span class="p">[</span><span class="n">Ethernet3</span><span class="o">/</span><span class="mi">1</span><span class="p">]</span>
+     <span class="o">-</span> <span class="n">name</span><span class="p">:</span> <span class="n">Port</span><span class="o">-</span><span class="n">Channel</span> <span class="mi">201</span>
+       <span class="n">switch</span><span class="p">:</span> <span class="n">qa</span><span class="o">-</span><span class="n">de</span><span class="o">-</span><span class="mi">3</span><span class="o">-</span><span class="n">sw1103b</span><span class="o">-</span><span class="n">bb301</span>
+       <span class="n">lacp</span><span class="p">:</span> <span class="n">true</span>
+       <span class="n">members</span><span class="p">:</span> <span class="p">[</span><span class="n">Ethernet3</span><span class="o">/</span><span class="mi">1</span><span class="p">]</span>
+   <span class="o">-</span> <span class="n">binding_hosts</span><span class="p">:</span>
+     <span class="o">-</span> <span class="n">nova</span><span class="o">-</span><span class="n">compute</span><span class="o">-</span><span class="n">bb301</span>
+     <span class="n">members</span><span class="p">:</span>
+     <span class="o">-</span> <span class="n">node001</span><span class="o">-</span><span class="n">bb301</span>
+     <span class="o">-</span> <span class="n">node002</span><span class="o">-</span><span class="n">bb301</span>
+     <span class="n">infra_networks</span><span class="p">:</span>
+     <span class="o">-</span> <span class="n">vni</span><span class="p">:</span> <span class="mi">10301100</span>
+       <span class="n">vlan</span><span class="p">:</span> <span class="mi">100</span>
+       <span class="n">untagged</span><span class="p">:</span> <span class="n">true</span>
+     <span class="o">-</span> <span class="n">vni</span><span class="p">:</span> <span class="mi">10301101</span>
+       <span class="n">vlan</span><span class="p">:</span> <span class="mi">101</span>
+     <span class="n">metagroup</span><span class="p">:</span> <span class="n">true</span>
+</pre></div>
+</div>
+</section>
+<section id="sample-port-definition">
+<h4>Sample Port Definition<a class="headerlink" href="#sample-port-definition" title="Permalink to this headline">¶</a></h4>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="c1"># Network</span>
+<span class="p">{</span>
+  <span class="s2">&quot;id&quot;</span><span class="p">:</span> <span class="s2">&quot;aeec9fd4-30f7-4398-8554-34acb36b7712&quot;</span><span class="p">,</span>
+  <span class="s2">&quot;segments&quot;</span><span class="p">:</span> <span class="p">[</span>
+    <span class="p">{</span>
+      <span class="s2">&quot;provider:network_type&quot;</span><span class="p">:</span> <span class="s2">&quot;vlan&quot;</span><span class="p">,</span>
+      <span class="s2">&quot;provider:physical_network&quot;</span><span class="p">:</span> <span class="s2">&quot;bb301&quot;</span><span class="p">,</span>
+      <span class="s2">&quot;provider:segmentation_id&quot;</span><span class="p">:</span> <span class="mi">3150</span>
+    <span class="p">},</span>
+  <span class="p">],</span>
+<span class="p">}</span>
+<span class="c1"># Port</span>
+<span class="p">{</span>
+<span class="s2">&quot;admin_state_up&quot;</span><span class="p">:</span> <span class="n">true</span><span class="p">,</span>
+<span class="s2">&quot;binding_host_id&quot;</span><span class="p">:</span> <span class="s2">&quot;nova-compute-bb301&quot;</span><span class="p">,</span>
+<span class="s2">&quot;binding_profile&quot;</span><span class="p">:</span> <span class="p">{},</span>
+<span class="s2">&quot;binding_vif_details&quot;</span><span class="p">:</span> <span class="p">{</span>
+  <span class="s2">&quot;segmentation_id&quot;</span><span class="p">:</span> <span class="mi">3150</span>
+<span class="p">},</span>
+<span class="s2">&quot;device_owner&quot;</span><span class="p">:</span> <span class="s2">&quot;compute:eu-de-1d&quot;</span><span class="p">,</span>
+<span class="s2">&quot;id&quot;</span><span class="p">:</span> <span class="s2">&quot;7574c44b-a3d7-471f-89e5-f3a450181f9a&quot;</span><span class="p">,</span>
+<span class="s2">&quot;network_id&quot;</span><span class="p">:</span> <span class="s2">&quot;aeec9fd4-30f7-4398-8554-34acb36b7712&quot;</span><span class="p">,</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+</section>
+<section id="vmware-nsx-t-neutron-network-agent-octavia-f5-netapp-ironic-ucs-neutron-asr-ml2">
+<h4>VMware NSX-t, Neutron Network Agent, Octavia F5, Netapp, Ironic UCS, Neutron ASR ml2<a class="headerlink" href="#vmware-nsx-t-neutron-network-agent-octavia-f5-netapp-ironic-ucs-neutron-asr-ml2" title="Permalink to this headline">¶</a></h4>
+<p><strong>EOS</strong>:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span>interface Ethernet1/1
+   description &quot;connect to node001-bb301&quot;
+   no shutdown
+   switchport
+   switchport mode trunk
+   switchport trunk allowed 100,101,3150
+   switchport trunk native vlan 100
+   switchport trunk group $tenant-1
+   storm-control broadcast level 10
+   spanning-tree portfast
+   errdisable recovery cause bpduguard
+   errdisable recovery interval 300
+
+interface Ethernet3/1
+   description &quot;connect to node002-bb301&quot;
+   no shutdown
+   channel-group 201 active
+
+interface Port-Channel201
+   description &quot;connect to node002-bb301&quot;
+   port-channel min-links 1
+   no shutdown
+   switchport
+   switchport mode trunk
+   switchport trunk allowed 100,101,3150
+   switchport trunk native vlan 100
+   storm-control broadcast level 10
+   spanning-tree portfast
+   errdisable recovery cause bpduguard
+   errdisable recovery interval 300
+   port-channel lacp fallback static
+   port-channel lacp fallback timeout 100
+</pre></div>
+</div>
+<p><strong>NX-OS</strong>:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">TBD</span>
+</pre></div>
+</div>
+</section>
+<section id="ironic-bare-metal-ports">
+<h4>Ironic Bare Metal Ports<a class="headerlink" href="#ironic-bare-metal-ports" title="Permalink to this headline">¶</a></h4>
+</section>
+</section>
+<section id="vxlan-evpn-handoff">
+<h3>VXLAN EVPN Handoff<a class="headerlink" href="#vxlan-evpn-handoff" title="Permalink to this headline">¶</a></h3>
+</section>
+<section id="vxlan-flood-and-learn-handoff">
+<h3>VXLAN Flood and Learn Handoff<a class="headerlink" href="#vxlan-flood-and-learn-handoff" title="Permalink to this headline">¶</a></h3>
+</section>
+</section>
+<section id="scaling-limits">
+<h2>Scaling Limits<a class="headerlink" href="#scaling-limits" title="Permalink to this headline">¶</a></h2>
+<table class="colwidths-given docutils align-default" id="id8">
+<caption><span class="caption-text">Relevant Device Scaling Limits</span><a class="headerlink" href="#id8" title="Permalink to this table">¶</a></caption>
+<colgroup>
+<col style="width: 33%" />
+<col style="width: 33%" />
+<col style="width: 33%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Resource</p></th>
+<th class="head"><p>EOS</p></th>
+<th class="head"><p>NX-OS</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>VLANs</p></td>
+<td><p>1800</p></td>
+<td></td>
+</tr>
+<tr class="row-odd"><td><p>VRFs</p></td>
+<td></td>
+<td></td>
+</tr>
+<tr class="row-even"><td><p>VLAN Translations (per Port)</p></td>
+<td></td>
+<td><p>4000 / 500 (FX3)</p></td>
+</tr>
+<tr class="row-odd"><td><p>VLAN Translations (per Switch)</p></td>
+<td></td>
+<td><p>24000 / 6000 (FX3)</p></td>
+</tr>
+<tr class="row-even"><td><p>Static ARP entries</p></td>
+<td></td>
+<td></td>
+</tr>
+<tr class="row-odd"><td><p>Static IPv4 Routes</p></td>
+<td></td>
+<td></td>
+</tr>
+</tbody>
+</table>
 </section>
 </section>
 
@@ -243,7 +1076,7 @@ via config that a Transit has to serve at least its own AZ.</p>
           
           </div>
           <div class="row docs-byline bottom">
-            <div class="docs-updated">this page last updated: 2022-04-06 18:05:06</div>
+            <div class="docs-updated">this page last updated: 2022-04-20 12:39:57</div>
           </div>
           <div class="row">
             <div class="col-lg-8 col-md-8 col-sm-8 docs-license">
@@ -269,7 +1102,7 @@ via config that a Transit has to serve at least its own AZ.</p>
 <li class="toctree-l1 current"><a class="reference internal" href="index.html">Driver Architecutre</a><ul class="current">
 <li class="toctree-l2"><a class="reference internal" href="overview.html">Overview</a></li>
 <li class="toctree-l2"><a class="reference internal" href="driver.html">CC-Fabric ML2 Driver Internals</a></li>
-<li class="toctree-l2 current"><a class="current reference internal" href="#">Switch Config</a></li>
+<li class="toctree-l2 current"><a class="current reference internal" href="#">Device Config</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="../install/index.html">Networking CCloud VXLAN Fabric service installation guide</a></li>
@@ -285,15 +1118,81 @@ via config that a Transit has to serve at least its own AZ.</p>
     <div class="docs-sidebar-section" id="local-table-of-contents">
       <h4 class="docs-sidebar-section-title">Page Contents</h4>
       <ul>
-<li><a class="reference internal" href="#">Switch Config</a><ul>
-<li><a class="reference internal" href="#normal-vm-portbinding">Normal VM portbinding</a></li>
-<li><a class="reference internal" href="#baremetal-on-fabric-portbinding">Baremetal-on-Fabric portbinding</a></li>
-<li><a class="reference internal" href="#baremetal-on-fabric-trunk">Baremetal-on-Fabric trunk</a></li>
-<li><a class="reference internal" href="#external-network-config-l3-gateway">External network config + l3 gateway</a></li>
-<li><a class="reference internal" href="#management-networks">Management Networks</a></li>
-<li><a class="reference internal" href="#host-lending">Host lending</a></li>
-<li><a class="reference internal" href="#aci-transit-connection">ACI transit connection</a></li>
-<li><a class="reference internal" href="#inter-az-communication-bordergateways-bgws">Inter-AZ communication / BorderGateWays (BGWs)</a></li>
+<li><a class="reference internal" href="#">Device Config</a><ul>
+<li><a class="reference internal" href="#network">Network</a><ul>
+<li><a class="reference internal" href="#overview">Overview</a><ul>
+<li><a class="reference internal" href="#single-az">Single AZ</a></li>
+<li><a class="reference internal" href="#multi-az">Multi AZ</a></li>
+<li><a class="reference internal" href="#workflow">Workflow</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#legacy-fabric-integration">Legacy Fabric Integration</a><ul>
+<li><a class="reference internal" href="#legacy-driver-coordination">Legacy driver coordination</a></li>
+<li><a class="reference internal" href="#legacy-fabric-interconnection">Legacy fabric interconnection</a></li>
+<li><a class="reference internal" href="#id1">Single AZ</a></li>
+<li><a class="reference internal" href="#dual-az-with-dual-legacy-az">Dual AZ with Dual Legacy AZ</a></li>
+<li><a class="reference internal" href="#dual-az-with-single-legacy-az">Dual AZ with Single Legacy AZ</a></li>
+<li><a class="reference internal" href="#multi-az-with-multi-legacy-az">Multi AZ with Multi Legacy AZ</a></li>
+<li><a class="reference internal" href="#multi-az-with-dual-legacy-az">Multi AZ with Dual Legacy AZ</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#sample-driver-configuration">Sample Driver Configuration</a></li>
+<li><a class="reference internal" href="#sample-network-definition">Sample Network Definition</a><ul>
+<li><a class="reference internal" href="#single-az-network">Single AZ Network</a></li>
+<li><a class="reference internal" href="#multi-az-network">Multi AZ Network</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#on-device-configuration">On Device configuration</a><ul>
+<li><a class="reference internal" href="#apod-vpod-stpod-netpod-bpod-transit-leafs">aPOD/vPOD/stPOD/netPOD/bPOD/Transit leafs</a></li>
+<li><a class="reference internal" href="#border-gateway">Border Gateway</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li><a class="reference internal" href="#subnet">Subnet</a><ul>
+<li><a class="reference internal" href="#external-network">External Network</a><ul>
+<li><a class="reference internal" href="#id2">Sample Driver Configuration</a></li>
+<li><a class="reference internal" href="#sample-subnet-definition">Sample Subnet Definition</a></li>
+<li><a class="reference internal" href="#id3">On Device configuration</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#dapnet-directly-accessible-private-network">DAPnet Directly Accessible Private Network</a><ul>
+<li><a class="reference internal" href="#sample-dapnet-definition">Sample DAPnet Definition</a></li>
+<li><a class="reference internal" href="#id4">On Device configuration</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li><a class="reference internal" href="#subnet-pool">Subnet Pool</a><ul>
+<li><a class="reference internal" href="#driver-configuration">Driver Configuration</a></li>
+<li><a class="reference internal" href="#sample-subnet-pool-definition">Sample Subnet Pool Definition</a></li>
+<li><a class="reference internal" href="#id5">On Device Configuration</a><ul>
+<li><a class="reference internal" href="#id6">aPOD/vPOD/stPOD/netPOD/bPOD/Transit leafs</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li><a class="reference internal" href="#floating-ip">Floating IP</a><ul>
+<li><a class="reference internal" href="#sample-floating-ip-definition">Sample Floating IP Definition</a></li>
+<li><a class="reference internal" href="#id7">On Device Configuration</a><ul>
+<li><a class="reference internal" href="#netpod-leafs">netPOD leafs</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li><a class="reference internal" href="#port">Port</a><ul>
+<li><a class="reference internal" href="#vlan-handoff">VLAN Handoff</a><ul>
+<li><a class="reference internal" href="#sample-driver-config">Sample Driver Config</a></li>
+<li><a class="reference internal" href="#sample-port-definition">Sample Port Definition</a></li>
+<li><a class="reference internal" href="#vmware-nsx-t-neutron-network-agent-octavia-f5-netapp-ironic-ucs-neutron-asr-ml2">VMware NSX-t, Neutron Network Agent, Octavia F5, Netapp, Ironic UCS, Neutron ASR ml2</a></li>
+<li><a class="reference internal" href="#ironic-bare-metal-ports">Ironic Bare Metal Ports</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#vxlan-evpn-handoff">VXLAN EVPN Handoff</a></li>
+<li><a class="reference internal" href="#vxlan-flood-and-learn-handoff">VXLAN Flood and Learn Handoff</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#scaling-limits">Scaling Limits</a></li>
 </ul>
 </li>
 </ul>

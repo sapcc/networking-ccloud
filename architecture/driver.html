@@ -15,7 +15,7 @@
     <script src="../_static/doctools.js"></script>
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
-    <link rel="next" title="Switch Config" href="switch-config.html" />
+    <link rel="next" title="Device Config" href="switch-config.html" />
     <link rel="prev" title="Overview" href="overview.html" />
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <!-- Bootstrap CSS -->
@@ -107,7 +107,7 @@ ga('send', 'pageview');
     <a href="overview.html"><i class="fa fa-angle-double-left" data-toggle="tooltip" data-placement="top" title="Previous: Overview"></i></a>
     
     
-    <a href="switch-config.html"><i class="fa fa-angle-double-right" data-toggle="tooltip" data-placement="top" title="Next: Switch Config"></i></a>
+    <a href="switch-config.html"><i class="fa fa-angle-double-right" data-toggle="tooltip" data-placement="top" title="Next: Device Config"></i></a>
     
   </div>
 </div>
@@ -309,6 +309,61 @@ native vlans.</p>
 <h2>Network Scheduling on Borderleafs and ACI Transits<a class="headerlink" href="#network-scheduling-on-borderleafs-and-aci-transits" title="Permalink to this headline">¶</a></h2>
 <p>Both Borderleafs and ACI Transit Switches have a maximum capacity of x VLANS (2000 on Arista, 1750 on ACI).</p>
 </section>
+<section id="in-driver-api-for-debugging-and-maintenance">
+<h2>In-Driver API for Debugging and Maintenance<a class="headerlink" href="#in-driver-api-for-debugging-and-maintenance" title="Permalink to this headline">¶</a></h2>
+<p>The In-Driver API is an API directly inside the driver using OpenStack authentication and other OpenStack facilities to
+provide debug information and driver commands (sync a router, switch host-mode).</p>
+<section id="network-related-actions">
+<h3>Network-Related Actions<a class="headerlink" href="#network-related-actions" title="Permalink to this headline">¶</a></h3>
+</section>
+<section id="current-network-status">
+<h3>Current Network Status<a class="headerlink" href="#current-network-status" title="Permalink to this headline">¶</a></h3>
+<p>Show status of a given network, pulled from OpenStack DB, enrichted with driver-config knowledge. This will include
+hostgroups bound to the network, on which leaf switches the network should be bound, etc. This is basically the same
+data the driver hands out to its agents to sync a network.</p>
+</section>
+<section id="network-diff">
+<h3>Network Diff<a class="headerlink" href="#network-diff" title="Permalink to this headline">¶</a></h3>
+<p>Get the current network state and ask each agent for a diff. The agent will use the sync data to generate device config,
+pull the current state off of the device and return a diff between those two. This will be returned to the API-user in a
+per-device dictionary.</p>
+</section>
+<section id="network-sync">
+<h3>Network Sync<a class="headerlink" href="#network-sync" title="Permalink to this headline">¶</a></h3>
+<p>Tell the driver to reapply the network config to all leaf switches the network should be on. We MAY want to check other
+switches for leftover config (check that the VNI is not configured on any device it should not be on), though this could
+also be handled by a separate per-device cleanup loop.</p>
+</section>
+<section id="switch-leafpair-related-actions">
+<h3>Switch / Leafpair Related Actions<a class="headerlink" href="#switch-leafpair-related-actions" title="Permalink to this headline">¶</a></h3>
+<dl class="simple">
+<dt>Currently in brainstorming phase:</dt><dd><ul class="simple">
+<li><dl class="simple">
+<dt>test connection</dt><dd><ul>
+<li><p>dump version and uptime of all connected devices</p></li>
+</ul>
+</dd>
+</dl>
+</li>
+<li><p>resync all networks on a device</p></li>
+</ul>
+</dd>
+</dl>
+</section>
+<section id="driver-related-actions">
+<h3>Driver Related Actions<a class="headerlink" href="#driver-related-actions" title="Permalink to this headline">¶</a></h3>
+<ul class="simple">
+<li><dl class="simple">
+<dt>show syncloop status</dt><dd><ul>
+<li><p>pause syncloop</p></li>
+</ul>
+</dd>
+</dl>
+</li>
+<li><p>switch hostgroup state for avocado</p></li>
+</ul>
+</section>
+</section>
 </section>
 
 
@@ -320,11 +375,11 @@ native vlans.</p>
             <a href="overview.html"><i class="fa fa-angle-double-left" data-toggle="tooltip" data-placement="top" title="Previous: Overview"></i></a>
           
           
-            <a href="switch-config.html"><i class="fa fa-angle-double-right" data-toggle="tooltip" data-placement="top" title="Next: Switch Config"></i></a>
+            <a href="switch-config.html"><i class="fa fa-angle-double-right" data-toggle="tooltip" data-placement="top" title="Next: Device Config"></i></a>
           
           </div>
           <div class="row docs-byline bottom">
-            <div class="docs-updated">this page last updated: 2022-04-06 18:05:06</div>
+            <div class="docs-updated">this page last updated: 2022-04-20 12:39:57</div>
           </div>
           <div class="row">
             <div class="col-lg-8 col-md-8 col-sm-8 docs-license">
@@ -350,7 +405,7 @@ native vlans.</p>
 <li class="toctree-l1 current"><a class="reference internal" href="index.html">Driver Architecutre</a><ul class="current">
 <li class="toctree-l2"><a class="reference internal" href="overview.html">Overview</a></li>
 <li class="toctree-l2 current"><a class="current reference internal" href="#">CC-Fabric ML2 Driver Internals</a></li>
-<li class="toctree-l2"><a class="reference internal" href="switch-config.html">Switch Config</a></li>
+<li class="toctree-l2"><a class="reference internal" href="switch-config.html">Device Config</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="../install/index.html">Networking CCloud VXLAN Fabric service installation guide</a></li>
@@ -374,6 +429,15 @@ native vlans.</p>
 <li><a class="reference internal" href="#agent-communication">Agent Communication</a></li>
 <li><a class="reference internal" href="#network-syncloop-in-agent">Network Syncloop (in Agent)</a></li>
 <li><a class="reference internal" href="#network-scheduling-on-borderleafs-and-aci-transits">Network Scheduling on Borderleafs and ACI Transits</a></li>
+<li><a class="reference internal" href="#in-driver-api-for-debugging-and-maintenance">In-Driver API for Debugging and Maintenance</a><ul>
+<li><a class="reference internal" href="#network-related-actions">Network-Related Actions</a></li>
+<li><a class="reference internal" href="#current-network-status">Current Network Status</a></li>
+<li><a class="reference internal" href="#network-diff">Network Diff</a></li>
+<li><a class="reference internal" href="#network-sync">Network Sync</a></li>
+<li><a class="reference internal" href="#switch-leafpair-related-actions">Switch / Leafpair Related Actions</a></li>
+<li><a class="reference internal" href="#driver-related-actions">Driver Related Actions</a></li>
+</ul>
+</li>
 </ul>
 </li>
 </ul>
