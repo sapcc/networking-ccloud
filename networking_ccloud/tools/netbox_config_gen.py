@@ -18,6 +18,7 @@ import logging
 from operator import itemgetter
 import re
 import urllib3
+from typing import Dict, Optional
 
 import pynetbox
 import requests
@@ -25,7 +26,6 @@ import yaml
 
 from networking_ccloud.common.config import config_driver as conf
 from networking_ccloud.common import constants as c_const
-
 
 LOG = logging.getLogger(__name__)
 
@@ -40,14 +40,25 @@ class ConfigSchemeException(ConfigException):
 
 class ConfigGenerator:
     # FIXME: some of these shall be imported from networking-ccloud constants
+
     # FIXME: some of these should come from an external config for this tool in the future
     netbox_url = "https://netbox.global.cloud.sap"
+    switch_name_re = re.compile(r"^(?P<region>\w{2}-\w{2}-\d)-sw(?P<az>\d)(?P<pod>\d)(?P<switchgroup>\d{2})"
+                                r"(?P<leaf>[ab])(?:-(?P<role>[a-z]+(?P<seq_no>[0-9]+)?))$")
     region = "qa-de-2"
     leaf_role = "evpn-leaf"
     spine_role = "evpn-spine"
     connection_roles = {"server", "neutron-router"}
-    netbox_switchgroup_tag = "cc-switchgroup"
-    netbox_kv_tags = {netbox_switchgroup_tag}
+    pod_roles = {
+        "cc-apod": c_const.SWITCHGROUP_ROLE_APOD,
+        "cc-vpod": c_const.SWITCHGROUP_ROLE_VPOD,
+        "cc-stpod": c_const.SWITCHGROUP_ROLE_STPOD,
+        "cc-netpod": c_const.SWITCHGROUP_ROLE_NETPOD,
+        "cc-bpod": c_const.SWITCHGROUP_ROLE_BPOD,
+        "cnd-net-evpn-bg": c_const.DEVICE_TYPE_BGW,
+        "cnd-net-evpn-tl": c_const.DEVICE_TYPE_TRANSIT,
+        "cnd-net-evpn-bl": c_const.DEVICE_TYPE_BORDER
+    }
     netbox_vpod_cluster_type = "cc-vsphere-prod"
 
     def __init__(self, region, args, verbose=False, verify_ssl=False):
@@ -61,71 +72,53 @@ class ConfigGenerator:
             self.netbox.http_session = requests.Session()
             self.netbox.http_session.verify = False
 
-    def _get_kv_tags(self, entity):
-        """Get a key-value dict with predefined keys from a netbox entity
+    def parse_ccloud_switch_number_resources(self, device_name: str) -> Dict[str, int]:
+        """Parse switch number resources specific to CCloud naming scheme
 
-        Some objects have tags, which we use as a key-value store in NetBox. Key and value
-        are separated by a "-", but might themselves contain "-", so we remove the complete
-        key + "-" and consider everything left a value.
+        Should return pod, switchgroup, leaf_no, az_no
         """
-        kv_dict = {}
-        for tag in entity.tags:
-            for kv_tag in self.netbox_kv_tags:
-                if tag.slug.startswith(f"{kv_tag}-"):
-                    kv_dict[kv_tag] = tag.slug[len(kv_tag) + 1:]
-        return kv_dict
 
-    def calculate_ccloud_switch_number_resources(self, device, kv_tags, asn_region):
-        """Calculate switch number resources specific to CCloud addressing schemes
+        m = self.switch_name_re.match(device_name)
 
-        Should return loopback0, loopback1, loopback10, asn, role, switchgroup
-        """
-        # option a: parse from hostname
-        # option b: get from kv_tags, if properly tagged
-
-        # re matches qa-de-1-sw1234a-bb123
-        m = re.match(r"^(?P<region>\w{2}-\w{2}-\d)-sw(?P<az>\d)(?P<pod>\d)(?P<switchgroup>\d{2})(?P<leaf>[ab])"
-                     r"(?:-(?P<role>[a-z0-9-]+))$",
-                     device.name)
         if not m:
-            raise ConfigSchemeException(f"Could not match '{device.name}' to CCloud hostname scheme "
+            raise ConfigSchemeException(f"Could not match '{device_name}' to CCloud hostname scheme "
                                         "(e.g. qa-de-1-sw1234a-bb123)")
+        return dict(
+            pod=int(m.group("pod")),
+            switchgroup_no=int(m.group("switchgroup")),
+            # leaf number is calculated by enumerating the leaf chars
+            leaf_no=ord(m.group("leaf")) - ord("a") + 1,
+            az_no=int(m.group('az')),
+            seq_no=int(m.group('seq_no')) if m.group('seq_no') else 0
+        )
 
-        pod = int(m.group("pod"))
-        switchgroup = int(m.group("switchgroup"))
-        # leaf number is calculated by enumerating the leaf chars
-        leaf = ord(m.group("leaf")) - ord("a") + 1
-        az_no = int(m.group('az'))
-        role = m.group('role')
-        switchgroup_name = None
+    def get_switch_role(self, device) -> str:
+        slugs = {x.slug for x in device.tags}
+        pod_roles = {self.pod_roles[x] for x in slugs.intersection(self.pod_roles.keys())}
+        if len(pod_roles) > 1:
+            if pod_roles == {c_const.DEVICE_TYPE_BORDER, c_const.DEVICE_TYPE_TRANSIT}:
+                return c_const.DEVICE_TYPE_BORDER_AND_TRANSIT
+            raise ConfigSchemeException(f'Device {device.name} should only have 1 pod role but has {pod_roles}')
+        if not pod_roles:
+            raise ConfigSchemeException(f'Device {device.name} has no pod roles')
+        return pod_roles.pop()
 
-        # handle role
-        # FIXME: aci transit role missing (tl)
-        if any(role.startswith(prefix) for prefix in ('np', 'ap', 'st', 'bb', 'bm')):
-            switchgroup_name = role
-            role = role[:2]
-            if role == 'bb':
-                role = 'v'
-            role += "pod"
-        elif role == 'bgw':
-            switchgroup_name = f"bgw-{az_no}{pod}{switchgroup:02d}"
-        else:
-            raise ConfigSchemeException(f"Unknown / unhandled role {role} for device {device.name}")
+    def get_switchgroup_name(self, device_name: str, role: str, pod: int, switchgroup_no: int, leaf_no: int,
+                             az_no: int, seq_no: Optional[int], **kwargs):
+        if role in {c_const.SWITCHGROUP_ROLE_NETPOD, c_const.SWITCHGROUP_ROLE_APOD, c_const.SWITCHGROUP_ROLE_STPOD,
+                    c_const.SWITCHGROUP_ROLE_VPOD, c_const.SWITCHGROUP_ROLE_BPOD}:
+            if seq_no == 0:
+                raise ConfigSchemeException(f'{device_name} has no seq_no')
+            return f'{role}{seq_no:03d}'
+        return f"{role}-{az_no}{pod}{switchgroup_no:02d}"
 
-        # use nb primary address for now, later this is probably going to be loopback10
-        if not device.primary_ip:
-            raise ConfigSchemeException(f"Device {device.name} does not have a usable primary address")
-        host_ip = device.primary_ip.address.split("/")[0]
-
-        data = {
-            'loopback0': str(ipaddress.ip_address(f"{az_no}.{pod}.{switchgroup}.{leaf}")),
-            'loopback1': str(ipaddress.ip_address(f"{az_no}.{pod}.{switchgroup}.0")),
-            'asn': f"{asn_region}.{az_no}{pod}{switchgroup:02d}",
-            'role': role,
-            'switchgroup': switchgroup_name,
-            'host': host_ip,
-        }
-        return data
+    def get_l3_data(self, asn_region: int, pod: int, switchgroup_no: int, leaf_no: int,
+                    az_no: int, **kwargs) -> Dict[str, str]:
+        return dict(
+            loopback0=str(ipaddress.ip_address(f"{az_no}.{pod}.{switchgroup_no}.{leaf_no}")),
+            loopback1=str(ipaddress.ip_address(f"{az_no}.{pod}.{switchgroup_no}.0")),
+            asn=f"{asn_region}.{az_no}{pod}{switchgroup_no:02d}"
+        )
 
     def get_asn_region(self, region):
         sites = self.netbox.dcim.sites.filter(region=region)
@@ -141,7 +134,7 @@ class ConfigGenerator:
         switches = []
         clusters = {}
 
-        leafs = self.netbox.dcim.devices.filter(region=region, role=self.leaf_role)
+        leafs = self.netbox.dcim.devices.filter(region=region, role=self.leaf_role, status='active')
         for leaf in leafs:
             switch_name = leaf.name
 
@@ -152,15 +145,28 @@ class ConfigGenerator:
                       "which is not supported by the driver/config generator")
                 continue
 
-            # find our switchgroup
-            kv_tags = self._get_kv_tags(leaf)
-            switch_group = kv_tags.get(self.netbox_switchgroup_tag)
-            if not switch_group:
-                print(f"Warning: Device {switch_name} is not part of any switchgroup, skipping it")
-                continue
+            # use nb primary address for now, later this is probably going to be loopback10
+            if not leaf.primary_ip:
+                raise ConfigSchemeException(f"Device {leaf.name} does not have a usable primary address")
+            host_ip = leaf.primary_ip.address.split("/")[0]
 
-            switch_ports = []
-            host_ports = {}
+            numbered_resources = self.parse_ccloud_switch_number_resources(switch_name)
+            role = self.get_switch_role(leaf)
+
+            switch = {
+                'name': switch_name,
+                'ports': dict(),
+                'hosts': dict(),
+                'platform': platform,
+                'role': role,
+                'az': leaf.site.name,
+                'switchgroup': self.get_switchgroup_name(switch_name, role, **numbered_resources),
+                'host': host_ip
+            }
+            switch.update(**self.get_l3_data(asn_region, **numbered_resources))
+
+            switches.append(switch)
+
             ifaces = self.netbox.dcim.interfaces.filter(device_id=leaf.id, connection_status=True)
             for iface in ifaces:
                 # FIXME: ignore management, peerlink (maybe), unconnected ports
@@ -176,7 +182,7 @@ class ConfigGenerator:
                           f"device {far_device.name} port {iface.connected_endpoint.name} "
                           f"role {far_device.device_role.name}")
 
-                host_ports.setdefault(far_device.name, []).append(iface.name)
+                switch['hosts'].setdefault(far_device.name, []).append(iface.name)
 
                 # cluster mgmt for far hosts
                 if far_device.cluster:
@@ -211,15 +217,6 @@ class ConfigGenerator:
                                                   "resolved before we can generate a proper config")
 
                     clusters[cname]['members'].add(far_device.name)
-            switch = {
-                'name': switch_name,
-                'ports': switch_ports,
-                'hosts': host_ports,
-                'platform': platform,
-                'az': leaf.site.name,
-            }
-            switch.update(self.calculate_ccloud_switch_number_resources(leaf, kv_tags, asn_region))
-            switches.append(switch)
 
         data = {
             'switches': switches,
