@@ -17,7 +17,7 @@ Hostname Convention
 
 Leaf pair hostnames must be compliant with the following regex::
 
-    ^(?P<region>\w{2}-\w{2}-\d)-sw(?P<az>\d)(?P<pod>\d)(?P<switchgroup>\d{2})(?P<leaf>[ab])(?:-(?P<role>[a-z0-9-]+))$
+    ^(?P<region>\w{2}-\w{2}-\d)-sw(?P<az>\d)(?P<pod>\d)(?P<switchgroup>\d{2})(?P<leaf>[ab])(?:-(?P<role>[a-z]+(?P<bb_no>[0-9]+)?))$
 
 Or in a more readable way::
     
@@ -41,7 +41,7 @@ switchgroup:
 leaf:
     a=fist leaf in pair, b=second leaf in pair
 role: 
-    optional, any sequence of numbers and lower case digits, such as bb147
+    any sequence of lower case characters followed by digits as a pod identifier, such as bb147. The pod identifier is optional.
 
 Netbox Query::
 
