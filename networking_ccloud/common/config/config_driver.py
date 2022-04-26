@@ -93,15 +93,18 @@ class Switch(pydantic.BaseModel):
         return f"{self.bgp_source_ip}:{vni}"
 
 
-# FIXME: put into consts
-roles = ["vpod", "stpod", "apod", "bgw"]
-
-
 class RoleEnum(str, Enum):
-    vpod = "vpod"
-    stpod = "stpod"
-    apod = "apod"
-    bgw = "bgw"
+    vpod = cc_const.SWITCHGROUP_ROLE_VPOD
+    stpod = cc_const.SWITCHGROUP_ROLE_STPOD
+    apod = cc_const.SWITCHGROUP_ROLE_APOD
+    bpod = cc_const.SWITCHGROUP_ROLE_BPOD
+    netpod = cc_const.SWITCHGROUP_ROLE_NETPOD
+    bgw = cc_const.DEVICE_TYPE_BGW
+    bltransit = cc_const.DEVICE_TYPE_BORDER_AND_TRANSIT,
+    bl = cc_const.DEVICE_TYPE_BORDER
+
+
+roles = [x.value for x in RoleEnum]
 
 
 class HostgroupRole(str, Enum):
