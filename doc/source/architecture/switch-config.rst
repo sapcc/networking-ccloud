@@ -108,7 +108,7 @@ There are two AZs and both have a legacy and a EVPN deployment.
 
 Dual AZ with Single Legacy AZ
 -----------------------------
-There are two AZs and both have a legacy and a EVPN deployment.
+There are two AZs and only one AZ has a legacy and a EVPN deployment.
 
 .. figure:: figure/legacy_fabric_type_dual_az_evpn.svg
     :width: 300px
@@ -300,7 +300,8 @@ Networks with multiple hints are not supported by the driver and will be rejecte
 
 Multi AZ Network
 -----------------
-Networks with a single AZ are identified by having a availability_zones list of size N.
+Networks with multiple AZs are identified by having a availability_zones list of size N,
+meaning all possible AZs of the region. Networks only spanning some but not all AZs are not supported by the driver.
 Regional networks are expected to not have an AZ hint set.
 
 ::
