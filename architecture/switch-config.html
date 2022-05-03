@@ -229,7 +229,7 @@ The following topology variations need to be supported, for below scenarios it i
 </section>
 <section id="dual-az-with-single-legacy-az">
 <h4>Dual AZ with Single Legacy AZ<a class="headerlink" href="#dual-az-with-single-legacy-az" title="Permalink to this headline">¶</a></h4>
-<p>There are two AZs and both have a legacy and a EVPN deployment.</p>
+<p>There are two AZs and only one AZ has a legacy and a EVPN deployment.</p>
 <figure class="align-center">
 <a class="reference internal image-reference" href="../_images/legacy_fabric_type_dual_az_evpn.svg"><img alt="../_images/legacy_fabric_type_dual_az_evpn.svg" src="../_images/legacy_fabric_type_dual_az_evpn.svg" width="300px" /></a>
 </figure>
@@ -438,19 +438,51 @@ The following topology variations need to be supported, for below scenarios it i
 <p>Networks with a single AZ are identified by having a availability_zones list of size 1.
 Networks with multiple hints are not supported by the driver and will be rejected.</p>
 <div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="p">{</span>
- <span class="s2">&quot;availability_zone_hints&quot;</span><span class="p">:</span> <span class="p">[</span>
-   <span class="s2">&quot;qa-de-1a&quot;</span><span class="p">,</span>
- <span class="p">],</span>
- <span class="s2">&quot;availability_zones&quot;</span><span class="p">:</span> <span class="p">[</span>
-   <span class="s2">&quot;qa-de-1a&quot;</span><span class="p">,</span>
- <span class="p">],</span>
+  <span class="s2">&quot;admin_state_up&quot;</span><span class="p">:</span> <span class="n">true</span><span class="p">,</span>
+  <span class="s2">&quot;availability_zone_hints&quot;</span><span class="p">:</span> <span class="p">[</span>
+    <span class="s2">&quot;qa-de-1a&quot;</span>
+  <span class="p">],</span>
+  <span class="s2">&quot;availability_zones&quot;</span><span class="p">:</span> <span class="p">[</span>
+    <span class="s2">&quot;qa-de-1a&quot;</span>
+  <span class="p">],</span>
+  <span class="s2">&quot;id&quot;</span><span class="p">:</span> <span class="s2">&quot;fce02a86-525c-49c9-a6cd-bf472881a83f&quot;</span><span class="p">,</span>
+  <span class="s2">&quot;ipv4_address_scope&quot;</span><span class="p">:</span> <span class="s2">&quot;24908a2d-55e8-4c03-87a9-e1493cd0d995&quot;</span><span class="p">,</span>
+  <span class="s2">&quot;mtu&quot;</span><span class="p">:</span> <span class="mi">8950</span><span class="p">,</span>
+  <span class="s2">&quot;name&quot;</span><span class="p">:</span> <span class="s2">&quot;FloatingIP-A&quot;</span><span class="p">,</span>
+  <span class="s2">&quot;project_id&quot;</span><span class="p">:</span> <span class="s2">&quot;07ed7aa018584972b40d94697b70a37b&quot;</span><span class="p">,</span>
+  <span class="s2">&quot;router:external&quot;</span><span class="p">:</span> <span class="n">true</span><span class="p">,</span>
+  <span class="s2">&quot;segments&quot;</span><span class="p">:</span> <span class="p">[</span>
+    <span class="p">{</span>
+      <span class="s2">&quot;provider:network_type&quot;</span><span class="p">:</span> <span class="s2">&quot;vxlan&quot;</span><span class="p">,</span>
+      <span class="s2">&quot;provider:physical_network&quot;</span><span class="p">:</span> <span class="n">null</span><span class="p">,</span>
+      <span class="s2">&quot;provider:segmentation_id&quot;</span><span class="p">:</span> <span class="mi">10400</span>
+    <span class="p">},</span>
+    <span class="p">{</span>
+      <span class="s2">&quot;provider:network_type&quot;</span><span class="p">:</span> <span class="s2">&quot;vlan&quot;</span><span class="p">,</span>
+      <span class="s2">&quot;provider:physical_network&quot;</span><span class="p">:</span> <span class="s2">&quot;bb301&quot;</span><span class="p">,</span>
+      <span class="s2">&quot;provider:segmentation_id&quot;</span><span class="p">:</span> <span class="mi">3200</span>
+    <span class="p">}</span>
+  <span class="p">],</span>
+  <span class="s2">&quot;status&quot;</span><span class="p">:</span> <span class="s2">&quot;ACTIVE&quot;</span><span class="p">,</span>
+  <span class="s2">&quot;subnets&quot;</span><span class="p">:</span> <span class="p">[</span>
+    <span class="s2">&quot;f77d7403-c46a-42d0-a20b-d104b8bc203f&quot;</span><span class="p">,</span>
+  <span class="p">],</span>
 <span class="p">}</span>
+    <span class="p">{</span>
+     <span class="s2">&quot;availability_zone_hints&quot;</span><span class="p">:</span> <span class="p">[</span>
+       <span class="s2">&quot;qa-de-1a&quot;</span><span class="p">,</span>
+     <span class="p">],</span>
+     <span class="s2">&quot;availability_zones&quot;</span><span class="p">:</span> <span class="p">[</span>
+       <span class="s2">&quot;qa-de-1a&quot;</span><span class="p">,</span>
+     <span class="p">],</span>
+    <span class="p">}</span>
 </pre></div>
 </div>
 </section>
 <section id="multi-az-network">
 <h4>Multi AZ Network<a class="headerlink" href="#multi-az-network" title="Permalink to this headline">¶</a></h4>
-<p>Networks with a single AZ are identified by having a availability_zones list of size N.
+<p>Networks with multiple AZs are identified by having a availability_zones list of size N,
+meaning all possible AZs of the region. Networks only spanning some but not all AZs are not supported by the driver.
 Regional networks are expected to not have an AZ hint set.</p>
 <div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="p">{</span>
  <span class="s2">&quot;availability_zone_hints&quot;</span><span class="p">:</span> <span class="p">[</span>
@@ -503,6 +535,7 @@ Regional networks are expected to not have an AZ hint set.</p>
 </section>
 <section id="border-gateway">
 <h4>Border Gateway<a class="headerlink" href="#border-gateway" title="Permalink to this headline">¶</a></h4>
+<p>Only applicable for regional networks.</p>
 <p><strong>EOS</strong>:</p>
 <div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">interface</span> <span class="n">Vxlan1</span>
    <span class="n">vxlan</span> <span class="n">vlan</span> <span class="mi">2340</span> <span class="n">vni</span> <span class="mi">10394</span>
@@ -524,6 +557,13 @@ Regional networks are expected to not have an AZ hint set.</p>
 </section>
 <section id="subnet">
 <h2>Subnet<a class="headerlink" href="#subnet" title="Permalink to this headline">¶</a></h2>
+<p>There exists RT convention to describe the span of a subnet (regional vs AZ local) and
+to tag a prefix as a supernet that should be announced towards upstream routers:</p>
+<ul class="simple">
+<li><p><strong>RT REGIONAL_ASN:CCLOUD_ID:</strong> 65130:102 is representing a regional network in QA-DE-1 in vrf CC-CLOUD02</p></li>
+<li><p><strong>RT REGIONAL_ASN:AZ_CCLOUD_ID:</strong> 65130:1102 is representing a AZa network in QA-DE-1 in vrf CC-CLOUD02 (AZa=1XXX,AZb=2XXX, …)</p></li>
+<li><p><strong>RT REGIONAL_ASN:1:</strong> 65130:1 is tagging the prefix as a supernet in QA-DE-1, this is expected to be added to the above if required</p></li>
+</ul>
 <section id="external-network">
 <h3>External Network<a class="headerlink" href="#external-network" title="Permalink to this headline">¶</a></h3>
 <section id="id2">
@@ -542,19 +582,41 @@ Regional networks are expected to not have an AZ hint set.</p>
   <span class="s2">&quot;id&quot;</span><span class="p">:</span> <span class="s2">&quot;f2fd984c-45b1-4465-9f99-e72f86b896fa&quot;</span><span class="p">,</span>
   <span class="s2">&quot;name&quot;</span><span class="p">:</span> <span class="s2">&quot;hcp03-public&quot;</span><span class="p">,</span>
 <span class="p">}</span>
-<span class="c1">######### Example Subnet Pool</span>
+<span class="c1">######### Example Subnet Pool Regional</span>
 <span class="p">{</span>
   <span class="s2">&quot;address_scope_id&quot;</span><span class="p">:</span> <span class="s2">&quot;f2fd984c-45b1-4465-9f99-e72f86b896fa&quot;</span><span class="p">,</span>
   <span class="s2">&quot;id&quot;</span><span class="p">:</span> <span class="s2">&quot;e6df3de0-16dd-46e3-850f-5418fd6dd820&quot;</span><span class="p">,</span>
   <span class="s2">&quot;prefixes&quot;</span><span class="p">:</span> <span class="p">[</span>
     <span class="s2">&quot;10.47.10.0/24&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;10.47.8.0/24&quot;</span>
   <span class="p">],</span>
 <span class="p">}</span>
-<span class="c1">######### Example External Network</span>
+<span class="c1">######### Example Subnet Pool AZa</span>
+<span class="p">{</span>
+  <span class="s2">&quot;address_scope_id&quot;</span><span class="p">:</span> <span class="s2">&quot;f2fd984c-45b1-4465-9f99-e72f86b896fa&quot;</span><span class="p">,</span>
+  <span class="s2">&quot;id&quot;</span><span class="p">:</span> <span class="s2">&quot;fbc4b555-4266-46a0-916b-3863c649223a&quot;</span><span class="p">,</span>
+  <span class="s2">&quot;prefixes&quot;</span><span class="p">:</span> <span class="p">[</span>
+    <span class="s2">&quot;10.47.20.0/24&quot;</span>
+  <span class="p">],</span>
+<span class="p">}</span>
+<span class="c1">######### Example External Networks</span>
 <span class="p">{</span>
   <span class="s2">&quot;id&quot;</span><span class="p">:</span> <span class="s2">&quot;aeec9fd4-30f7-4398-8554-34acb36b7712&quot;</span><span class="p">,</span>
   <span class="s2">&quot;ipv4_address_scope&quot;</span><span class="p">:</span> <span class="s2">&quot;24908a2d-55e8-4c03-87a9-e1493cd0d995&quot;</span><span class="p">,</span>
   <span class="s2">&quot;router:external&quot;</span><span class="p">:</span> <span class="n">true</span><span class="p">,</span>
+  <span class="s2">&quot;availability_zones&quot;</span><span class="p">:</span> <span class="p">[</span>
+    <span class="s2">&quot;qa-de-1a&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;qa-de-1b&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;qa-de-1d&quot;</span>
+  <span class="p">],</span>
+<span class="p">}</span>
+<span class="p">{</span>
+  <span class="s2">&quot;id&quot;</span><span class="p">:</span> <span class="s2">&quot;fce02a86-525c-49c9-a6cd-bf472881a83f&quot;</span><span class="p">,</span>
+  <span class="s2">&quot;ipv4_address_scope&quot;</span><span class="p">:</span> <span class="s2">&quot;24908a2d-55e8-4c03-87a9-e1493cd0d995&quot;</span><span class="p">,</span>
+  <span class="s2">&quot;router:external&quot;</span><span class="p">:</span> <span class="n">true</span><span class="p">,</span>
+  <span class="s2">&quot;availability_zones&quot;</span><span class="p">:</span> <span class="p">[</span>
+    <span class="s2">&quot;qa-de-1a&quot;</span>
+  <span class="p">],</span>
 <span class="p">}</span>
 <span class="c1">######### Subnets</span>
 <span class="p">{</span>
@@ -573,9 +635,19 @@ Regional networks are expected to not have an AZ hint set.</p>
   <span class="s2">&quot;host_routes&quot;</span><span class="p">:</span> <span class="p">[],</span>
   <span class="s2">&quot;id&quot;</span><span class="p">:</span> <span class="s2">&quot;14b7b745-8d5d-4667-a3e3-2be0facbb23d&quot;</span><span class="p">,</span>
   <span class="s2">&quot;ip_version&quot;</span><span class="p">:</span> <span class="mi">4</span><span class="p">,</span>
-  <span class="s2">&quot;name&quot;</span><span class="p">:</span> <span class="s2">&quot;FloatingIP-sap-sfh03-eude1-02&quot;</span><span class="p">,</span>
+  <span class="s2">&quot;name&quot;</span><span class="p">:</span> <span class="s2">&quot;FloatingIP-Regional&quot;</span><span class="p">,</span>
   <span class="s2">&quot;network_id&quot;</span><span class="p">:</span> <span class="s2">&quot;aeec9fd4-30f7-4398-8554-34acb36b7712&quot;</span><span class="p">,</span>
   <span class="s2">&quot;subnetpool_id&quot;</span><span class="p">:</span> <span class="s2">&quot;e8556528-01e6-4ccd-9286-0145ac7a75f4&quot;</span><span class="p">,</span>
+<span class="p">}</span>
+<span class="p">{</span>
+  <span class="s2">&quot;cidr&quot;</span><span class="p">:</span> <span class="s2">&quot;10.47.20.0/25&quot;</span><span class="p">,</span>
+  <span class="s2">&quot;gateway_ip&quot;</span><span class="p">:</span> <span class="s2">&quot;10.47.20.1&quot;</span><span class="p">,</span>
+  <span class="s2">&quot;host_routes&quot;</span><span class="p">:</span> <span class="p">[],</span>
+  <span class="s2">&quot;id&quot;</span><span class="p">:</span> <span class="s2">&quot;f77d7403-c46a-42d0-a20b-d104b8bc203f&quot;</span><span class="p">,</span>
+  <span class="s2">&quot;ip_version&quot;</span><span class="p">:</span> <span class="mi">4</span><span class="p">,</span>
+  <span class="s2">&quot;name&quot;</span><span class="p">:</span> <span class="s2">&quot;FloatingIP-AZa&quot;</span><span class="p">,</span>
+  <span class="s2">&quot;network_id&quot;</span><span class="p">:</span> <span class="s2">&quot;fce02a86-525c-49c9-a6cd-bf472881a83f&quot;</span><span class="p">,</span>
+  <span class="s2">&quot;subnetpool_id&quot;</span><span class="p">:</span> <span class="s2">&quot;fbc4b555-4266-46a0-916b-3863c649223a&quot;</span><span class="p">,</span>
 <span class="p">}</span>
 </pre></div>
 </div>
@@ -583,7 +655,16 @@ Regional networks are expected to not have an AZ hint set.</p>
 <section id="id3">
 <h4>On Device configuration<a class="headerlink" href="#id3" title="Permalink to this headline">¶</a></h4>
 <p><strong>EOS</strong>:</p>
-<div class="highlight-default notranslate"><div class="highlight"><pre><span></span>vrf instance CC-CLOUD02
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span>route-map RM-CC-CLOUD02
+   set extcommunity rt 65130:102
+route-map RM-CC-CLOUD02-AGGREGATE
+   set extcommunity rt 65130:102 rt 65130:1
+route-map RM-CC-CLOUD02-A
+   set extcommunity rt 65130:1102
+route-map RM-CC-CLOUD02-A-AGGREGATE
+   set extcommunity rt 65130:1102 rt 65130:1
+
+vrf instance CC-CLOUD02
 
 ip routing vrf CC-CLOUD02
 
@@ -593,25 +674,55 @@ interface vlan 3150
    ip address virtual 10.47.8.193/27
    ip address virtual 10.47.10.1/24 secondary
 
+interface vlan 3200
+   description fce02a86-525c-49c9-a6cd-bf472881a83f
+   vrf CC-CLOUD02
+   ip address virtual 10.47.20.1/25
+
 interface vxlan1
    vxlan vlan 3150 vni 10394
+   vxlan vlan 3200 vni 10400
    vxlan vrf CC-CLOUD02 vni 102
 !
 router bgp 65130.1103
    vrf CC-CLOUD02
       rd 65130.1103:102
-      route-target import evpn 65130.1103:102
-      route-target export evpn 65130.1103:102
-      network 10.47.8.192/27
-      network 10.47.10.0/24 route-map RM-CC-AGGREGATE
+      route-target import evpn 65130:102
+      route-target import evpn 65130:1102
+      route-target import evpn 65130:2102
+      route-target import evpn 65130:4102
+      route-target export evpn 65130:1102
+      aggregate-address 10.47.8.0/24 route-map RM-CC-CLOUD02-AGGREGATE
+      aggregate-address 10.47.20.0/24 route-map RM-CC-CLOUD02-A-AGGREGATE
+      network 10.47.8.192/27 route-map RM-CC-CLOUD02
+      network 10.47.20.0/25 route-map RM-CC-CLOUD02-A
+      network 10.47.10.0/24 route-map RM-CC-CLOUD02-AGGREGATE
 </pre></div>
 </div>
 <p><strong>NX-OS</strong>:</p>
-<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">interface</span> <span class="n">Vlan</span> <span class="mi">3150</span>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">route</span><span class="o">-</span><span class="nb">map</span> <span class="n">RM</span><span class="o">-</span><span class="n">CC</span><span class="o">-</span><span class="n">CLOUD02</span>
+   <span class="nb">set</span> <span class="n">extcommunity</span> <span class="n">rt</span> <span class="mi">65130</span><span class="p">:</span><span class="mi">102</span>
+<span class="n">route</span><span class="o">-</span><span class="nb">map</span> <span class="n">RM</span><span class="o">-</span><span class="n">CC</span><span class="o">-</span><span class="n">CLOUD02</span><span class="o">-</span><span class="n">AGGREGATE</span>
+   <span class="nb">set</span> <span class="n">extcommunity</span> <span class="n">rt</span> <span class="mi">65130</span><span class="p">:</span><span class="mi">102</span> <span class="n">rt</span> <span class="mi">65130</span><span class="p">:</span><span class="mi">1</span>
+<span class="n">route</span><span class="o">-</span><span class="nb">map</span> <span class="n">RM</span><span class="o">-</span><span class="n">CC</span><span class="o">-</span><span class="n">CLOUD02</span><span class="o">-</span><span class="n">A</span>
+   <span class="nb">set</span> <span class="n">extcommunity</span> <span class="n">rt</span> <span class="mi">65130</span><span class="p">:</span><span class="mi">1102</span>
+<span class="n">route</span><span class="o">-</span><span class="nb">map</span> <span class="n">RM</span><span class="o">-</span><span class="n">CC</span><span class="o">-</span><span class="n">CLOUD02</span><span class="o">-</span><span class="n">A</span><span class="o">-</span><span class="n">AGGREGATE</span>
+   <span class="nb">set</span> <span class="n">extcommunity</span> <span class="n">rt</span> <span class="mi">65130</span><span class="p">:</span><span class="mi">1102</span> <span class="n">rt</span> <span class="mi">65130</span><span class="p">:</span><span class="mi">1</span>
+
+<span class="n">interface</span> <span class="n">Vlan</span> <span class="mi">3150</span>
    <span class="n">description</span> <span class="n">aeec9fd4</span><span class="o">-</span><span class="mi">30</span><span class="n">f7</span><span class="o">-</span><span class="mi">4398</span><span class="o">-</span><span class="mi">8554</span><span class="o">-</span><span class="mi">34</span><span class="n">acb36b7712</span>
    <span class="n">no</span> <span class="n">shutdown</span>
    <span class="n">vrf</span> <span class="n">member</span> <span class="n">CC</span><span class="o">-</span><span class="n">CLOUD02</span>
    <span class="n">ip</span> <span class="n">forward</span>
+   <span class="n">ip</span> <span class="n">address</span> <span class="mf">10.47.8.193</span><span class="o">/</span><span class="mi">27</span>
+   <span class="n">ip</span> <span class="n">address</span> <span class="mf">10.47.10.1</span><span class="o">/</span><span class="mi">24</span> <span class="n">secondary</span>
+
+<span class="n">interface</span> <span class="n">Vlan</span> <span class="mi">3200</span>
+   <span class="n">description</span>  <span class="n">fce02a86</span><span class="o">-</span><span class="mi">525</span><span class="n">c</span><span class="o">-</span><span class="mi">49</span><span class="n">c9</span><span class="o">-</span><span class="n">a6cd</span><span class="o">-</span><span class="n">bf472881a83f</span>
+   <span class="n">no</span> <span class="n">shutdown</span>
+   <span class="n">vrf</span> <span class="n">member</span> <span class="n">CC</span><span class="o">-</span><span class="n">CLOUD02</span>
+   <span class="n">ip</span> <span class="n">forward</span>
+   <span class="n">ip</span> <span class="n">address</span> <span class="mf">10.47.20.1</span><span class="o">/</span><span class="mi">25</span>
 
 <span class="n">interface</span> <span class="n">nve1</span>
    <span class="n">member</span> <span class="n">vni</span> <span class="mi">102</span> <span class="n">associate</span><span class="o">-</span><span class="n">vrf</span>
@@ -620,14 +731,25 @@ router bgp 65130.1103
    <span class="n">vni</span> <span class="mi">102</span>
    <span class="n">rd</span> <span class="mf">65130.1103</span><span class="p">:</span><span class="mi">102</span>
    <span class="n">address</span><span class="o">-</span><span class="n">family</span> <span class="n">ipv4</span> <span class="n">unicast</span>
-      <span class="n">route</span><span class="o">-</span><span class="n">target</span> <span class="n">both</span> <span class="mf">65130.1103</span><span class="p">:</span><span class="mi">102</span>
-      <span class="n">route</span><span class="o">-</span><span class="n">target</span> <span class="n">both</span> <span class="mf">65130.1103</span><span class="p">:</span><span class="mi">102</span> <span class="n">evpn</span>
+      <span class="n">route</span><span class="o">-</span><span class="n">target</span> <span class="n">export</span> <span class="mi">65130</span><span class="p">:</span><span class="mi">1102</span>
+      <span class="n">route</span><span class="o">-</span><span class="n">target</span> <span class="n">export</span> <span class="mi">65130</span><span class="p">:</span><span class="mi">1102</span> <span class="n">evpn</span>
+      <span class="n">route</span><span class="o">-</span><span class="n">target</span> <span class="kn">import</span> <span class="mi">65130</span><span class="p">:</span><span class="mi">102</span>
+      <span class="n">route</span><span class="o">-</span><span class="n">target</span> <span class="kn">import</span> <span class="mi">65130</span><span class="p">:</span><span class="mi">102</span> <span class="n">evpn</span>
+      <span class="n">route</span><span class="o">-</span><span class="n">target</span> <span class="kn">import</span> <span class="mi">65130</span><span class="p">:</span><span class="mi">1102</span>
+      <span class="n">route</span><span class="o">-</span><span class="n">target</span> <span class="kn">import</span> <span class="mi">65130</span><span class="p">:</span><span class="mi">1102</span> <span class="n">evpn</span>
+      <span class="n">route</span><span class="o">-</span><span class="n">target</span> <span class="kn">import</span> <span class="mi">65130</span><span class="p">:</span><span class="mi">2102</span>
+      <span class="n">route</span><span class="o">-</span><span class="n">target</span> <span class="kn">import</span> <span class="mi">65130</span><span class="p">:</span><span class="mi">2102</span> <span class="n">evpn</span>
+      <span class="n">route</span><span class="o">-</span><span class="n">target</span> <span class="kn">import</span> <span class="mi">65130</span><span class="p">:</span><span class="mi">4102</span>
+      <span class="n">route</span><span class="o">-</span><span class="n">target</span> <span class="kn">import</span> <span class="mi">65130</span><span class="p">:</span><span class="mi">4102</span> <span class="n">evpn</span>
 
 <span class="n">router</span> <span class="n">bgp</span> <span class="mf">65130.1103</span>
    <span class="n">vrf</span> <span class="n">CC</span><span class="o">-</span><span class="n">CLOUD02</span>
       <span class="n">address</span><span class="o">-</span><span class="n">family</span> <span class="n">ipv4</span> <span class="n">unicast</span>
-         <span class="n">network</span> <span class="mf">10.47.8.192</span><span class="o">/</span><span class="mi">27</span>
-         <span class="n">network</span> <span class="mf">10.47.10.0</span><span class="o">/</span><span class="mi">24</span> <span class="n">route</span><span class="o">-</span><span class="nb">map</span> <span class="n">RM</span><span class="o">-</span><span class="n">CC</span><span class="o">-</span><span class="n">AGGREGATE</span>
+         <span class="n">aggregate</span><span class="o">-</span><span class="n">address</span> <span class="mf">10.47.8.0</span><span class="o">/</span><span class="mi">24</span> <span class="n">route</span><span class="o">-</span><span class="nb">map</span> <span class="n">RM</span><span class="o">-</span><span class="n">CC</span><span class="o">-</span><span class="n">CLOUD02</span><span class="o">-</span><span class="n">AGGREGATE</span>
+         <span class="n">aggregate</span><span class="o">-</span><span class="n">address</span> <span class="mf">10.47.20.0</span><span class="o">/</span><span class="mi">24</span> <span class="n">route</span><span class="o">-</span><span class="nb">map</span> <span class="n">RM</span><span class="o">-</span><span class="n">CC</span><span class="o">-</span><span class="n">CLOUD02</span><span class="o">-</span><span class="n">A</span><span class="o">-</span><span class="n">AGGREGATE</span>
+         <span class="n">network</span> <span class="mf">10.47.8.192</span><span class="o">/</span><span class="mi">27</span> <span class="n">route</span><span class="o">-</span><span class="nb">map</span> <span class="n">RM</span><span class="o">-</span><span class="n">CC</span><span class="o">-</span><span class="n">CLOUD02</span>
+         <span class="n">network</span> <span class="mf">10.47.20.0</span><span class="o">/</span><span class="mi">25</span> <span class="n">route</span><span class="o">-</span><span class="nb">map</span> <span class="n">RM</span><span class="o">-</span><span class="n">CC</span><span class="o">-</span><span class="n">CLOUD02</span><span class="o">-</span><span class="n">A</span>
+         <span class="n">network</span> <span class="mf">10.47.10.0</span><span class="o">/</span><span class="mi">24</span> <span class="n">route</span><span class="o">-</span><span class="nb">map</span> <span class="n">RM</span><span class="o">-</span><span class="n">CC</span><span class="o">-</span><span class="n">CLOUD02</span><span class="o">-</span><span class="n">AGGREGATE</span>
 </pre></div>
 </div>
 </section>
@@ -716,13 +838,13 @@ out undesired prefixes. It is assumed this list will be used in BGP policy towar
 core routers, policy and bgp configuration for those peerings are not in scope
 of the driver managed configuration. For each vrf the driver will do:</p>
 <ol class="arabic simple">
-<li><p><strong>All</strong>: Collect all address-scopes belonging to the vrf</p></li>
-<li><p><strong>All</strong>: Continue processing individually for each AZ and Regional address-scopes</p></li>
-<li><p><strong>All</strong>: From the subnet pools collect all prefixes</p></li>
-<li><p><strong>All</strong>: Compress the list by merging all adjacent prefixes (supernetting)</p></li>
-<li><p><strong>BGW only</strong>: Set list as ip prefix list on border leaf (perAZ or ALL)</p></li>
-<li><p><strong>POD leaf only</strong>: Remove all list entries where there exists a subnet equal to the entry (summary would conflict subnet)</p></li>
-<li><p><strong>POD leaf only</strong>: Add BGP summary for remainder of list</p></li>
+<li><p>Collect all address-scopes belonging to the vrf</p></li>
+<li><p>Continue processing individually for each AZ and Regional address-scopes</p></li>
+<li><p>From the subnet pools collect all prefixes</p></li>
+<li><p>Compress the list by merging all adjacent prefixes (supernetting)</p></li>
+<li><p>Remove all list entries where there exists a subnet equal to the entry (summary would conflict subnet)</p></li>
+<li><p>Add the appropriate RM-CC-CCLOUDXX-AGGREGATE route-map to local subnets that match a supernet</p></li>
+<li><p>Add BGP aggregate-address entry for remainder of list with the appropriate RM-CC-CCLOUDXX-AGGREGATE route-map</p></li>
 </ol>
 <figure class="align-center">
 <a class="reference internal image-reference" href="../_images/subnet_aggregation_flow.svg"><img alt="../_images/subnet_aggregation_flow.svg" src="../_images/subnet_aggregation_flow.svg" width="300px" /></a>
@@ -819,18 +941,18 @@ of the driver managed configuration. For each vrf the driver will do:</p>
 <p><strong>EOS</strong>:</p>
 <div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">router</span> <span class="n">bgp</span> <span class="mf">65130.1103</span>
    <span class="n">vrf</span> <span class="n">CC</span><span class="o">-</span><span class="n">CLOUD02</span>
-      <span class="n">aggregate</span><span class="o">-</span><span class="n">address</span> <span class="mf">130.214.202.0</span><span class="o">/</span><span class="mi">24</span> <span class="n">route</span><span class="o">-</span><span class="nb">map</span> <span class="n">RM</span><span class="o">-</span><span class="n">CC</span><span class="o">-</span><span class="n">AGGREGATE</span>
-      <span class="n">aggregate</span><span class="o">-</span><span class="n">address</span> <span class="mf">130.214.215.0</span><span class="o">/</span><span class="mi">26</span> <span class="n">route</span><span class="o">-</span><span class="nb">map</span> <span class="n">RM</span><span class="o">-</span><span class="n">CC</span><span class="o">-</span><span class="n">AGGREGATE</span>
-      <span class="n">aggregate</span><span class="o">-</span><span class="n">address</span> <span class="mf">10.236.100.0</span><span class="o">/</span><span class="mi">22</span> <span class="n">route</span><span class="o">-</span><span class="nb">map</span> <span class="n">RM</span><span class="o">-</span><span class="n">CC</span><span class="o">-</span><span class="n">AGGREGATE</span>
+      <span class="n">aggregate</span><span class="o">-</span><span class="n">address</span> <span class="mf">130.214.202.0</span><span class="o">/</span><span class="mi">24</span> <span class="n">route</span><span class="o">-</span><span class="nb">map</span> <span class="n">RM</span><span class="o">-</span><span class="n">CC</span><span class="o">-</span><span class="n">CCLOUD02</span><span class="o">-</span><span class="n">AGGREGATE</span>
+      <span class="n">aggregate</span><span class="o">-</span><span class="n">address</span> <span class="mf">130.214.215.0</span><span class="o">/</span><span class="mi">26</span> <span class="n">route</span><span class="o">-</span><span class="nb">map</span> <span class="n">RM</span><span class="o">-</span><span class="n">CC</span><span class="o">-</span><span class="n">CCLOUD02</span><span class="o">-</span><span class="n">A</span><span class="o">-</span><span class="n">AGGREGATE</span>
+      <span class="n">aggregate</span><span class="o">-</span><span class="n">address</span> <span class="mf">10.236.100.0</span><span class="o">/</span><span class="mi">22</span> <span class="n">route</span><span class="o">-</span><span class="nb">map</span> <span class="n">RM</span><span class="o">-</span><span class="n">CC</span><span class="o">-</span><span class="n">CCLOUD02</span><span class="o">-</span><span class="n">AGGREGATE</span>
 </pre></div>
 </div>
 <p><strong>NX-OS</strong>:</p>
 <div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">router</span> <span class="n">bgp</span> <span class="mf">65130.1103</span>
    <span class="n">vrf</span> <span class="n">CC</span><span class="o">-</span><span class="n">CLOUD02</span>
       <span class="n">address</span><span class="o">-</span><span class="n">family</span> <span class="n">ipv4</span> <span class="n">unicast</span>
-         <span class="n">aggregate</span><span class="o">-</span><span class="n">address</span> <span class="mf">130.214.202.0</span><span class="o">/</span><span class="mi">24</span> <span class="n">route</span><span class="o">-</span><span class="nb">map</span> <span class="n">RM</span><span class="o">-</span><span class="n">CC</span><span class="o">-</span><span class="n">AGGREGATE</span>
-         <span class="n">aggregate</span><span class="o">-</span><span class="n">address</span> <span class="mf">130.214.215.0</span><span class="o">/</span><span class="mi">26</span> <span class="n">route</span><span class="o">-</span><span class="nb">map</span> <span class="n">RM</span><span class="o">-</span><span class="n">CC</span><span class="o">-</span><span class="n">AGGREGATE</span>
-         <span class="n">aggregate</span><span class="o">-</span><span class="n">address</span> <span class="mf">10.236.100.0</span><span class="o">/</span><span class="mi">22</span> <span class="n">route</span><span class="o">-</span><span class="nb">map</span> <span class="n">RM</span><span class="o">-</span><span class="n">CC</span><span class="o">-</span><span class="n">AGGREGATE</span>
+         <span class="n">aggregate</span><span class="o">-</span><span class="n">address</span> <span class="mf">130.214.202.0</span><span class="o">/</span><span class="mi">24</span> <span class="n">route</span><span class="o">-</span><span class="nb">map</span> <span class="n">RM</span><span class="o">-</span><span class="n">CC</span><span class="o">-</span><span class="n">CCLOUD02</span><span class="o">-</span><span class="n">AGGREGATE</span>
+         <span class="n">aggregate</span><span class="o">-</span><span class="n">address</span> <span class="mf">130.214.215.0</span><span class="o">/</span><span class="mi">26</span> <span class="n">route</span><span class="o">-</span><span class="nb">map</span> <span class="n">RM</span><span class="o">-</span><span class="n">CC</span><span class="o">-</span><span class="n">CCLOUD02</span><span class="o">-</span><span class="n">A</span><span class="o">-</span><span class="n">AGGREGATE</span>
+         <span class="n">aggregate</span><span class="o">-</span><span class="n">address</span> <span class="mf">10.236.100.0</span><span class="o">/</span><span class="mi">22</span> <span class="n">route</span><span class="o">-</span><span class="nb">map</span> <span class="n">RM</span><span class="o">-</span><span class="n">CC</span><span class="o">-</span><span class="n">CCLOUD02</span><span class="o">-</span><span class="n">AGGREGATE</span>
 </pre></div>
 </div>
 </section>
@@ -1076,7 +1198,7 @@ interface Port-Channel201
           
           </div>
           <div class="row docs-byline bottom">
-            <div class="docs-updated">this page last updated: 2022-04-20 12:39:57</div>
+            <div class="docs-updated">this page last updated: 2022-05-03 09:54:31</div>
           </div>
           <div class="row">
             <div class="col-lg-8 col-md-8 col-sm-8 docs-license">
