@@ -289,14 +289,45 @@ Networks with multiple hints are not supported by the driver and will be rejecte
 
 ::
 
-    {
+   {
+     "admin_state_up": true,
      "availability_zone_hints": [
-       "qa-de-1a",
+       "qa-de-1a"
      ],
      "availability_zones": [
-       "qa-de-1a",
+       "qa-de-1a"
      ],
-    }
+     "id": "fce02a86-525c-49c9-a6cd-bf472881a83f",
+     "ipv4_address_scope": "24908a2d-55e8-4c03-87a9-e1493cd0d995",
+     "mtu": 8950,
+     "name": "FloatingIP-A",
+     "project_id": "07ed7aa018584972b40d94697b70a37b",
+     "router:external": true,
+     "segments": [
+       {
+         "provider:network_type": "vxlan",
+         "provider:physical_network": null,
+         "provider:segmentation_id": 10400
+       },
+       {
+         "provider:network_type": "vlan",
+         "provider:physical_network": "bb301",
+         "provider:segmentation_id": 3200
+       }
+     ],
+     "status": "ACTIVE",
+     "subnets": [
+       "f77d7403-c46a-42d0-a20b-d104b8bc203f",
+     ],
+   }
+       {
+        "availability_zone_hints": [
+          "qa-de-1a",
+        ],
+        "availability_zones": [
+          "qa-de-1a",
+        ],
+       }
 
 Multi AZ Network
 -----------------
@@ -357,6 +388,7 @@ aPOD/vPOD/stPOD/netPOD/bPOD/Transit leafs
 
 Border Gateway
 --------------
+Only applicable for regional networks.
 
 **EOS**:
 ::
@@ -379,6 +411,13 @@ Border Gateway
 *********
 Subnet
 *********
+There exists RT convention to describe the span of a subnet (regional vs AZ local) and
+to tag a prefix as a supernet that should be announced towards upstream routers:
+
+* **RT REGIONAL_ASN:CCLOUD_ID:** 65130:102 is representing a regional network in QA-DE-1 in vrf CC-CLOUD02 
+* **RT REGIONAL_ASN:AZ_CCLOUD_ID:** 65130:1102 is representing a AZa network in QA-DE-1 in vrf CC-CLOUD02 (AZa=1XXX,AZb=2XXX, ...)
+* **RT REGIONAL_ASN:1:** 65130:1 is tagging the prefix as a supernet in QA-DE-1, this is expected to be added to the above if required 
+
 
 External Network
 ################
@@ -403,19 +442,41 @@ Sample Subnet Definition
      "id": "f2fd984c-45b1-4465-9f99-e72f86b896fa",
      "name": "hcp03-public",
    }
-   ######### Example Subnet Pool
+   ######### Example Subnet Pool Regional
    {
      "address_scope_id": "f2fd984c-45b1-4465-9f99-e72f86b896fa",
      "id": "e6df3de0-16dd-46e3-850f-5418fd6dd820",
      "prefixes": [
        "10.47.10.0/24",
+       "10.47.8.0/24"
      ],
    }
-   ######### Example External Network
+   ######### Example Subnet Pool AZa
+   {
+     "address_scope_id": "f2fd984c-45b1-4465-9f99-e72f86b896fa",
+     "id": "fbc4b555-4266-46a0-916b-3863c649223a",
+     "prefixes": [
+       "10.47.20.0/24"
+     ],
+   }
+   ######### Example External Networks
    {
      "id": "aeec9fd4-30f7-4398-8554-34acb36b7712",
      "ipv4_address_scope": "24908a2d-55e8-4c03-87a9-e1493cd0d995",
      "router:external": true,
+     "availability_zones": [
+       "qa-de-1a",
+       "qa-de-1b",
+       "qa-de-1d"
+     ],
+   }
+   {
+     "id": "fce02a86-525c-49c9-a6cd-bf472881a83f",
+     "ipv4_address_scope": "24908a2d-55e8-4c03-87a9-e1493cd0d995",
+     "router:external": true,
+     "availability_zones": [
+       "qa-de-1a"
+     ],
    }
    ######### Subnets
    {
@@ -434,9 +495,19 @@ Sample Subnet Definition
      "host_routes": [],
      "id": "14b7b745-8d5d-4667-a3e3-2be0facbb23d",
      "ip_version": 4,
-     "name": "FloatingIP-sap-sfh03-eude1-02",
+     "name": "FloatingIP-Regional",
      "network_id": "aeec9fd4-30f7-4398-8554-34acb36b7712",
      "subnetpool_id": "e8556528-01e6-4ccd-9286-0145ac7a75f4",
+   }
+   {
+     "cidr": "10.47.20.0/25",
+     "gateway_ip": "10.47.20.1",
+     "host_routes": [],
+     "id": "f77d7403-c46a-42d0-a20b-d104b8bc203f",
+     "ip_version": 4,
+     "name": "FloatingIP-AZa",
+     "network_id": "fce02a86-525c-49c9-a6cd-bf472881a83f",
+     "subnetpool_id": "fbc4b555-4266-46a0-916b-3863c649223a",
    }
 
 On Device configuration
@@ -444,6 +515,15 @@ On Device configuration
 
 **EOS**:
 ::
+
+   route-map RM-CC-CLOUD02
+      set extcommunity rt 65130:102
+   route-map RM-CC-CLOUD02-AGGREGATE
+      set extcommunity rt 65130:102 rt 65130:1
+   route-map RM-CC-CLOUD02-A
+      set extcommunity rt 65130:1102
+   route-map RM-CC-CLOUD02-A-AGGREGATE
+      set extcommunity rt 65130:1102 rt 65130:1
 
    vrf instance CC-CLOUD02
 
@@ -455,26 +535,56 @@ On Device configuration
       ip address virtual 10.47.8.193/27
       ip address virtual 10.47.10.1/24 secondary
 
+   interface vlan 3200
+      description fce02a86-525c-49c9-a6cd-bf472881a83f
+      vrf CC-CLOUD02
+      ip address virtual 10.47.20.1/25
+
    interface vxlan1
       vxlan vlan 3150 vni 10394
+      vxlan vlan 3200 vni 10400
       vxlan vrf CC-CLOUD02 vni 102
    !
    router bgp 65130.1103
       vrf CC-CLOUD02
          rd 65130.1103:102
-         route-target import evpn 65130.1103:102
-         route-target export evpn 65130.1103:102
-         network 10.47.8.192/27
-         network 10.47.10.0/24 route-map RM-CC-AGGREGATE
+         route-target import evpn 65130:102
+         route-target import evpn 65130:1102
+         route-target import evpn 65130:2102
+         route-target import evpn 65130:4102
+         route-target export evpn 65130:1102
+         aggregate-address 10.47.8.0/24 route-map RM-CC-CLOUD02-AGGREGATE
+         aggregate-address 10.47.20.0/24 route-map RM-CC-CLOUD02-A-AGGREGATE
+         network 10.47.8.192/27 route-map RM-CC-CLOUD02
+         network 10.47.20.0/25 route-map RM-CC-CLOUD02-A
+         network 10.47.10.0/24 route-map RM-CC-CLOUD02-AGGREGATE
 
 **NX-OS**:
 ::
+
+   route-map RM-CC-CLOUD02
+      set extcommunity rt 65130:102
+   route-map RM-CC-CLOUD02-AGGREGATE
+      set extcommunity rt 65130:102 rt 65130:1
+   route-map RM-CC-CLOUD02-A
+      set extcommunity rt 65130:1102
+   route-map RM-CC-CLOUD02-A-AGGREGATE
+      set extcommunity rt 65130:1102 rt 65130:1
 
    interface Vlan 3150
       description aeec9fd4-30f7-4398-8554-34acb36b7712
       no shutdown
       vrf member CC-CLOUD02
       ip forward
+      ip address 10.47.8.193/27
+      ip address 10.47.10.1/24 secondary
+
+   interface Vlan 3200
+      description  fce02a86-525c-49c9-a6cd-bf472881a83f
+      no shutdown
+      vrf member CC-CLOUD02
+      ip forward
+      ip address 10.47.20.1/25
 
    interface nve1
       member vni 102 associate-vrf
@@ -483,14 +593,25 @@ On Device configuration
       vni 102
       rd 65130.1103:102
       address-family ipv4 unicast
-         route-target both 65130.1103:102
-         route-target both 65130.1103:102 evpn
+         route-target export 65130:1102
+         route-target export 65130:1102 evpn
+         route-target import 65130:102
+         route-target import 65130:102 evpn
+         route-target import 65130:1102
+         route-target import 65130:1102 evpn
+         route-target import 65130:2102
+         route-target import 65130:2102 evpn
+         route-target import 65130:4102
+         route-target import 65130:4102 evpn
 
    router bgp 65130.1103
       vrf CC-CLOUD02
          address-family ipv4 unicast
-            network 10.47.8.192/27
-            network 10.47.10.0/24 route-map RM-CC-AGGREGATE
+            aggregate-address 10.47.8.0/24 route-map RM-CC-CLOUD02-AGGREGATE
+            aggregate-address 10.47.20.0/24 route-map RM-CC-CLOUD02-A-AGGREGATE
+            network 10.47.8.192/27 route-map RM-CC-CLOUD02
+            network 10.47.20.0/25 route-map RM-CC-CLOUD02-A
+            network 10.47.10.0/24 route-map RM-CC-CLOUD02-AGGREGATE
 
 DAPnet Directly Accessible Private Network
 ##########################################
@@ -579,13 +700,13 @@ out undesired prefixes. It is assumed this list will be used in BGP policy towar
 core routers, policy and bgp configuration for those peerings are not in scope 
 of the driver managed configuration. For each vrf the driver will do:
 
-1. **All**: Collect all address-scopes belonging to the vrf
-2. **All**: Continue processing individually for each AZ and Regional address-scopes
-3. **All**: From the subnet pools collect all prefixes
-4. **All**: Compress the list by merging all adjacent prefixes (supernetting)
-5. **BGW only**: Set list as ip prefix list on border leaf (perAZ or ALL)
-6. **POD leaf only**: Remove all list entries where there exists a subnet equal to the entry (summary would conflict subnet)
-7. **POD leaf only**: Add BGP summary for remainder of list
+1. Collect all address-scopes belonging to the vrf
+2. Continue processing individually for each AZ and Regional address-scopes
+3. From the subnet pools collect all prefixes
+4. Compress the list by merging all adjacent prefixes (supernetting)
+5. Remove all list entries where there exists a subnet equal to the entry (summary would conflict subnet)
+6. Add the appropriate RM-CC-CCLOUDXX-AGGREGATE route-map to local subnets that match a supernet
+7. Add BGP aggregate-address entry for remainder of list with the appropriate RM-CC-CCLOUDXX-AGGREGATE route-map
 
 .. figure:: figure/subnet_aggregation_flow.svg
     :width: 300px
@@ -690,9 +811,9 @@ aPOD/vPOD/stPOD/netPOD/bPOD/Transit leafs
 
    router bgp 65130.1103
       vrf CC-CLOUD02
-         aggregate-address 130.214.202.0/24 route-map RM-CC-AGGREGATE
-         aggregate-address 130.214.215.0/26 route-map RM-CC-AGGREGATE
-         aggregate-address 10.236.100.0/22 route-map RM-CC-AGGREGATE
+         aggregate-address 130.214.202.0/24 route-map RM-CC-CCLOUD02-AGGREGATE
+         aggregate-address 130.214.215.0/26 route-map RM-CC-CCLOUD02-A-AGGREGATE
+         aggregate-address 10.236.100.0/22 route-map RM-CC-CCLOUD02-AGGREGATE
 
 **NX-OS**:
 ::
@@ -700,9 +821,9 @@ aPOD/vPOD/stPOD/netPOD/bPOD/Transit leafs
    router bgp 65130.1103
       vrf CC-CLOUD02
          address-family ipv4 unicast
-            aggregate-address 130.214.202.0/24 route-map RM-CC-AGGREGATE
-            aggregate-address 130.214.215.0/26 route-map RM-CC-AGGREGATE
-            aggregate-address 10.236.100.0/22 route-map RM-CC-AGGREGATE
+            aggregate-address 130.214.202.0/24 route-map RM-CC-CCLOUD02-AGGREGATE
+            aggregate-address 130.214.215.0/26 route-map RM-CC-CCLOUD02-A-AGGREGATE
+            aggregate-address 10.236.100.0/22 route-map RM-CC-CCLOUD02-AGGREGATE
 
 ***********
 Floating IP
