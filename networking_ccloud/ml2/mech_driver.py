@@ -16,8 +16,6 @@ import time
 from neutron import service
 from neutron_lib.api.definitions import availability_zone as az_api
 from neutron_lib.api.definitions import portbindings as pb_api
-from neutron_lib.callbacks import events
-from neutron_lib.callbacks import registry
 from neutron_lib import constants as nl_const
 from neutron_lib.exceptions import availability_zone as az_exc
 from neutron_lib.plugins import directory
@@ -29,10 +27,10 @@ from networking_ccloud.common.config import get_driver_config, validate_ml2_vlan
 from networking_ccloud.common import constants as cc_const
 from networking_ccloud.common import exceptions as cc_exc
 from networking_ccloud.common import helper
-from networking_ccloud.db.db_plugin import CCDbPlugin
 from networking_ccloud.extensions import fabricoperations
 from networking_ccloud.ml2.agent.common import messages as agent_msg
 from networking_ccloud.ml2.driver_rpc_api import CCFabricDriverAPI
+from networking_ccloud.ml2.plugin import FabricPlugin
 
 
 LOG = logging.getLogger(__name__)
@@ -79,7 +77,7 @@ class CCFabricMechanismDriver(ml2_api.MechanismDriver, CCFabricDriverAPI):
         self._deleted_networks = {}
         validate_ml2_vlan_ranges(self.drv_conf)
 
-        self.db = CCDbPlugin()
+        self.fabric_plugin = FabricPlugin()
 
         # agent
         self._agents = {}
@@ -269,75 +267,10 @@ class CCFabricMechanismDriver(ml2_api.MechanismDriver, CCFabricDriverAPI):
         drastically affect performance. Raising an exception will
         cause the deletion of the resource.
         """
-        # find top level segment
-        network_id = context.current['id']
-        for segment_0 in context.network_segments:
-            if segment_0[ml2_api.NETWORK_TYPE] == nl_const.TYPE_VXLAN and segment_0[ml2_api.PHYSICAL_NETWORK] is None:
-                break
-        else:
-            LOG.error("Network %s has no top level segment (vxlan / physnet None), aborting transit/BGW scheduling. "
-                      "Segment options were: %s",
-                      network_id, context.network_segments)
-            return
-
-        # allocate network interconnects (BGWs / Transits)
-        az_hints = context.current.get(az_api.AZ_HINTS, [])
-        created_transits = []
-        scul = agent_msg.SwitchConfigUpdateList(agent_msg.OperationEnum.add, self.drv_conf)
-
-        net_azs = az_hints or self.drv_conf.list_availability_zones()
-        for az in net_azs:
-            for device_type in (cc_const.DEVICE_TYPE_BGW, cc_const.DEVICE_TYPE_TRANSIT):
-                if device_type == cc_const.DEVICE_TYPE_BGW and az_hints:
-                    # we don't allocate BGWs for AZ-local networks
-                    continue
-
-                device_created, device = self.db.ensure_interconnect_for_network(context._plugin_context, device_type,
-                                                                                 network_id, az,
-                                                                                 only_own_az=bool(az_hints))
-                if not device_created:
-                    # no config needed, already allocated
-                    continue
-
-                # new device allocated, create a segment and add the host to scul
-                device_hg = self.drv_conf.get_hostgroup_by_host(device.host)
-                if not device_hg:
-                    LOG.error("Could not bind device type %s host %s in network %s: Host not found in config",
-                              device_type, device.name, network_id)
-                    continue
-
-                segment_spec = {
-                    ml2_api.NETWORK_TYPE: nl_const.TYPE_VLAN,
-                    ml2_api.PHYSICAL_NETWORK: device_hg.get_vlan_pool_name(self.drv_conf),
-                }
-                device_segment = self._plugin.type_manager.allocate_dynamic_segment(context._plugin_context, network_id,
-                                                                                    segment_spec)
-                scul.add_binding_host_to_config(device_hg, network_id,
-                                                segment_0[ml2_api.SEGMENTATION_ID],
-                                                device_segment[ml2_api.SEGMENTATION_ID],
-                                                is_bgw=device_type == cc_const.DEVICE_TYPE_BGW)
-                if device_type == cc_const.DEVICE_TYPE_TRANSIT:
-                    # add to notify list later on
-                    created_transits.append((az, device.host, device_segment['id']))
-
-                LOG.info("Allocated device %s to %s for network %s in az %s on vlan %s",
-                         device_type, device.host, network_id, az, device_segment[ml2_api.SEGMENTATION_ID])
-
-        if not scul.execute(context):
-            LOG.warning("Scheduling network interconnects for network %s yielded no config updates", network_id)
-
-        for az, host, segment_id in created_transits:
-            # notify others
-            LOG.debug("Sending out notify for transit creation on %s for host %s az %s segment %s",
-                      network_id, az, host, segment_id)
-            payload_metadata = {
-                'network_id': network_id,
-                'availability_zone': az,
-                'host': host,
-                'segment_id': segment_id,
-            }
-            payload = events.DBEventPayload(context._plugin_context, metadata=payload_metadata)
-            registry.publish(cc_const.CC_TRANSIT, events.AFTER_CREATE, self, payload=payload)
+        created, errors = self.fabric_plugin.allocate_and_configure_interconnects(context._plugin_context,
+                                                                                  context.current)
+        if not created or errors:
+            LOG.warning("Could not properly schedule interconnects for network %s on create", context.current['id'])
 
     def delete_network_precommit(self, context):
         """Delete resources for a network.
@@ -363,9 +296,9 @@ class CCFabricMechanismDriver(ml2_api.MechanismDriver, CCFabricDriverAPI):
 
         # collect data for other process
         devices = []
-        for device in self.db.get_interconnects_for_network(context._plugin_context, network_id):
-            seg = self.db.get_segment_by_host(context._plugin_context,
-                                              network_id=network_id, physical_network=device.host)
+        for device in self.fabric_plugin.get_interconnects(context._plugin_context, network_id):
+            seg = self.fabric_plugin.get_segment_by_host(context._plugin_context,
+                                                         network_id=network_id, physical_network=device.host)
             if not seg:
                 LOG.warning("Cannot deconfigure %s %s for network %s - no segment found in database",
                             device.device_type, device.host, network_id)
@@ -512,7 +445,7 @@ class CCFabricMechanismDriver(ml2_api.MechanismDriver, CCFabricDriverAPI):
         #    as this method is only called postcommit we can trust the contents of the DB
         # 1.1 get info from db
 
-        hosts_on_network = set(self.db.get_hosts_on_network(context, network_id))
+        hosts_on_network = set(self.fabric_plugin.get_hosts_on_network(context, network_id))
         if binding_host in hosts_on_network:
             LOG.debug("Binding host %s still present on network %s, no need to remove anything for port %s",
                       binding_host, network_id, port['id'])
@@ -567,7 +500,7 @@ class CCFabricMechanismDriver(ml2_api.MechanismDriver, CCFabricDriverAPI):
         if add and not force_update:
             # check if we need to send an update to the switch
             # the port is not fully bound yet (no bindings db commit), so we'll see what was bound before
-            if binding_host in self.db.get_hosts_on_network(context, network_id):
+            if binding_host in self.fabric_plugin.get_hosts_on_network(context, network_id):
                 LOG.debug("Not sending out update for binding host %s - it is already bound and force_update=False",
                           binding_host)
                 return

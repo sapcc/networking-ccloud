@@ -504,7 +504,7 @@ class TestCCFabricMechanismDriverInterconnects(CCFabricMechanismDriverTestBase):
             mock_acu.assert_called()
 
             # check DB
-            interconnects = self.mech_driver.db.get_interconnects_for_network(self.context, net['id'])
+            interconnects = self.mech_driver.fabric_plugin.get_interconnects(self.context, net['id'])
             self.assertEqual(self._ic_devices, sorted([d.host for d in interconnects]))
 
             # check config
@@ -558,11 +558,11 @@ class TestCCFabricMechanismDriverInterconnects(CCFabricMechanismDriverTestBase):
             mock_acu.assert_called()
 
             # no BGWs
-            bgws = self.mech_driver.db.get_bgws_for_network(self.context, net['id'])
+            bgws = self.mech_driver.fabric_plugin.get_bgws_for_network(self.context, net['id'])
             self.assertEqual([], bgws)
 
             # only one transit, in AZ
-            transits = self.mech_driver.db.get_transits_for_network(self.context, net['id'])
+            transits = self.mech_driver.fabric_plugin.get_transits_for_network(self.context, net['id'])
             self.assertEqual(1, len(transits))
             self.assertEqual("qa-de-1a", transits[0].availability_zone)
 
@@ -578,11 +578,11 @@ class TestCCFabricMechanismDriverInterconnects(CCFabricMechanismDriverTestBase):
             mock_acu.assert_not_called()
 
             # no BGWs
-            bgws = self.mech_driver.db.get_bgws_for_network(self.context, net['id'])
+            bgws = self.mech_driver.fabric_plugin.get_bgws_for_network(self.context, net['id'])
             self.assertEqual([], bgws)
 
             # only one transit, in AZ
-            transits = self.mech_driver.db.get_transits_for_network(self.context, net['id'])
+            transits = self.mech_driver.fabric_plugin.get_transits_for_network(self.context, net['id'])
             self.assertEqual([], transits)
 
     def test_cannot_bind_port_with_special_device_binding_host(self):
@@ -609,7 +609,7 @@ class TestCCFabricMechanismDriverInterconnects(CCFabricMechanismDriverTestBase):
                 hosts = set()
                 for call in fake_method.call_args_list:
                     args, kwargs = call
-                    self.assertEqual((cc_const.CC_TRANSIT, events.AFTER_CREATE, self.mech_driver), args)
+                    self.assertEqual((cc_const.CC_TRANSIT, events.AFTER_CREATE, self.mech_driver.fabric_plugin), args)
                     payload = kwargs['payload']
                     self.assertEqual(net['id'], payload.metadata['network_id'])
                     hosts.add(payload.metadata['host'])

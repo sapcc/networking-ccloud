@@ -159,20 +159,24 @@ class CCDbPlugin(db_base_plugin_v2.NeutronDbPluginV2,
         return azs
 
     @db_api.retry_if_session_inactive()
-    def get_interconnects_for_network(self, context, network_id, device_type=None):
+    def get_interconnects(self, context, network_id=None, device_type=None, host=None):
         query = context.session.query(cc_models.CCNetworkInterconnects)
-        filter_args = dict(network_id=network_id)
+        filter_args = {}
+        if network_id:
+            filter_args['network_id'] = network_id
         if device_type:
             filter_args['device_type'] = device_type
+        if host:
+            filter_args['host'] = host
         query = query.filter_by(**filter_args)
 
         return list(query.all())
 
     def get_transits_for_network(self, context, network_id):
-        return self.get_interconnects_for_network(context, network_id, cc_const.DEVICE_TYPE_TRANSIT)
+        return self.get_interconnects(context, network_id, cc_const.DEVICE_TYPE_TRANSIT)
 
     def get_bgws_for_network(self, context, network_id):
-        return self.get_interconnects_for_network(context, network_id, cc_const.DEVICE_TYPE_BGW)
+        return self.get_interconnects(context, network_id, cc_const.DEVICE_TYPE_BGW)
 
     @db_api.retry_if_session_inactive()
     def ensure_interconnect_for_network(self, context, device_type, network_id, az, only_own_az=False):
