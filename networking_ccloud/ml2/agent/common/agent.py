@@ -14,11 +14,17 @@
 
 import sys
 
+from neutron.agent import rpc as agent_rpc
 from neutron.common import config as common_config
+from neutron.conf.agent.common import register_agent_state_opts_helper
 from neutron import manager
 from neutron import service as neutron_service
+from neutron_lib.agent import constants as agent_consts
+from neutron_lib.agent import topics
+from neutron_lib import context
 from oslo_config import cfg
 from oslo_log import log as logging
+from oslo_service import loopingcall
 from oslo_service import service
 
 from networking_ccloud.common.config import get_driver_config
@@ -56,6 +62,24 @@ class CCFabricSwitchAgent(manager.Manager, cc_agent_api.CCFabricSwitchAgentAPI):
         self._switches = []
         self.drv_conf = get_driver_config()
 
+        # agent state
+        self.agent_state = {
+            'binary': self.get_binary_name(),
+            'host': cfg.CONF.host,
+            'agent_type': cc_const.AGENT_TYPE_CC_FABRIC,
+            'topic': self.get_agent_topic(),
+            'configuration': {},
+            # 'availability_zone': 'yes',
+            'start_flag': True,
+        }
+        self.state_rpc = agent_rpc.PluginReportStateAPI(topics.REPORTS)
+        self.failed_report_state = False
+        report_interval = self.conf.AGENT.report_interval
+        if report_interval:
+            self.heartbeat = loopingcall.FixedIntervalLoopingCall(
+                self._report_state)
+            self.heartbeat.start(interval=report_interval)
+
     def _init_switches(self):
         """Init all switches the agent manages"""
         for switch_conf in self.drv_conf.get_switches():
@@ -88,18 +112,35 @@ class CCFabricSwitchAgent(manager.Manager, cc_agent_api.CCFabricSwitchAgentAPI):
 
     @classmethod
     def run_agent_main(cls):
+        register_agent_state_opts_helper(cfg.CONF)
         common_config.init(sys.argv[1:])
         common_config.setup_logging()
 
         server = neutron_service.Service.create(
             binary=cls.get_binary_name(),
-            agent_type=cc_const.AGENT_TYPE_CC_FABRIC,
             topic=cls.get_agent_topic(),
             report_interval=0,
             periodic_interval=10,
             periodic_fuzzy_delay=10,
             manager=f'{cls.__module__}.{cls.__name__}')
         service.launch(cfg.CONF, server).wait()
+
+    def _report_state(self):
+        try:
+            ctx = context.get_admin_context_without_session()
+            agent_status = self.state_rpc.report_state(
+                ctx, self.agent_state, True)
+            if agent_status == agent_consts.AGENT_REVIVED:
+                LOG.info("Agent has just been revived")
+        except Exception:
+            self.failed_report_state = True
+            LOG.exception("Failed reporting state!")
+            return
+        if self.failed_report_state:
+            self.failed_report_state = False
+            LOG.info("Successfully reported state after a previous failure.")
+        if self.agent_state.pop('start_flag', None):
+            self.run()
 
     def get_switch_status(self, context, switches=None):
         """Get status for specified or all switches this agent manages
