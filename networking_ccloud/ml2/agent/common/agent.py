@@ -150,13 +150,12 @@ class CCFabricSwitchAgent(manager.Manager, cc_agent_api.CCFabricSwitchAgentAPI):
 
          :param list switches: List of switch names or primary addresses to filter for
          """
-        LOG.info("Welcome to the RPC call!")
-        result = []
+        result = {'switches': {}}
         for switch in self._switches:
+            if switches and switch not in switches:
+                continue
             # FIXME: handle offline switches (will probably require changing the response format)
-            # FIXME: filter, if switches is set
-            LOG.info("Testing switch %s", switch)
-            result.append(switch.get_switch_status())
+            result['switches'][switch.name] = switch.get_switch_status()
         return result
 
     def apply_config_update(self, context, config):

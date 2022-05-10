@@ -15,10 +15,12 @@
 from enum import Enum
 from typing import List
 
+from neutron_lib.plugins.ml2 import api as ml2_api
 from oslo_log import log as logging
 import pydantic
 
 from networking_ccloud.common.config.config_driver import validate_asn
+from networking_ccloud.common import constants as cc_const
 from networking_ccloud.ml2.agent.common.api import CCFabricSwitchAgentRPCClient
 
 LOG = logging.getLogger(__name__)
@@ -194,14 +196,14 @@ class SwitchConfigUpdateList:
             scu = self.get_or_create_switch(switch.name)
 
             # add bgp stuff
-            if add or not keep_mapping:
+            if seg_vni and (add or not keep_mapping):
                 if not scu.bgp:
                     sg = self.drv_conf.get_switchgroup_by_switch_name(switch.name)
                     scu.bgp = BGP(asn=sg.asn, asn_region=self.drv_conf.global_config.asn_region)
                 scu.bgp.add_vlan(switch.get_rt(seg_vni), seg_vlan, seg_vni, bgw_mode=is_bgw)
 
             # vlan-vxlan mapping
-            if add or not keep_mapping:
+            if seg_vni and (add or not keep_mapping):
                 scu.add_vlan(seg_vlan, network_id)
                 scu.add_vxlan_map(seg_vni, seg_vlan)
 
@@ -216,6 +218,55 @@ class SwitchConfigUpdateList:
                             iface.add_vlan_translation(seg_vlan, trunk_vlan)
                         else:
                             iface.native_vlan = seg_vlan
+
+    def add_segments(self, net_segments, top_segments):
+        for network_id, segments in net_segments.items():
+            if network_id not in top_segments:
+                # FIXME: maybe don't use a value error
+                raise ValueError(f"Network id {network_id} is missing its top level vxlan segment")
+
+            segment_0 = top_segments[network_id]
+            vni = segment_0['segmentation_id']
+
+            for binding_host, segment_1 in segments.items():
+                vlan = segment_1['segmentation_id']
+                hg_config = self.drv_conf.get_hostgroup_by_host(binding_host)
+                if not hg_config:
+                    LOG.error("Got a port binding for binding host %s in network %s, which was not found in config",
+                              binding_host, network_id)
+                    continue
+                # FIXME: handle trunk_vlans
+                # FIXME: exclude_hosts
+                # FIXME: direct binding hosts? are they included?
+                self.add_binding_host_to_config(hg_config, network_id, vni, vlan)
+
+    def add_interconnects(self, context, fabric_plugin, interconnects):
+        network_ids = set(ic.network_id for ic in interconnects)
+        top_segments = fabric_plugin.get_top_level_vxlan_segments(context, network_ids=network_ids)
+        for device in interconnects:
+            if device.network_id not in top_segments:
+                # this is an error and not an exception, because the method is used by the switch sync
+                # and I didn't want that a broken network could prevent the sync of a while switch
+                LOG.error("Could not create config for interconnect of network %s: Missing top segment",
+                          device.network_id)
+                continue
+            vni = top_segments[device.network_id]['segmentation_id']
+
+            device_hg = self.drv_conf.get_hostgroup_by_host(device.host)
+            if not device_hg:
+                LOG.error("Could not bind device type %s host %s in network %s: Host not found in config",
+                          device.device_type, device.host, device.network_id)
+                continue
+
+            device_physnet = device_hg.get_vlan_pool_name(self.drv_conf)
+            device_segment = fabric_plugin.get_segment_by_host(context, device.network_id, device_physnet)
+            if not device_segment:
+                LOG.error("Missing network segment for interconnect %s physnet %s in network %s",
+                          device.host, device_physnet, device.network_id)
+                continue
+
+            self.add_binding_host_to_config(device_hg, device.network_id, vni, device_segment[ml2_api.SEGMENTATION_ID],
+                                            is_bgw=device.device_type == cc_const.DEVICE_TYPE_BGW)
 
     def execute(self, context):
         platform_updates = {}

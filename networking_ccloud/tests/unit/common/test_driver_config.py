@@ -12,6 +12,7 @@
 # License for the specific language governing permissions and limitations
 # under the License.
 
+from networking_ccloud.common.config import _override_driver_config
 from networking_ccloud.common.config import config_driver as config
 from networking_ccloud.common import constants as cc_const
 from networking_ccloud.tests import base
@@ -106,6 +107,39 @@ class TestDriverConfigValidation(base.TestCase):
         self.assertRaisesRegex(ValueError, ".*Hostgroup ..seagull-compute.. needs to have names for each switchport.*",
                                config.Hostgroup, binding_hosts=["seagull-compute"],
                                members=[config.SwitchPort(switch="seagull-sw1")])
+
+
+class TestDriverConfig(base.TestCase):
+    def setUp(self):
+        super().setUp()
+
+        switchgroups = [
+            cfix.make_switchgroup("seagull", availability_zone="qa-de-1a"),
+            cfix.make_switchgroup("transit1", availability_zone="qa-de-1a"),
+            cfix.make_switchgroup("bgw1", availability_zone="qa-de-1a"),
+
+            cfix.make_switchgroup("crow", availability_zone="qa-de-1b"),
+            cfix.make_switchgroup("transit2", availability_zone="qa-de-1b"),
+            cfix.make_switchgroup("bgw2", availability_zone="qa-de-1b"),
+        ]
+        hg_seagull = cfix.make_metagroup("seagull")
+        hg_crow = cfix.make_hostgroups("crow")
+        interconnects = [
+            cfix.make_interconnect(cc_const.DEVICE_TYPE_TRANSIT, "transit1", "transit1", ["qa-de-1a"]),
+            cfix.make_interconnect(cc_const.DEVICE_TYPE_TRANSIT, "transit2", "transit2", ["qa-de-1b"]),
+            cfix.make_interconnect(cc_const.DEVICE_TYPE_BGW, "bgw1", "bgw1", ["qa-de-1a"]),
+            cfix.make_interconnect(cc_const.DEVICE_TYPE_BGW, "bgw2", "bgw2", ["qa-de-1b"]),
+        ]
+        hostgroups = hg_seagull + hg_crow + interconnects
+
+        self.drv_conf = cfix.make_config(switchgroups=switchgroups, hostgroups=hostgroups)
+        _override_driver_config(self.drv_conf)
+
+    def test_get_hostgroups_by_switch(self):
+        switch = self.drv_conf.get_switch_by_name("seagull-sw1")
+        hgs = self.drv_conf.get_hostgroups_by_switch(switch.name)
+        expected_groups = set(["nova-compute-seagull"] + [f"node{i:03d}-seagull" for i in range(1, 11)])
+        self.assertEqual(expected_groups, set(hg.binding_host_name for hg in hgs))
 
 
 class TestDriverUtilityFunctions(base.TestCase):

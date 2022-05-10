@@ -13,6 +13,7 @@
 #    under the License.
 
 from networking_ccloud.common.config import config_driver
+from networking_ccloud.common import constants as cc_const
 
 
 DEFAULT_AZ = "qa-test-1a"
@@ -22,6 +23,7 @@ def make_switch(name, platform="test", **kwargs):
     if platform == "test":
         # enable test platform
         config_driver.Switch._allow_test_platform = True
+        cc_const.SWITCH_AGENT_TOPIC_MAP['test'] = 'cc-fabric-switch-agent-test'
 
     switch_vars = dict(
         name=name, platform=platform,
@@ -77,7 +79,7 @@ def make_lacp(pc_id, switchgroup, **kwargs):
 
 
 # hostgroups
-def make_hostgroups(switchgroup, nodes=10, ports_per_switch=2, offset=0):
+def make_hostgroups(switchgroup, nodes=10, ports_per_switch=2, offset=0, **kwargs):
     groups = []
     for n in range(1, nodes + 1):
         ports = make_lacp(100 + n, switchgroup, ports_per_switch=ports_per_switch, offset=(n - 1) * ports_per_switch)
@@ -87,10 +89,11 @@ def make_hostgroups(switchgroup, nodes=10, ports_per_switch=2, offset=0):
     return groups
 
 
-def make_metagroup(switchgroup, **kwargs):
-    groups = make_hostgroups(switchgroup, **kwargs)
+def make_metagroup(switchgroup, hg_kwargs={}, meta_kwargs={}):
+    groups = make_hostgroups(switchgroup, **hg_kwargs)
     members = [host for group in groups for host in group.binding_hosts]
-    hg = config_driver.Hostgroup(binding_hosts=[f"nova-compute-{switchgroup}"], members=members, metagroup=True)
+    hg = config_driver.Hostgroup(binding_hosts=[f"nova-compute-{switchgroup}"], members=members, metagroup=True,
+                                 **meta_kwargs)
     groups.append(hg)
 
     return groups

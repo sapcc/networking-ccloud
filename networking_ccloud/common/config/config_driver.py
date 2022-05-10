@@ -194,7 +194,7 @@ class InfraNetwork(pydantic.BaseModel):
     @pydantic.root_validator
     def ensure_correct_value_combination(cls, values):
         # FIXME: we probably need a different logic here
-        if bool(values['vni']) ^ bool(values['network']):
+        if bool(values.get('vni')) ^ bool(values.get('networks')):
             raise ValueError("If network is set vni needs to be set and vice versa")
         return values
 
@@ -351,6 +351,18 @@ class Hostgroup(pydantic.BaseModel):
 
         return groupby(sorted(ifaces, key=attrgetter('switch')), key=attrgetter('switch'))
 
+    def has_switch_as_member(self, drv_conf, switch_name):
+        if self.metagroup:
+            for member in self.members:
+                far_hg = drv_conf.get_hostgroup_by_host(member)
+                if far_hg.has_switch_as_member(drv_conf, switch_name):
+                    return True
+        else:
+            for member in self.members:
+                if member.switch == switch_name:
+                    return True
+        return False
+
 
 class GlobalConfig(pydantic.BaseModel):
     asn_region: str
@@ -497,6 +509,10 @@ class DriverConfig(pydantic.BaseModel):
             if any(host in hg.binding_hosts for host in hosts):
                 hgs.append(hg)
         return hgs
+
+    def get_hostgroups_by_switch(self, switch_name):
+        """Get all hostgroups that reference this switch"""
+        return [hg for hg in self.hostgroups if hg.has_switch_as_member(self, switch_name)]
 
     def get_switchgroup_by_switch_name(self, name):
         for sg in self.switchgroups:
