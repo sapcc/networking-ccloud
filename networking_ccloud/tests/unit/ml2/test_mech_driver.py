@@ -474,13 +474,14 @@ class TestCCFabricMechanismDriverInterconnects(CCFabricMechanismDriverTestBase):
         hg_crow = cfix.make_metagroup("crow")
         hg_cat = cfix.make_metagroup("cat")
         interconnects = [
-            cfix.make_interconnect(cc_const.DEVICE_TYPE_TRANSIT, "transit1", "transit1", ["qa-de-1a"]),
-            cfix.make_interconnect(cc_const.DEVICE_TYPE_BGW, "bgw1", "bgw1", ["qa-de-1a"]),
-            cfix.make_interconnect(cc_const.DEVICE_TYPE_TRANSIT, "transit2", "transit2", ["qa-de-1b", "qa-de-1c"]),
-            cfix.make_interconnect(cc_const.DEVICE_TYPE_BGW, "bgw2", "bgw2", ["qa-de-1b"]),
-            cfix.make_interconnect(cc_const.DEVICE_TYPE_BGW, "bgw3", "bgw3", ["qa-de-1c"]),
+            cfix.make_interconnect(cc_const.DEVICE_TYPE_TRANSIT, "transit-host1", "transit1", ["qa-de-1a"]),
+            cfix.make_interconnect(cc_const.DEVICE_TYPE_BGW, "bgw-host1", "bgw1", ["qa-de-1a"]),
+            cfix.make_interconnect(cc_const.DEVICE_TYPE_TRANSIT, "transit-host2", "transit2", ["qa-de-1b", "qa-de-1c"]),
+            cfix.make_interconnect(cc_const.DEVICE_TYPE_BGW, "bgw-host2", "bgw2", ["qa-de-1b"]),
+            cfix.make_interconnect(cc_const.DEVICE_TYPE_BGW, "bgw-host3", "bgw3", ["qa-de-1c"]),
         ]
         self._ic_devices = ["bgw1", "bgw2", "bgw3", "transit1", "transit2", "transit2"]
+        self._ic_hosts = ["bgw-host1", "bgw-host2", "bgw-host3", "transit-host1", "transit-host2", "transit-host2"]
 
         hostgroups = hg_seagull + hg_crow + hg_cat + interconnects
 
@@ -505,7 +506,7 @@ class TestCCFabricMechanismDriverInterconnects(CCFabricMechanismDriverTestBase):
 
             # check DB
             interconnects = self.mech_driver.fabric_plugin.get_interconnects(self.context, net['id'])
-            self.assertEqual(self._ic_devices, sorted([d.host for d in interconnects]))
+            self.assertEqual(self._ic_hosts, sorted(d.host for d in interconnects))
 
             # check config
             swcfg = mock_acu.call_args[0][1]
@@ -587,7 +588,7 @@ class TestCCFabricMechanismDriverInterconnects(CCFabricMechanismDriverTestBase):
 
     def test_cannot_bind_port_with_special_device_binding_host(self):
         with mock.patch.object(self.mech_driver, 'handle_binding_host_changed') as mock_bhc:
-            for host in 'transit1', 'bgw1':
+            for host in 'transit-host1', 'bgw-host1':
                 self.assertRaises(cc_exc.SpecialDevicesBindingProhibited, self._test_bind_port, fake_host=host)
                 mock_bhc.assert_not_called()
 
@@ -607,12 +608,15 @@ class TestCCFabricMechanismDriverInterconnects(CCFabricMechanismDriverTestBase):
 
                 self.assertEqual(2, fake_method.call_count)
                 hosts = set()
+                physnets = set()
                 for call in fake_method.call_args_list:
                     args, kwargs = call
                     self.assertEqual((cc_const.CC_TRANSIT, events.AFTER_CREATE, self.mech_driver.fabric_plugin), args)
                     payload = kwargs['payload']
                     self.assertEqual(net['id'], payload.metadata['network_id'])
                     hosts.add(payload.metadata['host'])
-                self.assertEqual({"transit1", "transit2"}, hosts)
+                    physnets.add(payload.metadata['physical_network'])
+                self.assertEqual({"transit-host1", "transit-host2"}, hosts)
+                self.assertEqual({"transit1", "transit2"}, physnets)
             finally:
                 registry.unsubscribe(fake_method, cc_const.CC_TRANSIT, events.AFTER_CREATE)

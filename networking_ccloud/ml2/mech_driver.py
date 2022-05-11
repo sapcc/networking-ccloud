@@ -297,8 +297,15 @@ class CCFabricMechanismDriver(ml2_api.MechanismDriver, CCFabricDriverAPI):
         # collect data for other process
         devices = []
         for device in self.fabric_plugin.get_interconnects(context._plugin_context, network_id):
+            device_hg = self.drv_conf.get_hostgroup_by_host(device.host)
+            if not device_hg:
+                LOG.error("Could not delete device %s host %s in network %s: Host not found in config",
+                          device.device_type, device.host, device.network_id)
+                continue
+
+            device_physnet = device_hg.get_vlan_pool_name(self.drv_conf)
             seg = self.fabric_plugin.get_segment_by_host(context._plugin_context,
-                                                         network_id=network_id, physical_network=device.host)
+                                                         network_id=network_id, physical_network=device_physnet)
             if not seg:
                 LOG.warning("Cannot deconfigure %s %s for network %s - no segment found in database",
                             device.device_type, device.host, network_id)
