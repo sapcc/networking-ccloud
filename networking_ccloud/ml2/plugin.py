@@ -12,7 +12,6 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
-from neutron.db import segments_db
 from neutron_lib.api.definitions import availability_zone as az_api
 from neutron_lib.callbacks import events
 from neutron_lib.callbacks import registry
