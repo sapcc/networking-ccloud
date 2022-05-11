@@ -96,7 +96,7 @@ class CCFabricSwitchAgent(manager.Manager, cc_agent_api.CCFabricSwitchAgentAPI):
         return None
 
     def init_host(self):
-        LOG.error("Initializing agent %s with topic %s", self.get_binary_name(), self.get_agent_topic())
+        LOG.info("Initializing agent %s with topic %s", self.get_binary_name(), self.get_agent_topic())
         self._init_switches()
 
     def after_start(self):
