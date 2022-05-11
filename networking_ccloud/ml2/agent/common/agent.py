@@ -142,6 +142,9 @@ class CCFabricSwitchAgent(manager.Manager, cc_agent_api.CCFabricSwitchAgentAPI):
         if self.agent_state.pop('start_flag', None):
             self.run()
 
+    def run(self):
+        LOG.info("Run called after start")
+
     def get_switch_status(self, context, switches=None):
         """Get status for specified or all switches this agent manages
 
