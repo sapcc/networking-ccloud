@@ -93,20 +93,6 @@ class Switch(pydantic.BaseModel):
         return f"{self.bgp_source_ip}:{vni}"
 
 
-class RoleEnum(str, Enum):
-    vpod = cc_const.SWITCHGROUP_ROLE_VPOD
-    stpod = cc_const.SWITCHGROUP_ROLE_STPOD
-    apod = cc_const.SWITCHGROUP_ROLE_APOD
-    bpod = cc_const.SWITCHGROUP_ROLE_BPOD
-    netpod = cc_const.SWITCHGROUP_ROLE_NETPOD
-    bgw = cc_const.DEVICE_TYPE_BGW
-    bltransit = cc_const.DEVICE_TYPE_BORDER_AND_TRANSIT,
-    bl = cc_const.DEVICE_TYPE_BORDER
-
-
-roles = [x.value for x in RoleEnum]
-
-
 class HostgroupRole(str, Enum):
     transit = cc_const.DEVICE_TYPE_TRANSIT
     bgw = cc_const.DEVICE_TYPE_BGW
@@ -122,12 +108,6 @@ class SwitchGroup(pydantic.BaseModel):
 
     # netbox: device.site.slug
     availability_zone: str
-
-    # FIXME: get from driver consts
-    # FIXME: remove this, as we don't need it here
-    # role: Union['vpod', 'stpod', 'apod', 'bgw']
-    # role: RoleEnum
-    role: str
 
     # calculated from member-hostnames
     vtep_ip: str
@@ -162,12 +142,6 @@ class SwitchGroup(pydantic.BaseModel):
     @pydantic.validator('availability_zone')
     def validate_availability_zone(cls, v):
         return v.lower()
-
-    @pydantic.validator('role')
-    def validate_role(cls, v):
-        if v not in roles:
-            raise ValueError(f"Unknown role {v}, allowed values are {roles}")
-        return v
 
 
 class SwitchPort(pydantic.BaseModel):
