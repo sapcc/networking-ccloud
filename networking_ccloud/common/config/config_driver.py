@@ -93,23 +93,16 @@ class Switch(pydantic.BaseModel):
         return f"{self.bgp_source_ip}:{vni}"
 
 
-class RoleEnum(str, Enum):
+class HostgroupRole(str, Enum):
     vpod = cc_const.SWITCHGROUP_ROLE_VPOD
     stpod = cc_const.SWITCHGROUP_ROLE_STPOD
     apod = cc_const.SWITCHGROUP_ROLE_APOD
     bpod = cc_const.SWITCHGROUP_ROLE_BPOD
     netpod = cc_const.SWITCHGROUP_ROLE_NETPOD
     bgw = cc_const.DEVICE_TYPE_BGW
+    transit = cc_const.DEVICE_TYPE_TRANSIT
     bltransit = cc_const.DEVICE_TYPE_BORDER_AND_TRANSIT,
     bl = cc_const.DEVICE_TYPE_BORDER
-
-
-roles = [x.value for x in RoleEnum]
-
-
-class HostgroupRole(str, Enum):
-    transit = cc_const.DEVICE_TYPE_TRANSIT
-    bgw = cc_const.DEVICE_TYPE_BGW
 
 
 class HandoverMode(str, Enum):
@@ -122,12 +115,6 @@ class SwitchGroup(pydantic.BaseModel):
 
     # netbox: device.site.slug
     availability_zone: str
-
-    # FIXME: get from driver consts
-    # FIXME: remove this, as we don't need it here
-    # role: Union['vpod', 'stpod', 'apod', 'bgw']
-    # role: RoleEnum
-    role: str
 
     # calculated from member-hostnames
     vtep_ip: str
@@ -163,11 +150,7 @@ class SwitchGroup(pydantic.BaseModel):
     def validate_availability_zone(cls, v):
         return v.lower()
 
-    @pydantic.validator('role')
-    def validate_role(cls, v):
-        if v not in roles:
-            raise ValueError(f"Unknown role {v}, allowed values are {roles}")
-        return v
+
 
 
 class SwitchPort(pydantic.BaseModel):
@@ -263,30 +246,33 @@ class Hostgroup(pydantic.BaseModel):
         return v
 
     @pydantic.root_validator()
-    def ensure_hostgroups_with_role_are_not_a_metagroup(cls, values):
-        # FIXME: constants? enum? what do we do here
-        if values.get("role") and values.get("metagroup"):
+    def ensure_special_hostgroups_are_not_a_metagroup(cls, values):
+        forbid_metagroup = {HostgroupRole.bgw, HostgroupRole.transit, HostgroupRole.bltransit}
+        if values.get("role") in forbid_metagroup and values.get("metagroup"):
             raise ValueError("transits/bgws cannot be a metagroup")
         return values
 
     @pydantic.root_validator
-    def ensure_hostgroups_with_role_have_an_az(cls, values):
-        if values.get('role') and not values.get('handle_availability_zones'):
+    def ensure_special_hostgroups_have_an_az(cls, values):
+        az_required = {HostgroupRole.bgw, HostgroupRole.transit, HostgroupRole.bltransit}
+        if values.get('role') in az_required and not values.get('handle_availability_zones'):
             raise ValueError("Hostgroups for bgws/tranits need to have a list of AZs they handle")
-        if not values.get('role') and values.get('handle_availability_zones'):
+        if not values.get('role') in az_required and values.get('handle_availability_zones'):
             raise ValueError("Normal Hostgroups cannot have handle_availability_zones set")
         return values
 
     @pydantic.root_validator
-    def ensure_hostgroups_with_role_have_only_one_binding_host(cls, values):
+    def ensure_special_hostgroups_only_one_binding_host(cls, values):
+        single_required = {HostgroupRole.bgw, HostgroupRole.transit, HostgroupRole.bltransit}
         # Allow only one binding host per role-group, as we use it as group-name
-        if values.get('role') and len(values.get('binding_hosts', [])) > 1:
+        if values.get('role') in single_required and len(values.get('binding_hosts', [])) > 1:
             raise ValueError("Hostgroups for bgws/tranits can currently only have a single binding host")
         return values
 
     @pydantic.root_validator
-    def ensure_hostgroups_with_role_are_direct_binding(cls, values):
-        if values.get('role') and not values.get('direct_binding'):
+    def ensure_special_hostgroups_are_direct_binding(cls, values):
+        direct_required = {HostgroupRole.bgw, HostgroupRole.transit, HostgroupRole.bltransit}
+        if values.get('role') in direct_required and not values.get('direct_binding'):
             raise ValueError("Hostgroups for bgws/tranits need to be direct bindings")
         return values
 
@@ -469,7 +455,7 @@ class DriverConfig(pydantic.BaseModel):
             return
 
         for hg in values.get('hostgroups', []):
-            if hg.role is None:
+            if hg.role not in {HostgroupRole.transit, HostgroupRole.bltransit}:
                 continue
             found = False
             for sg in values.get('switchgroups', []):
