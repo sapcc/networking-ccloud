@@ -12,15 +12,17 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
+from collections import defaultdict, Counter
 import ipaddress
 from itertools import groupby
 import logging
 from operator import itemgetter
 import re
 import urllib3
-from typing import Dict, Optional
+from typing import Any, Dict, Optional, List, Tuple, Set, Iterable
 
 import pynetbox
+from pynetbox.core.response import Record as NbRecord
 import requests
 import yaml
 
@@ -49,7 +51,8 @@ class ConfigGenerator:
 
     # FIXME: some of these should come from an external config for this tool in the future
     netbox_url = "https://netbox.global.cloud.sap"
-    switch_name_re = re.compile(r"^(?P<region>\w{2}-\w{2}-\d)-sw(?P<az>\d)(?P<pod>\d)(?P<switchgroup>\d{2})"
+    switch_name_re = re.compile(r"^(?P<region>\w{2}-\w{2}-\d)-sw(?P<switchgroup_id>(?P<az>\d)"
+                                r"(?P<pod>\d)(?P<switchgroup>\d{2}))"
                                 r"(?P<leaf>[ab])(?:-(?P<role>[a-z]+(?P<seq_no>[0-9]+)?))$")
     region = "qa-de-2"
     leaf_role = "evpn-leaf"
@@ -77,6 +80,14 @@ class ConfigGenerator:
             self.netbox.http_session = requests.Session()
             self.netbox.http_session.verify = False
 
+    def _ensure_single_item(self, item_set: Iterable[Any], entity: str, identifier: str, attribute: str) -> Any:
+        if not isinstance(item_set, set):
+            item_set = set(item_set)
+        if len(item_set) != 1:
+            raise ConfigSchemeException(f'{entity} identified by {identifier}: '
+                                        f'Unexpected values for {attribute}, expected 1 but got {len(item_set)}')
+        return item_set.pop()
+
     def parse_ccloud_switch_number_resources(self, device_name: str) -> Dict[str, int]:
         """Parse switch number resources specific to CCloud naming scheme
 
@@ -94,28 +105,40 @@ class ConfigGenerator:
             # leaf number is calculated by enumerating the leaf chars
             leaf_no=ord(m.group("leaf")) - ord("a") + 1,
             az_no=int(m.group('az')),
-            seq_no=int(m.group('seq_no')) if m.group('seq_no') else 0
+            seq_no=int(m.group('seq_no')) if m.group('seq_no') else 0,
+            switchgroup_id=int(m.group('switchgroup_id'))
         )
 
-    def get_switch_role(self, device) -> str:
-        slugs = {x.slug for x in device.tags}
-        pod_roles = {self.pod_roles[x] for x in slugs.intersection(self.pod_roles.keys())}
-        if len(pod_roles) > 1:
-            if pod_roles == {c_const.DEVICE_TYPE_BORDER, c_const.DEVICE_TYPE_TRANSIT}:
-                return c_const.DEVICE_TYPE_BORDER_AND_TRANSIT
-            raise ConfigSchemeException(f'Device {device.name} should only have 1 pod role but has {pod_roles}')
-        if not pod_roles:
-            raise ConfigSchemeException(f'Device {device.name} has no pod roles')
-        return pod_roles.pop()
+    def get_switchgroup_attributes(self, devices: List[NbRecord]) -> Dict[str, str]:
 
-    def get_switchgroup_name(self, device_name: str, role: str, pod: int, switchgroup_no: int, leaf_no: int,
-                             az_no: int, seq_no: Optional[int], **kwargs):
-        if role in {c_const.SWITCHGROUP_ROLE_NETPOD, c_const.SWITCHGROUP_ROLE_APOD, c_const.SWITCHGROUP_ROLE_STPOD,
-                    c_const.SWITCHGROUP_ROLE_VPOD, c_const.SWITCHGROUP_ROLE_BPOD}:
-            if seq_no == 0:
-                raise ConfigSchemeException(f'{device_name} has no seq_no')
-            return f'{role}{seq_no:03d}'
-        return f"{role}-{az_no}{pod}{switchgroup_no:02d}"
+        attributes = dict()
+        pod_roles = set()
+        azs = set()
+
+        for device in devices:
+
+            # roles
+            if device.tags:
+                pod_roles = set(filter(lambda x: x,  (self.pod_roles.get(x.slug, None) for x in device.tags)))
+
+            # azs
+            if not device.site:
+                raise ConfigException(f'{device.name} must have a site')
+            azs.add(device.site.slug)
+
+        # silently reject switches without a role, could be BL or anything we do not care about
+        if not pod_roles:
+            return dict()
+
+        attributes['pod_role'] = self._ensure_single_item(pod_roles, 'Switchgroup',
+                                                          ', '.join((x.name for x in devices)), 'pod_roles')
+        attributes['az'] = self._ensure_single_item(azs, 'Switchgroup',
+                                                    ', '.join((x.name for x in devices)), 'azs')
+
+        return attributes
+
+    def get_switchgroup_name(self, role: str, switchgroup_id: int):
+        return f"{role}-{switchgroup_id:04d}"
 
     def get_l3_data(self, asn_region: int, pod: int, switchgroup_no: int, leaf_no: int,
                     az_no: int, **kwargs) -> Dict[str, str]:
@@ -134,45 +157,64 @@ class ConfigGenerator:
             raise ConfigException(f"Region {region} has multiple ASNs: {site_asns}")
         return site_asns.pop()
 
-    def get_netbox_data(self, region):
-        asn_region = self.get_asn_region(region)
-        switches = []
-        clusters = {}
+    def make_switch(self, asn_region: int, switch: NbRecord, user: str, password: str) -> Optional[conf.Switch]:
 
-        leafs = self.netbox.dcim.devices.filter(region=region, role=self.leaf_role, status='active')
-        for leaf in leafs:
-            switch_name = leaf.name
+        # platform check!
+        platform = getattr(switch.platform, 'slug', None)
+        if platform not in c_const.PLATFORMS:
+            print(f"Warning: Device {switch.name} is of platform {platform}, "
+                  "which is not supported by the driver/config generator")
+            return None
 
-            # platform check!
-            platform = leaf.platform.slug
-            if platform not in c_const.PLATFORMS:
-                print(f"Warning: Device {switch_name} is of platform {platform}, "
-                      "which is not supported by the driver/config generator")
+        # use nb primary address for now, later this is probably going to be loopback10
+        if not switch.primary_ip:
+            raise ConfigSchemeException(f"Device {switch.name} does not have a usable primary address")
+        host_ip = switch.primary_ip.address.split("/")[0]
+
+        numbered_resources = self.parse_ccloud_switch_number_resources(switch.name)
+        l3_data = self.get_l3_data(asn_region, **numbered_resources)
+
+        return conf.Switch(
+            name=switch.name,
+            host=host_ip,
+            platform=platform,
+            bgp_source_ip=l3_data['loopback0'],
+            user=user,
+            password=password)
+
+    def get_switchgroups(self, asn_region: int, switches: List[NbRecord],
+                         switch_user: str, switch_password: str) -> List[conf.SwitchGroup]:
+        switchgroups = list()
+        # use a tuple of all the numbered resources to group by
+        sorter = lambda x: self.parse_ccloud_switch_number_resources(x.name)['switchgroup_id']  # noqa: E731
+        sorted_switches = sorted(switches, key=sorter)
+        for switchgroup_id, group_switches in groupby(sorted_switches, key=sorter):
+            group_switches = sorted(group_switches, key=itemgetter('name'))
+            sg_attributes = self.get_switchgroup_attributes(group_switches)
+            if not sg_attributes:
                 continue
+            members = []
+            for switch in group_switches:
+                conf_switch = self.make_switch(asn_region, switch, switch_user, switch_password)
+                if conf_switch:
+                    members.append(conf_switch)
+            if len(members) < 2:
+                raise ValueError(f'Switchgroup {switchgroup_id} has only 1 member')
+            # FIXME: Warn when a switchgroup is larger 2
+            # we derive loopback1/asn from switch_number_resources which we already grouped on
+            # so a switchgroup is guranteed to have the same values
+            numbered_resources = self.parse_ccloud_switch_number_resources(members[0].name)
+            l3_data = self.get_l3_data(asn_region, **numbered_resources)
+            sg_name = self.get_switchgroup_name(sg_attributes['pod_role'], numbered_resources['switchgroup_id'])
+            switchgroup = conf.SwitchGroup(name=sg_name, members=members, availability_zone=sg_attributes['az'],
+                                           vtep_ip=l3_data['loopback1'], asn=l3_data['asn'])
+            switchgroups.append(switchgroup)
+        return switchgroups
 
-            # use nb primary address for now, later this is probably going to be loopback10
-            if not leaf.primary_ip:
-                raise ConfigSchemeException(f"Device {leaf.name} does not have a usable primary address")
-            host_ip = leaf.primary_ip.address.split("/")[0]
-
-            numbered_resources = self.parse_ccloud_switch_number_resources(switch_name)
-            role = self.get_switch_role(leaf)
-
-            switch = {
-                'name': switch_name,
-                'ports': dict(),
-                'hosts': dict(),
-                'platform': platform,
-                'role': role,
-                'az': leaf.site.name,
-                'switchgroup': self.get_switchgroup_name(switch_name, role, **numbered_resources),
-                'host': host_ip
-            }
-            switch.update(**self.get_l3_data(asn_region, **numbered_resources))
-
-            switches.append(switch)
-
-            ifaces = self.netbox.dcim.interfaces.filter(device_id=leaf.id, connection_status=True)
+    def get_connected_devices(self, switches: List[NbRecord]) -> Tuple[Set[NbRecord], List[conf.Hostgroup]]:
+        device_ports_map: Dict[NbRecord, List[conf.SwitchPort]] = defaultdict(list)
+        for switch in switches:
+            ifaces = self.netbox.dcim.interfaces.filter(device_id=switch.id, connection_status=True)
             for iface in ifaces:
                 # FIXME: ignore management, peerlink (maybe), unconnected ports
                 if iface.connected_endpoint is None:
@@ -183,137 +225,115 @@ class ConfigGenerator:
                     continue
 
                 if self.verbose:
-                    print(f"Device {switch_name} port {iface.name} is connected to "
+                    print(f"Device {switch.name} port {iface.name} is connected to "
                           f"device {far_device.name} port {iface.connected_endpoint.name} "
                           f"role {far_device.device_role.name}")
 
-                switch['hosts'].setdefault(far_device.name, []).append(iface.name)
-
-                # cluster mgmt for far hosts
-                if far_device.cluster:
-                    cluster = far_device.cluster
-                    cname = cluster.name
-                    if cname not in clusters:
-                        binding_host = None
-                        cluster_type = cluster.type.slug
-                        # figure out cluster name
-                        if cluster_type == self.netbox_vpod_cluster_type:
-                            # FIXME: CCloud specific name generation
-                            if not cname.startswith("production"):
-                                print(f"Warning: Cluster {cname} of type {cluster_type} does not start "
-                                      "with 'production' - ignoring")
-                                continue
-                            binding_host = "nova-compute-{}".format(cname[len("production"):])
-                        else:
-                            print(f"Warning: Cluster {cname} has unknown cluster type {cluster_type} - ignoring")
-                            continue
-                        # create cluster
-                        clusters[cname] = {
-                            'id': cluster.id,
-                            'type': cluster.type.slug,
-                            'members': set(),
-                            'binding_host': binding_host,
-                        }
+                if iface.lag is not None:
+                    # We fill this list only if this filter comes back False, so this is assumed to be unique
+                    lags = filter(lambda x: x.switch == switch.name and x.name == iface.lag.name and x.lacp,
+                                  device_ports_map.get(far_device.name, []))
+                    lag: Optional[conf.SwitchPort] = next(lags, None)
+                    if lag:
+                        lag.members.append(iface.name)
                     else:
-                        # check if same cluster
-                        if clusters[cname]['id'] != cluster.id:
-                            raise ConfigException(f"Found two clustergroups with name {cname}, but different ids "
-                                                  f"({clusters[cname]['id']} vs {cluster.id}) - this needs to be "
-                                                  "resolved before we can generate a proper config")
+                        device_ports_map[far_device].append(conf.SwitchPort(switch=switch.name, lacp=True,
+                                                                            name=iface.lag.name, members=[iface.name]))
+                else:
+                    # not a lag
+                    device_ports_map[far_device].append(conf.SwitchPort(switch=switch.name, name=iface.name))
+        hgs = [conf.Hostgroup(binding_hosts=[h.name], direct_binding=True, members=m)
+               for h, m in device_ports_map.items()]
+        return set(device_ports_map.keys()), hgs
 
-                    clusters[cname]['members'].add(far_device.name)
+    def cluster_is_valid(self, cluster) -> bool:
+        if not cluster.name:
+            print(f'Warning: Cluster {cluster.id} has no name - ignoring')
+            return False
+        if not cluster.type:
+            print(f'Warning: Cluster {cluster.name} has no type - ignoring')
+            return False
+        if cluster.type.slug not in {self.netbox_vpod_cluster_type}:
+            print(f'Warning: Cluster {cluster.name} has unsupported type {cluster.type.slug} - ignoring')
+            return False
+        return True
 
-        data = {
-            'switches': switches,
-            'clusters': clusters,
-            'asn_region': asn_region,
-        }
+    def make_vpod_metagroup(self, cluster: NbRecord, member: NbRecord) -> Optional[conf.Hostgroup]:
+        # FIXME: CCloud specific name generation
+        cname: str = cluster.name  # type: ignore
+        ctype = cluster.type.slug  # type: ignore
+        if not cname.startswith("production"):
+            print(f"Warning: Cluster {cname} of type {ctype} does not start "
+                  "with 'production' - ignoring")
+            return None
+        binding_host = "nova-compute-{}".format(cname[len("production"):])
+        return conf.Hostgroup(binding_hosts=[binding_host], metagroup=True, members=[member.name])
 
-        return data
+    def get_metagroups(self, connected_devices: Set[NbRecord]) -> List[conf.Hostgroup]:
+        metagroups: Dict[NbRecord, conf.Hostgroup] = dict()
+        for device in connected_devices:
+            if not device.cluster:
+                continue
+            cluster = device.cluster
+            if not self.cluster_is_valid(cluster):
+                continue
+            metagroup = metagroups.get(cluster, None)
+            if not metagroup:
+                # create the metagroup
+                if getattr(cluster.type, 'slug', None) == self.netbox_vpod_cluster_type:
+                    metagroup = self.make_vpod_metagroup(cluster, device)
+                if not metagroup:
+                    # something failed here, so we ignore
+                    continue
+                metagroups[cluster] = metagroup
+            else:
+                metagroup.members.append(device.name)
 
-    def generate_switch_config(self):
-        config = {
-            'switches': [],
-            'switchgroups': [],
-            'hostgroups': [],
-        }
+        # Check cluster names for duplicates
+        cluster_names = (x.name for x in metagroups.keys())
+        for name, count in Counter(cluster_names).items():
+            if count > 1:
+                raise ConfigException(f'Cluster {name} appeared {count} times')
+        return list(metagroups.values())
 
-        nb_data = self.get_netbox_data(self.region)
-        nb_switches = nb_data['switches']
+    def generate_config(self):
 
-        def _get_single(item_set, item_name, switchgroup):
-            if not item_set:
-                raise ConfigException(f"Switchgroup {switchgroup} has no entry for {item_name}")
-            if len(item_set) > 1:
-                raise ConfigException(f"Inconsistent {item_name} found for switchgroup {switchgroup}: {item_set}")
-            return item_set.pop()
+        switch_user = self.args.switch_user
+        switch_password = self.args.switch_password
 
-        # build switchgroups (sorted by switchgroup.name, switch.name)
-        switchgroups = []
-        sorted_nb_switches = sorted(nb_switches, key=itemgetter('switchgroup', 'name'))
-        for groupname, nb_switchgroup in groupby(sorted_nb_switches, key=itemgetter('switchgroup')):
-            switches = []
-            az = set()
-            role = set()
-            loopback1 = set()
-            asn = set()
-            nb_switchgroup = list(nb_switchgroup)
-            for nb_switch in sorted(nb_switchgroup, key=itemgetter('name')):
-                az.add(nb_switch['az'])
-                role.add(nb_switch['role'])
-                loopback1.add(nb_switch['loopback1'])
-                asn.add(nb_switch['asn'])
-                switch = conf.Switch(name=nb_switch['name'], host=nb_switch['host'],
-                                     bgp_source_ip=nb_switch['loopback0'], platform=nb_switch['platform'],
-                                     user=self.args.switch_user, password=self.args.switch_password)
+        nb_switches = list(self.netbox.dcim.devices.filter(region=self.region, role=self.leaf_role, status='active'))
+        asn_region = self.get_asn_region(self.region)
+        switchgroups = self.get_switchgroups(asn_region, nb_switches, switch_user, switch_password)
+        connected_devices, direct_hgs = self.get_connected_devices(nb_switches)
+        metagroups = self.get_metagroups(connected_devices)
 
-                switches.append(switch)
-            az = _get_single(az, "AZ", groupname)
-            role = _get_single(role, "role", groupname)
-            loopback1 = _get_single(loopback1, "loopback1", groupname)
-            asn = _get_single(asn, "asn", groupname)
-            switchgroup = conf.SwitchGroup(name=groupname, members=switches, availability_zone=az, role=role,
-                                           vtep_ip=loopback1, asn=asn)
-            switchgroups.append(switchgroup)
+        binding_host_hg_map = {hg.binding_hosts[0]: hg for hg in direct_hgs}
 
-        # build hostgroups (sorted by switchgroup, meta, groupname)
-        hg_map = {}
-        for nb_switch in nb_switches:
-            # FIXME: meta hostgroup based on roles
-            for host, ports in nb_switch['hosts'].items():
-                hg = hg_map.setdefault(host, dict(ports=[], switchgroups=[]))
-                for port in ports:
-                    hg['ports'].append((nb_switch['name'], port))
-                    hg['switchgroups'].append(nb_switch['switchgroup'])
-
-        hostgroups = []
-        for hg_name, data in sorted(hg_map.items(), key=lambda x: (x[1]['switchgroups'][0], x[0])):
-            # build switchports (sort by port, switch)
-            switchports = []
-            for switch, port in sorted(data['ports'], key=itemgetter(1, 0)):
-                sp = conf.SwitchPort(switch=switch, name=port)
-                switchports.append(sp)
-            hg = conf.Hostgroup(binding_hosts=[hg_name], members=switchports)
-            hostgroups.append(hg)
+        global_config = conf.GlobalConfig(asn_region=asn_region)
 
         # FIXME: meta hostgroups based on device-role
         # FIXME: check that no hostgroup has switches from two different switchgroups
-        nb_clusters = nb_data['clusters']
-        print(nb_clusters)
+        binding_hosts_in_metagroup = set()
+        hostgroups = list()
+        for metagroup in metagroups:
+            for member in sorted(metagroup.members):  # type: ignore
+                direct_binding_host = binding_host_hg_map.get(member)  # type: ignore
+                if direct_binding_host:
+                    hostgroups.append(direct_binding_host)
+                    binding_hosts_in_metagroup.add(direct_binding_host.binding_hosts[0])
+                    # FIXME: Host in multiple metagroups
+                    # FIXME: Host does not exist
+            hostgroups.append(metagroup)
 
-        for cluster in nb_clusters.values():
-            print(cluster)
-            hg = conf.Hostgroup(binding_hosts=[cluster['binding_host']], metagroup=True,
-                                members=list(cluster['members']))
-            hostgroups.append(hg)
-
-        # FIXME: sort hostgroups
+        missing_hosts = binding_host_hg_map.keys() - binding_hosts_in_metagroup
+        for host in missing_hosts:
+            hostgroups.append(binding_host_hg_map[host])
 
         # build global config
         global_config = conf.GlobalConfig(asn_region=nb_data['asn_region'])
 
-        # build top config object
-        config = conf.DriverConfig(global_config=global_config, switchgroups=switchgroups, hostgroups=hostgroups)
+        config = conf.DriverConfig(global_config=global_config, switchgroups=switchgroups,
+                                   hostgroups=hostgroups)
 
         return config
 
@@ -336,7 +356,7 @@ def main():
     args = parser.parse_args()
 
     cfggen = ConfigGenerator(args.region, args, args.verbose)
-    cfg = cfggen.generate_switch_config()
+    cfg = cfggen.generate_config()
 
     from pprint import pprint
     pprint(cfg)
