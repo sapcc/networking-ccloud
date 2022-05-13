@@ -246,6 +246,57 @@ class ConfigGenerator:
                for h, m in device_ports_map.items()]
         return set(device_ports_map.keys()), hgs
 
+    def get_interconnect_hostgroups(self, nb_switches: List[NbRecord]) -> List[conf.Hostgroup]:
+        bgws: Dict[int, conf.Hostgroup] = dict()
+        for nb_switch in nb_switches:
+            roles = {self.pod_roles.get(t.slug) for t in getattr(nb_switch, 'tags', [])}
+            if c_const.DEVICE_TYPE_BGW in roles:
+                switchgroup_id = self.parse_ccloud_switch_number_resources(nb_switch.name)['switchgroup_id']
+                swp = conf.SwitchPort(switch=nb_switch.name, name=None)
+                hg = bgws.get(switchgroup_id)
+                if not hg:
+                    hg = conf.Hostgroup(binding_hosts=[f'{c_const.DEVICE_TYPE_BGW}{switchgroup_id}'],
+                                        handle_availability_zones=[getattr(nb_switch.site, 'slug', None)],
+                                        role=c_const.DEVICE_TYPE_BGW, members=[swp])
+                    bgws[switchgroup_id] = hg
+                else:
+                    hg.members.append(swp)  # type: ignore
+            if c_const.DEVICE_TYPE_TRANSIT in roles:
+
+                # Fiddle out AZ that this transit handles from config context
+                handled_azs = [getattr(nb_switch.site, 'slug', None)]
+                additional_azs = getattr(nb_switch, 'config_context', dict())
+                for item in ('cc', 'net', 'evpn', 'transit', 'handles_azs'):
+                    additional_azs = additional_azs.get(item, dict())
+                if additional_azs:
+                    handled_azs.extend(additional_azs)
+
+                switchgroup_id = self.parse_ccloud_switch_number_resources(nb_switch.name)['switchgroup_id']
+
+                # Find all ACI connected interfaces and add them as members to the hg
+                # FIXME: also account for port-channel interfaces
+                members = list()
+                for iface in self.netbox.dcim.interfaces.filter(device_id=nb_switch.id,
+                                                                connected_endpoint_type='dcim.interface'):
+                    connected_device_role = iface
+                    for attr in ('connected_endpoint', 'device', 'device_role', 'slug'):
+                        connected_device_role = getattr(connected_device_role, attr, None)
+                    if not connected_device_role:
+                        continue
+                    if connected_device_role == "aci-leaf":
+                        members.append(conf.SwitchPort(switch=nb_switch.name, name=iface.name))
+                if not members:
+                    raise ConfigException(f'{nb_switch.name} is labelled as transit but has no ACI facing interfaces')
+                hg = bgws.get(switchgroup_id)
+                if not hg:
+                    hg = conf.Hostgroup(binding_hosts=[f'{c_const.DEVICE_TYPE_TRANSIT}{switchgroup_id}'],
+                                        handle_availability_zones=handled_azs,
+                                        role=c_const.DEVICE_TYPE_TRANSIT, members=members)
+                    bgws[switchgroup_id] = hg
+                else:
+                    hg.members.extend(members)
+        return list(bgws.values())
+
     def cluster_is_valid(self, cluster) -> bool:
         if not cluster.name:
             print(f'Warning: Cluster {cluster.id} has no name - ignoring')
@@ -302,6 +353,7 @@ class ConfigGenerator:
         switch_password = self.args.switch_password
 
         nb_switches = list(self.netbox.dcim.devices.filter(region=self.region, role=self.leaf_role, status='active'))
+        interconnect_hostgroups = self.get_interconnect_hostgroups(nb_switches)
         asn_region = self.get_asn_region(self.region)
         switchgroups = self.get_switchgroups(asn_region, nb_switches, switch_user, switch_password)
         connected_devices, direct_hgs = self.get_connected_devices(nb_switches)
@@ -329,8 +381,7 @@ class ConfigGenerator:
         for host in missing_hosts:
             hostgroups.append(binding_host_hg_map[host])
 
-        # build global config
-        global_config = conf.GlobalConfig(asn_region=nb_data['asn_region'])
+        hostgroups.extend(interconnect_hostgroups)
 
         config = conf.DriverConfig(global_config=global_config, switchgroups=switchgroups,
                                    hostgroups=hostgroups)
