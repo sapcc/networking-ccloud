@@ -413,7 +413,7 @@ def main():
     pprint(cfg)
 
     if args.output:
-        conf_data = cfg.dict(exclude_unset=True)
+        conf_data = cfg.dict(exclude_unset=True, exclude_defaults=True, exclude_none=True)
         yaml_data = yaml.safe_dump(conf_data)
         if args.output == '-':
             print(yaml_data)
