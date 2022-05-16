@@ -29,6 +29,7 @@ from oslo_service import service
 
 from networking_ccloud.common.config import get_driver_config
 from networking_ccloud.common import constants as cc_const
+from networking_ccloud.common import exceptions as cc_exc
 from networking_ccloud.ml2.agent.common import api as cc_agent_api
 from networking_ccloud.ml2.agent.common import messages as agent_msg
 
@@ -154,8 +155,11 @@ class CCFabricSwitchAgent(manager.Manager, cc_agent_api.CCFabricSwitchAgentAPI):
         for switch in self._switches:
             if switches and switch not in switches:
                 continue
-            # FIXME: handle offline switches (will probably require changing the response format)
-            result['switches'][switch.name] = switch.get_switch_status()
+            try:
+                result['switches'][switch.name] = switch.get_switch_status()
+                result['switches'][switch.name]['reachable'] = True
+            except cc_exc.SwitchConnectionError as e:
+                result['switches'][switch.name] = dict(reachable=False, error=str(e))
         return result
 
     def apply_config_update(self, context, config):
