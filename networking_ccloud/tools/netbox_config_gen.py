@@ -31,11 +31,12 @@ from networking_ccloud.common import constants as c_const
 
 LOG = logging.getLogger(__name__)
 
-SWITCHGROUP_ROLE_VPOD = 'vpod'
-SWITCHGROUP_ROLE_STPOD = 'stpod'
-SWITCHGROUP_ROLE_APOD = 'apod'
-SWITCHGROUP_ROLE_NETPOD = 'netpod'
-SWITCHGROUP_ROLE_BPOD = 'bpod'
+SWITCHGROUP_ROLE_VPOD = 'bb'
+SWITCHGROUP_ROLE_STPOD = 'st'
+SWITCHGROUP_ROLE_APOD = 'ap'
+SWITCHGROUP_ROLE_NETPOD = 'np'
+
+VAULT_REF_REPLACEMENT = 'VAULTER-WHITE-REPLACE-ME'
 
 
 class ConfigException(Exception):
@@ -63,7 +64,6 @@ class ConfigGenerator:
         "cc-vpod": SWITCHGROUP_ROLE_VPOD,
         "cc-stpod": SWITCHGROUP_ROLE_STPOD,
         "cc-netpod": SWITCHGROUP_ROLE_NETPOD,
-        "cc-bpod": SWITCHGROUP_ROLE_BPOD,
         "cnd-net-evpn-bg": c_const.DEVICE_TYPE_BGW,
         "cnd-net-evpn-tl": c_const.DEVICE_TYPE_TRANSIT,
     }
@@ -405,11 +405,28 @@ def main():
     parser.add_argument("-r", "--region", required=True)
     parser.add_argument("-v", "--verbose", action="store_true")
     parser.add_argument("-u", "--switch-user", help="Default switch user", required=True)
-    parser.add_argument("-p", "--switch-password", help="Default switch password", required=True)
+    parser.add_argument("-p", "--switch-password", help="Default switch password")
+    parser.add_argument('-V', '--vault-ref',
+                        help="Instead of a password, use this vault references, formatted like <path>:<field>")
     parser.add_argument("-s", "--shell", action="store_true")
     parser.add_argument("-o", "--output")
 
     args = parser.parse_args()
+
+    if args.switch_password and args.vault_ref:
+        print("You may only use one of '--vault-ref' or '--switch-passsword'")
+        exit(1)
+    if not (args.switch_password or args.vault_ref):
+        print("Either'--vault-ref' or '--switch-passsword' must be set")
+        exit(1)
+
+    if args.vault_ref:
+        args.switch_password = VAULT_REF_REPLACEMENT
+        m = re.match(r'^(?P<path>\S+)\W*:\W*(?P<field>\S+)', args.vault_ref)
+        if m:
+            vault_path, vault_field = m.group('path'), m.group('field')
+        else:
+            parser.error(f'Invalid vault reference should be <path>:<field>, got {args.vault_ref}')
 
     cfggen = ConfigGenerator(args.region, args, args.verbose)
     cfg = cfggen.generate_config()
@@ -420,6 +437,9 @@ def main():
     if args.output:
         conf_data = cfg.dict(exclude_unset=True, exclude_defaults=True, exclude_none=True)
         yaml_data = yaml.safe_dump(conf_data)
+        if args.vault_ref:
+            yaml_data = yaml_data.replace(VAULT_REF_REPLACEMENT,
+                                          f'*vault(path: {vault_path}, field: {vault_field})')  # type: ignore
         if args.output == '-':
             print(yaml_data)
         else:
