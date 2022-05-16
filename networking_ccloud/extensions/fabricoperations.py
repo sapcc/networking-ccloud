@@ -306,9 +306,12 @@ class SwitchesController(wsgi.Controller):
                     di = device_info[switch['name']]
                     switch['device_info'] = {
                         'found': True,
-                        'version': di['version'],
-                        'uptime': di['uptime'],
+                        'reachable': di['reachable'],
+                        'version': di.get('version'),
+                        'uptime': di.get('uptime'),
                     }
+                    if 'error' in di:
+                        switch['device_error'] = di['error']
                 else:
                     switch['device_info'] = {'found': False}
 

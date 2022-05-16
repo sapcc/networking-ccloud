@@ -19,6 +19,7 @@ from oslo_log import log as logging
 import pyeapi
 
 from networking_ccloud.common import constants as cc_const
+from networking_ccloud.common import exceptions as cc_exc
 from networking_ccloud.ml2.agent.common.messages import OperationEnum as Op
 from networking_ccloud.ml2.agent.common.switch import SwitchBase
 
@@ -35,22 +36,22 @@ class EOSSwitch(SwitchBase):
             transport="https", host=self.host, username=self.user, password=self._password,
             timeout=self.timeout)
 
-    def send_cmd(self, cmd, fmt='json', raw=False, _is_retry=False):
+    def send_cmd(self, cmd, fmt='json', raw=False, raise_on_error=True, _is_retry=False):
         """Send a command to the switch"""
         start_time = time.time()
         try:
             result = self.api.execute(cmd, format=fmt)
-        except ConnectionError:
+        except ConnectionError as e:
             if not _is_retry:
-                return self.send_cmd(cmd, format=fmt, raw=raw, _is_retry=True)
+                return self.send_cmd(cmd, format=fmt, raw=raw, raise_on_error=raise_on_error, _is_retry=True)
 
             LOG.exception("Command failed in %.2fs on %s %s (even after retry), cmd: %s",
                           time.time() - start_time, self.name, self.host, cmd)
-            raise
-        except Exception:
+            raise cc_exc.SwitchConnectionError(str(e))
+        except Exception as e:
             LOG.exception("Command failed in %.2fs on %s %s, cmd: %s",
                           time.time() - start_time, self.name, self.host, cmd)
-            raise
+            raise cc_exc.SwitchConnectionError(str(e))
 
         LOG.debug("Command succeeded in %.2fs on %s %s, cmd: %s", time.time() - start_time, self.name, self.host, cmd)
 

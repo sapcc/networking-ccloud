@@ -42,3 +42,7 @@ class OnlyOneAZHintAllowed(n_exc.BadRequest):
 
 class HostNetworkAZAffinityError(n_exc.BadRequest):
     message = "Host %(host)s resides in AZ %(hostgroup_az)s, network requires AZ %(network_az)s"
+
+
+class SwitchConnectionError(Exception):
+    pass
