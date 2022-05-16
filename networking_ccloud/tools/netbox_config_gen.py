@@ -137,8 +137,12 @@ class ConfigGenerator:
 
         return attributes
 
-    def get_switchgroup_name(self, role: str, switchgroup_id: int):
-        return f"{role}-{switchgroup_id:04d}"
+    def get_switchgroup_name(self, role: str, switchgroup_id: int, pod_sequence: int):
+        if role in {c_const.DEVICE_TYPE_BGW, c_const.DEVICE_TYPE_TRANSIT}:
+            return f"{role}{switchgroup_id}"
+        if pod_sequence == 0:
+            raise ConfigException("Switchgroups {switchgroup_id} has no pod_sequence, e.g. '-bb147/st044/np19'")
+        return f"{role}{pod_sequence}"
 
     def get_l3_data(self, asn_region: int, pod: int, switchgroup_no: int, leaf_no: int,
                     az_no: int, **kwargs) -> Dict[str, str]:
@@ -205,7 +209,8 @@ class ConfigGenerator:
             # so a switchgroup is guranteed to have the same values
             numbered_resources = self.parse_ccloud_switch_number_resources(members[0].name)
             l3_data = self.get_l3_data(asn_region, **numbered_resources)
-            sg_name = self.get_switchgroup_name(sg_attributes['pod_role'], numbered_resources['switchgroup_id'])
+            sg_name = self.get_switchgroup_name(sg_attributes['pod_role'], numbered_resources['switchgroup_id'],
+                                                numbered_resources['seq_no'])
             switchgroup = conf.SwitchGroup(name=sg_name, members=members, availability_zone=sg_attributes['az'],
                                            vtep_ip=l3_data['loopback1'], asn=l3_data['asn'])
             switchgroups.append(switchgroup)
