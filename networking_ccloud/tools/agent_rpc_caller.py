@@ -12,6 +12,7 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
+from pprint import pprint
 import sys
 
 from neutron.common import config as common_config
@@ -59,7 +60,8 @@ def main():
 
     print(f"Doing RPC call {CONF.method}(*{CONF.args}) with topic {topic}")
     ctx = context.get_admin_context()
-    print("Result:", getattr(client, CONF.method)(ctx, *CONF.args))
+    print("Result:")
+    pprint(getattr(client, CONF.method)(ctx, *CONF.args))
 
 
 if __name__ == '__main__':
