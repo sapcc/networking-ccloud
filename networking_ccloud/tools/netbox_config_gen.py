@@ -408,17 +408,18 @@ def main():
     parser.add_argument("-p", "--switch-password", help="Default switch password")
     parser.add_argument('-V', '--vault-ref',
                         help="Instead of a password, use this vault references, formatted like <path>:<field>")
+
+    parser.add_argument('-w', '--wrap-in', help='Keys under which the generated config should be nested under. '
+                                                'Format should be: <key1>/<key2>...')
     parser.add_argument("-s", "--shell", action="store_true")
     parser.add_argument("-o", "--output")
 
     args = parser.parse_args()
 
     if args.switch_password and args.vault_ref:
-        print("You may only use one of '--vault-ref' or '--switch-passsword'")
-        exit(1)
+        parser.error("You may only use one of '--vault-ref' or '--switch-passsword'")
     if not (args.switch_password or args.vault_ref):
-        print("Either'--vault-ref' or '--switch-passsword' must be set")
-        exit(1)
+        parser.error("Either'--vault-ref' or '--switch-passsword' must be set")
 
     if args.vault_ref:
         args.switch_password = VAULT_REF_REPLACEMENT
@@ -428,6 +429,11 @@ def main():
         else:
             parser.error(f'Invalid vault reference should be <path>:<field>, got {args.vault_ref}')
 
+    if args.wrap_in:
+        m = re.match(r'^(?:\w+/)*(?:\w+)$', args.wrap_in)
+        if not m:
+            parser.error(f'Invalid format for --wrap-in. Should be like <key1>/<key2>..., got {args.wrap_in}')
+
     cfggen = ConfigGenerator(args.region, args, args.verbose)
     cfg = cfggen.generate_config()
 
@@ -436,6 +442,11 @@ def main():
 
     if args.output:
         conf_data = cfg.dict(exclude_unset=True, exclude_defaults=True, exclude_none=True)
+
+        if args.wrap_in:
+            for k in reversed(args.wrap_in.split('/')):
+                conf_data = {k: conf_data}
+
         yaml_data = yaml.safe_dump(conf_data)
         if args.vault_ref:
             yaml_data = yaml_data.replace(VAULT_REF_REPLACEMENT,
