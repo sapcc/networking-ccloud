@@ -128,7 +128,7 @@ ga('send', 'pageview');
 <section id="hostname-convention">
 <h3>Hostname Convention<a class="headerlink" href="#hostname-convention" title="Permalink to this headline">¶</a></h3>
 <p>Leaf pair hostnames must be compliant with the following regex:</p>
-<div class="highlight-default notranslate"><div class="highlight"><pre><span></span>^(?P&lt;region&gt;\w{2}-\w{2}-\d)-sw(?P&lt;az&gt;\d)(?P&lt;pod&gt;\d)(?P&lt;switchgroup&gt;\d{2})(?P&lt;leaf&gt;[ab])(?:-(?P&lt;role&gt;[a-z0-9-]+))$
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span>^(?P&lt;region&gt;\w{2}-\w{2}-\d)-sw(?P&lt;az&gt;\d)(?P&lt;pod&gt;\d)(?P&lt;switchgroup&gt;\d{2})(?P&lt;leaf&gt;[ab])(?:-(?P&lt;role&gt;[a-z]+(?P&lt;bb_no&gt;[0-9]+)?))$
 </pre></div>
 </div>
 <p>Or in a more readable way:</p>
@@ -151,7 +151,7 @@ ga('send', 'pageview');
 </dd>
 <dt>leaf:</dt><dd><p>a=fist leaf in pair, b=second leaf in pair</p>
 </dd>
-<dt>role:</dt><dd><p>optional, any sequence of numbers and lower case digits, such as bb147</p>
+<dt>role:</dt><dd><p>any sequence of lower case characters followed by digits as a pod identifier, such as bb147. The pod identifier is optional.</p>
 </dd>
 </dl>
 <p>Netbox Query:</p>
@@ -450,7 +450,7 @@ The interface mode must be set to ‘tagged’ in order to server the ‘tagged_
           
           </div>
           <div class="row docs-byline bottom">
-            <div class="docs-updated">this page last updated: 2022-05-11 11:31:15</div>
+            <div class="docs-updated">this page last updated: 2022-05-13 12:28:40</div>
           </div>
           <div class="row">
             <div class="col-lg-8 col-md-8 col-sm-8 docs-license">
