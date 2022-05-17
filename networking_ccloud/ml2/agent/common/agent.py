@@ -153,7 +153,7 @@ class CCFabricSwitchAgent(manager.Manager, cc_agent_api.CCFabricSwitchAgentAPI):
          """
         result = {'switches': {}}
         for switch in self._switches:
-            if switches and switch not in switches:
+            if switches and switch.name not in switches:
                 continue
             try:
                 result['switches'][switch.name] = switch.get_switch_status()

@@ -300,7 +300,7 @@ class SwitchesController(wsgi.Controller):
             switches = list(switches)
             switch_names = [s['name'] for s in switches]
             rpc_client = CCFabricSwitchAgentRPCClient.get_for_platform(platform)
-            device_info = rpc_client.get_switch_status(context, switches=switch_names)
+            device_info = rpc_client.get_switch_status(context, switches=switch_names)['switches']
             for switch in switches:
                 if switch['name'] in device_info:
                     di = device_info[switch['name']]
