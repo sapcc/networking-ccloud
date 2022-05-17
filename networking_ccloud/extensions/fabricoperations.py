@@ -236,8 +236,8 @@ class SwitchesController(wsgi.Controller):
 
     @classmethod
     def _make_switch_dict(cls, switch, sg):
-        return dict(name=switch.name, platform=switch.platform, availability_zone=sg.availability_zone,
-                    switchgroup=sg.name)
+        return dict(name=switch.name, host=switch.host, user=switch.user, platform=switch.platform,
+                    availability_zone=sg.availability_zone, switchgroup=sg.name)
 
     def _get_switch(self, switch_name):
         for sg in self.drv_conf.switchgroups:
