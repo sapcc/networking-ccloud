@@ -276,6 +276,32 @@ class TestNetworkExtension(test_segment.SegmentTestCase, base.PortBindingHelper)
         resp = self.app.get("/cc-fabric/switchgroups/seagull")
         sg = resp.json
         self.assertEqual("seagull", sg['name'])
+        self.assertEqual({"seagull-sw1", "seagull-sw2"}, {s['name'] for s in sg['members']})
+
+    def test_switchgroups_with_info(self):
+        def fake_get_switch_status(context, switches):
+            switch_info = {switch: {'reachable': True, 'uptime': '23 s', 'version': 'Windows 95'}
+                           for switch in switches}
+            return switch_info
+
+        with mock.patch.object(CCFabricSwitchAgentRPCClient, 'get_switch_status',
+                               side_effect=fake_get_switch_status) as mock_gss:
+
+            # index
+            resp = self.app.get("/cc-fabric/switchgroups?device_info=1")
+            sgs = resp.json
+            self.assertEqual(7, len(sgs))
+            print(sgs[0])
+            self.assertTrue("seagull", sgs[0]['members'][0]['device_info']['reachable'])
+            self.assertEqual(14, mock_gss.call_count)
+            mock_gss.reset_mock()
+
+            # detail
+            resp = self.app.get("/cc-fabric/switchgroups/seagull?device_info=1")
+            sg = resp.json
+            self.assertEqual("seagull", sg['name'])
+            self.assertTrue(sg['members'][0]['device_info']['reachable'])
+            self.assertEqual(2, mock_gss.call_count)
 
     def test_switchgroup_sync(self):
         with mock.patch.object(CCFabricSwitchAgentRPCClient, 'apply_config_update') as mock_acu:

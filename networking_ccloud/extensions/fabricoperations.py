@@ -360,21 +360,18 @@ class SwitchgroupsController(wsgi.Controller):
         self.drv_conf = get_driver_config()
         self._swctrl = SwitchesController(fabric_plugin)
 
-    @classmethod
-    def _make_sg_dict(cls, sg):
+    def _make_sg_dict(self, sg, request):
         return dict(name=sg.name, availability_zone=sg.availability_zone,
-                    members=[s.name for s in sg.members])
+                    members=[self._swctrl.show(request, id=s.name) for s in sg.members])
 
     @check_cloud_admin
     def index(self, request, **kwargs):
-        # FIXM support device_info?
-        return [self._make_sg_dict(sg) for sg in self.drv_conf.switchgroups]
+        return [self._make_sg_dict(sg, request) for sg in self.drv_conf.switchgroups]
 
     @check_cloud_admin
     def show(self, request, **kwargs):
-        # FIXME support device_info parameter?
         sg = self._get_switchgroup(kwargs.pop('id'))
-        return self._make_sg_dict(sg)
+        return self._make_sg_dict(sg, request)
 
     @check_cloud_admin
     def diff(self, request, **kwargs):
