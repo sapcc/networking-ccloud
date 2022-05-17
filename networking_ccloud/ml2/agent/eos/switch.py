@@ -146,8 +146,10 @@ class EOSSwitch(SwitchBase):
                         commands.append(f"vlan {bgp_vlan.vlan}")
                         if not bgp_vlan.bgw_mode:
                             # default / vpod mode
-                            commands.append(f"route-target import {bgp_vlan.vni}:{bgp_vlan.vni}")
-                            commands.append(f"route-target export {bgp_vlan.vni}:{bgp_vlan.vni}")
+                            commands.append(f"rd {config.bgp.asn}:{bgp_vlan.vni}")
+                            # FIXME: do we need to replace existing import/export statement?
+                            commands.append(f"route-target import {config.bgp.asn_region}:{bgp_vlan.vni}")
+                            commands.append(f"route-target export {config.bgp.asn_region}:{bgp_vlan.vni}")
                         else:
                             # bgw
                             commands.append(f"rd evpn domain all {config.bgp.asn}:{bgp_vlan.vni}")
