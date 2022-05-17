@@ -359,6 +359,24 @@ class TestCCFabricMechanismDriver(CCFabricMechanismDriverTestBase):
                         self.assertEqual([f"Port-Channel{n}" for n in range(102, 111)],
                                          [iface.name for iface in swcfg.ifaces])
 
+    def test_delete_port_with_no_binding_levels(self):
+        # segment + one active port binding with same binding host as is deleted
+        with self.port() as port:
+            port['port']['binding:host_id'] = "node002-seagull"
+            with mock.patch('neutron.plugins.ml2.driver_context.PortContext.binding_levels',
+                            new_callable=mock.PropertyMock) as bl_mock, \
+                    mock.patch.object(CCFabricSwitchAgentRPCClient, 'apply_config_update') as mock_acu:
+                bindings = ml2_models.PortBinding()
+                pc = driver_context.PortContext(self.plugin, self.context, port['port'], {'id': 'asdf'},
+                                                bindings, binding_levels=None)
+                bl_mock.return_value = []
+
+                pc.release_dynamic_segment = mock.Mock()
+                pc._plugin_context = self.context
+                self.mech_driver.delete_port_postcommit(pc)
+                pc.release_dynamic_segment.assert_not_called()
+                mock_acu.assert_not_called()
+
     def test_update_port_to_host_to_same_host(self):
         net = self._make_network(name="a", admin_state_up=True, fmt='json')['network']
         seg_0 = {'network_id': net['id'], 'network_type': 'vxlan', 'segmentation_id': 232323}
@@ -410,6 +428,26 @@ class TestCCFabricMechanismDriver(CCFabricMechanismDriverTestBase):
                     pc.release_dynamic_segment.assert_called()
                     self.assertEqual(seg_1['id'], pc.release_dynamic_segment.call_args[0][0])
                     mock_acu.assert_called()
+
+    def test_update_port_from_unbound(self):
+        with self.port() as port:
+            old_port = copy.deepcopy(port)
+            old_port['port']['binding:host_id'] = "nova-compute-seagull"
+            port['port']['binding:host_id'] = "dummy"
+            with mock.patch('neutron.plugins.ml2.driver_context.PortContext.original_binding_levels',
+                            new_callable=mock.PropertyMock) as bl_mock, \
+                    mock.patch.object(CCFabricSwitchAgentRPCClient, 'apply_config_update') as mock_acu:
+                bl_mock.return_value = []
+                nc = driver_context.NetworkContext(self.plugin, self.context, {'id': 'asdf'}, {'id': 'qwertz'})
+                bindings = ml2_models.PortBinding()
+                pc = driver_context.PortContext(self.plugin, self.context, port['port'], nc,
+                                                bindings, binding_levels=None,
+                                                original_port=old_port['port'])
+                pc.release_dynamic_segment = mock.Mock()
+                pc._plugin_context = self.context
+                self.mech_driver.update_port_postcommit(pc)
+                pc.release_dynamic_segment.assert_not_called()
+                mock_acu.assert_not_called()
 
     def test_create_network_multiple_az_hints_fail(self):
         res = self._create_network(self.fmt, "net1", admin_state_up=True,
