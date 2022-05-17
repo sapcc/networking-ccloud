@@ -309,6 +309,7 @@ class SwitchesController(wsgi.Controller):
                         'reachable': di['reachable'],
                         'version': di.get('version'),
                         'uptime': di.get('uptime'),
+                        'model': di.get('model'),
                     }
                     if 'error' in di:
                         switch['device_error'] = di['error']
