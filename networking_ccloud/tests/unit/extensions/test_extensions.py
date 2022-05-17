@@ -189,7 +189,7 @@ class TestNetworkExtension(test_segment.SegmentTestCase, base.PortBindingHelper)
             switch_info = {switch: {'reachable': True, 'uptime': '23 s', 'version': 'Windows 95'}
                            for switch in switches[:-1]}
             switch_info[switches[-1]] = {'reachable': False, 'error': '...unreachable?'}
-            return switch_info
+            return {'switches': switch_info}
 
         with mock.patch.object(CCFabricSwitchAgentRPCClient, 'get_switch_status',
                                side_effect=fake_get_switch_status) as mock_gss:
@@ -282,7 +282,7 @@ class TestNetworkExtension(test_segment.SegmentTestCase, base.PortBindingHelper)
         def fake_get_switch_status(context, switches):
             switch_info = {switch: {'reachable': True, 'uptime': '23 s', 'version': 'Windows 95'}
                            for switch in switches}
-            return switch_info
+            return {'switches': switch_info}
 
         with mock.patch.object(CCFabricSwitchAgentRPCClient, 'get_switch_status',
                                side_effect=fake_get_switch_status) as mock_gss:
