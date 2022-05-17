@@ -418,6 +418,10 @@ class CCFabricMechanismDriver(ml2_api.MechanismDriver, CCFabricDriverAPI):
         if old_host != new_host:
             LOG.debug("Port %s changed binding host from %s to %s, calling remove operations on old host",
                       context.current['id'], old_host, new_host)
+            if not context.original_binding_levels or len(context.original_binding_levels) < 2:
+                LOG.debug("Port %s does not have two binding levels, no update will be sent. Old host %s, levels %s",
+                          context.current['id'], old_host, context.original_binding_levels)
+                return
             self.driver_handle_binding_host_removed(context._plugin_context, context, context.original,
                                                     context.original_binding_levels[0][ml2_api.BOUND_SEGMENT],
                                                     context.original_binding_levels[1][ml2_api.BOUND_SEGMENT],
@@ -435,6 +439,10 @@ class CCFabricMechanismDriver(ml2_api.MechanismDriver, CCFabricDriverAPI):
         expected, and will not prevent the resource from being
         deleted.
         """
+        if not context.binding_levels or len(context.binding_levels) < 2:
+            LOG.debug("Port %s does not have two binding levels, no updates will be sent. Levels %s",
+                      context.current['id'], context.binding_levels)
+            return
         self.driver_handle_binding_host_removed(context._plugin_context, context, context.current,
                                                 context.binding_levels[0][ml2_api.BOUND_SEGMENT],
                                                 context.binding_levels[1][ml2_api.BOUND_SEGMENT],
