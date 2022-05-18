@@ -43,6 +43,17 @@ def validate_ip_address(addr: str) -> str:
     return addr
 
 
+def validate_vlan_ranges(vlan_range: str) -> str:
+    m = re.match(r"^(?P<start>\d+):(?P<end>\d+)$", vlan_range)
+    if not m:
+        raise ValueError(f"Vlan range '{vlan_range}' is not in format $start_num:$end_num")
+    if not (2 <= int(m.group('start')) <= 4095 and 2 <= int(m.group('end')) <= 4095):
+        raise ValueError(f"Both parts of '{vlan_range}' need to be in range of [2, 4095]")
+    if int(m.group('start')) > int(m.group('end')):
+        raise ValueError(f"Vlan range '{vlan_range}' needs to have a start that is lower or equal to its end")
+    return vlan_range
+
+
 def validate_asn(asn):
     # 65000 or 65000.123
     asn = str(asn)
@@ -114,9 +125,12 @@ class SwitchGroup(pydantic.BaseModel):
     asn: str
 
     override_vlan_pool: str = None
+    vlan_ranges: List[str] = None
 
     _normalize_vtep_ip = pydantic.validator('vtep_ip', allow_reuse=True)(validate_ip_address)
     _normalize_asn = pydantic.validator('asn', allow_reuse=True)(validate_asn)
+    _normalize_vlan_ranges = pydantic.validator('vlan_ranges',
+                                                each_item=True, allow_reuse=True)(validate_vlan_ranges)
 
     @property
     def vlan_pool(self):
@@ -366,8 +380,11 @@ class Hostgroup(pydantic.BaseModel):
 
 class GlobalConfig(pydantic.BaseModel):
     asn_region: str
+    default_vlan_ranges: List[str]
 
     _normalize_asn = pydantic.validator('asn_region', allow_reuse=True)(validate_asn)
+    _normalize_vlan_ranges = pydantic.validator('default_vlan_ranges',
+                                                each_item=True, allow_reuse=True)(validate_vlan_ranges)
 
 
 class DriverConfig(pydantic.BaseModel):
