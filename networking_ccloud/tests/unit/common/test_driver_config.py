@@ -108,6 +108,18 @@ class TestDriverConfigValidation(base.TestCase):
                                config.Hostgroup, binding_hosts=["seagull-compute"],
                                members=[config.SwitchPort(switch="seagull-sw1")])
 
+    def test_global_default_vlan_ranges(self):
+        self.assertRaisesRegex(ValueError, ".*not in format.*", config.GlobalConfig, asn_region=65000,
+                               default_vlan_ranges=["foo:bar"])
+        self.assertRaisesRegex(ValueError, ".*need to be in range.*", config.GlobalConfig, asn_region=65000,
+                               default_vlan_ranges=["123:456789"])
+        self.assertRaisesRegex(ValueError, ".*needs to have a start that.*", config.GlobalConfig, asn_region=65000,
+                               default_vlan_ranges=["456:123"])
+
+        config.GlobalConfig(asn_region=65000, default_vlan_ranges=["2000:3750"])
+        config.GlobalConfig(asn_region=65000, default_vlan_ranges=["2000:2000"])
+        config.GlobalConfig(asn_region=65000, default_vlan_ranges=["100:200", "500:600"])
+
 
 class TestDriverConfig(base.TestCase):
     def setUp(self):
