@@ -450,7 +450,7 @@ The interface mode must be set to ‘tagged’ in order to server the ‘tagged_
           
           </div>
           <div class="row docs-byline bottom">
-            <div class="docs-updated">this page last updated: 2022-05-18 17:16:14</div>
+            <div class="docs-updated">this page last updated: 2022-05-19 15:50:40</div>
           </div>
           <div class="row">
             <div class="col-lg-8 col-md-8 col-sm-8 docs-license">
@@ -585,6 +585,21 @@ The interface mode must be set to ‘tagged’ in order to server the ‘tagged_
    */
 </script>
 
+
+<script type="text/javascript">
+    $(document).ready(function(){
+
+          $.ajax({
+            context: this,
+            dataType : "html",
+            url : "https://docs.openstack.org/latest/badge.html",
+            success : function(results) {
+                $('#deprecated-badge-container').html(results);
+            }
+        });
+    });
+</script>
+<div id="deprecated-badge-container"></div>
 
   </body>
 </html>
