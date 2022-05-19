@@ -55,7 +55,6 @@ class ConfigGenerator:
     switch_name_re = re.compile(r"^(?P<region>\w{2}-\w{2}-\d)-sw(?P<switchgroup_id>(?P<az>\d)"
                                 r"(?P<pod>\d)(?P<switchgroup>\d{2}))"
                                 r"(?P<leaf>[ab])(?:-(?P<role>[a-z]+(?P<seq_no>[0-9]+)?))$")
-    region = "qa-de-2"
     leaf_role = "evpn-leaf"
     spine_role = "evpn-spine"
     connection_roles = {"server", "neutron-router"}
