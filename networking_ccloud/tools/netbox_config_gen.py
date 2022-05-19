@@ -80,7 +80,8 @@ class ConfigGenerator:
             self.netbox.http_session = requests.Session()
             self.netbox.http_session.verify = False
 
-    def _ensure_single_item(self, item_set: Iterable[Any], entity: str, identifier: str, attribute: str) -> Any:
+    @classmethod
+    def _ensure_single_item(cls, item_set: Iterable[Any], entity: str, identifier: str, attribute: str) -> Any:
         if not isinstance(item_set, set):
             item_set = set(item_set)
         if len(item_set) != 1:
@@ -88,13 +89,14 @@ class ConfigGenerator:
                                         f'Unexpected values for {attribute}, expected 1 but got {len(item_set)}')
         return item_set.pop()
 
-    def parse_ccloud_switch_number_resources(self, device_name: str) -> Dict[str, int]:
+    @classmethod
+    def parse_ccloud_switch_number_resources(cls, device_name: str) -> Dict[str, int]:
         """Parse switch number resources specific to CCloud naming scheme
 
         Should return pod, switchgroup, leaf_no, az_no
         """
 
-        m = self.switch_name_re.match(device_name)
+        m = cls.switch_name_re.match(device_name)
 
         if not m:
             raise ConfigSchemeException(f"Could not match '{device_name}' to CCloud hostname scheme "
@@ -109,7 +111,8 @@ class ConfigGenerator:
             switchgroup_id=int(m.group('switchgroup_id'))
         )
 
-    def get_switchgroup_attributes(self, devices: List[NbRecord]) -> Dict[str, str]:
+    @classmethod
+    def get_switchgroup_attributes(cls, devices: List[NbRecord]) -> Dict[str, str]:
 
         attributes = dict()
         pod_roles = set()
@@ -119,7 +122,7 @@ class ConfigGenerator:
 
             # roles
             if device.tags:
-                pod_roles = set(filter(lambda x: x,  (self.pod_roles.get(x.slug, None) for x in device.tags)))
+                pod_roles = set(filter(lambda x: x,  (cls.pod_roles.get(x.slug, None) for x in device.tags)))
 
             # azs
             if not device.site:
@@ -130,10 +133,10 @@ class ConfigGenerator:
         if not pod_roles:
             return dict()
 
-        attributes['pod_role'] = self._ensure_single_item(pod_roles, 'Switchgroup',
-                                                          ', '.join((x.name for x in devices)), 'pod_roles')
-        attributes['az'] = self._ensure_single_item(azs, 'Switchgroup',
-                                                    ', '.join((x.name for x in devices)), 'azs')
+        attributes['pod_role'] = cls._ensure_single_item(pod_roles, 'Switchgroup',
+                                                         ', '.join((x.name for x in devices)), 'pod_roles')
+        attributes['az'] = cls._ensure_single_item(azs, 'Switchgroup',
+                                                   ', '.join((x.name for x in devices)), 'azs')
 
         return attributes
 
@@ -302,14 +305,15 @@ class ConfigGenerator:
                     hg.members.extend(members)
         return list(bgws.values())
 
-    def cluster_is_valid(self, cluster) -> bool:
+    @classmethod
+    def cluster_is_valid(cls, cluster) -> bool:
         if not cluster.name:
             print(f'Warning: Cluster {cluster.id} has no name - ignoring')
             return False
         if not cluster.type:
             print(f'Warning: Cluster {cluster.name} has no type - ignoring')
             return False
-        if cluster.type.slug not in {self.netbox_vpod_cluster_type}:
+        if cluster.type.slug not in {cls.netbox_vpod_cluster_type}:
             print(f'Warning: Cluster {cluster.name} has unsupported type {cluster.type.slug} - ignoring')
             return False
         return True
