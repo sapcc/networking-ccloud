@@ -135,6 +135,18 @@ class ConfigGenerator:
         )
 
     @classmethod
+    def sort_switchports(cls, switchports: List[conf.SwitchPort]) -> List[conf.SwitchPort]:
+
+        def keyfunc(sp: conf.SwitchPort) -> Tuple[Union[int, str]]:
+            if sp.name:
+                tokens = re.split(r"(\d+)", sp.name)
+                return tuple(int(x) if x.isdecimal() else x for x in tokens)
+            else:
+                return tuple(sp.switch)
+
+        return sorted(switchports, key=keyfunc)
+
+    @classmethod
     def get_switchgroup_attributes(cls, devices: List[NbRecord]) -> Dict[str, str]:
 
         attributes = dict()
@@ -224,6 +236,7 @@ class ConfigGenerator:
             # FIXME: Warn when a switchgroup is larger 2
             # we derive loopback1/asn from switch_number_resources which we already grouped on
             # so a switchgroup is guranteed to have the same values
+            members.sort(key=lambda x: x.name)
             numbered_resources = self.parse_ccloud_switch_number_resources(members[0].name)
             l3_data = self.get_l3_data(asn_region, **numbered_resources)
             sg_name = self.get_switchgroup_name(sg_attributes['pod_role'], numbered_resources['switchgroup_id'],
@@ -253,20 +266,7 @@ class ConfigGenerator:
                           f"device {far_device.name} port {iface.connected_endpoint.name} "
                           f"role {far_device.device_role.name}")
 
-                if iface.lag is not None:
-                    # We fill this list only if this filter comes back False, so this is assumed to be unique
-                    lags = filter(lambda x: x.switch == switch.name and x.name == iface.lag.name and x.lacp,
-                                  device_ports_map.get(far_device.name, []))
-                    lag: Optional[conf.SwitchPort] = next(lags, None)
-                    if lag:
-                        lag.members.append(iface.name)
-                    else:
-                        device_ports_map[far_device].append(conf.SwitchPort(switch=switch.name, lacp=True,
-                                                                            name=iface.lag.name, members=[iface.name]))
-                else:
-                    # not a lag
-                    device_ports_map[far_device].append(conf.SwitchPort(switch=switch.name, name=iface.name))
-        hgs = [conf.Hostgroup(binding_hosts=[h.name], direct_binding=True, members=m)
+        hgs = [conf.Hostgroup(binding_hosts=[h.name], direct_binding=True, members=self.sort_switchports(m))
                for h, m in device_ports_map.items()]
         return set(device_ports_map.keys()), hgs
 
@@ -370,6 +370,8 @@ class ConfigGenerator:
         for name, count in Counter(cluster_names).items():
             if count > 1:
                 raise ConfigException(f'Cluster {name} appeared {count} times')
+        for name, metagroup in metagroups.items():
+            metagroup.members.sort()  # type: ignore
         return list(metagroups.values())
 
     def generate_config(self):
@@ -379,11 +381,13 @@ class ConfigGenerator:
 
         nb_switches = list(self.switch_filter(self.netbox.dcim.devices.filter(region=self.region, role=self.leaf_role,
                                                                               status='active')))
-        interconnect_hostgroups = self.get_interconnect_hostgroups(nb_switches)
+        interconnect_hostgroups = sorted(self.get_interconnect_hostgroups(nb_switches),
+                                         key=lambda x: x.binding_hosts[0])
         asn_region = self.get_asn_region(self.region)
-        switchgroups = self.get_switchgroups(asn_region, nb_switches, switch_user, switch_password)
+        switchgroups = sorted(self.get_switchgroups(asn_region, nb_switches, switch_user, switch_password),
+                              key=lambda x: x.name)
         connected_devices, direct_hgs = self.get_connected_devices(nb_switches)
-        metagroups = self.get_metagroups(connected_devices)
+        metagroups = sorted(self.get_metagroups(connected_devices), key=lambda x: x.binding_hosts[0])
 
         binding_host_hg_map = {hg.binding_hosts[0]: hg for hg in direct_hgs}
 
@@ -394,7 +398,7 @@ class ConfigGenerator:
         binding_hosts_in_metagroup = set()
         hostgroups = list()
         for metagroup in metagroups:
-            for member in sorted(metagroup.members):  # type: ignore
+            for member in metagroup.members:  # type: ignore
                 direct_binding_host = binding_host_hg_map.get(member)  # type: ignore
                 if direct_binding_host:
                     hostgroups.append(direct_binding_host)
@@ -403,7 +407,7 @@ class ConfigGenerator:
                     # FIXME: Host does not exist
             hostgroups.append(metagroup)
 
-        missing_hosts = binding_host_hg_map.keys() - binding_hosts_in_metagroup
+        missing_hosts = sorted(binding_host_hg_map.keys() - binding_hosts_in_metagroup)
         for host in missing_hosts:
             hostgroups.append(binding_host_hg_map[host])
 
