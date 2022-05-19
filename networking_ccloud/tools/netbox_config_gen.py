@@ -36,6 +36,8 @@ SWITCHGROUP_ROLE_STPOD = 'st'
 SWITCHGROUP_ROLE_APOD = 'ap'
 SWITCHGROUP_ROLE_NETPOD = 'np'
 
+DEFAULT_VLAN_RANGES = ["2000:3750"]
+
 VAULT_REF_REPLACEMENT = 'VAULTER-WHITE-REPLACE-ME'
 
 
@@ -430,7 +432,7 @@ class ConfigGenerator:
 
         binding_host_hg_map = {hg.binding_hosts[0]: hg for hg in direct_hgs}
 
-        global_config = conf.GlobalConfig(asn_region=asn_region)
+        global_config = conf.GlobalConfig(asn_region=asn_region, default_vlan_ranges=DEFAULT_VLAN_RANGES)
 
         # FIXME: meta hostgroups based on device-role
         # FIXME: check that no hostgroup has switches from two different switchgroups
