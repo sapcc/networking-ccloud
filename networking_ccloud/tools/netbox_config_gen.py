@@ -19,7 +19,7 @@ import logging
 from operator import itemgetter
 import re
 import urllib3
-from typing import Any, Dict, Optional, List, Tuple, Set, Iterable
+from typing import Any, Dict, Optional, List, Tuple, Set, Iterable, Generator, Union
 
 import pynetbox
 from pynetbox.core.response import Record as NbRecord
@@ -59,6 +59,7 @@ class ConfigGenerator:
     leaf_role = "evpn-leaf"
     spine_role = "evpn-spine"
     connection_roles = {"server", "neutron-router"}
+    connection_tenants = {"converged-cloud"}
     pod_roles = {
         "cc-apod": SWITCHGROUP_ROLE_APOD,
         "cc-vpod": SWITCHGROUP_ROLE_VPOD,
@@ -67,6 +68,7 @@ class ConfigGenerator:
         "cnd-net-evpn-bg": c_const.DEVICE_TYPE_BGW,
         "cnd-net-evpn-tl": c_const.DEVICE_TYPE_TRANSIT,
     }
+    ignore_tags = {"cc-net-driver-ignore"}
     netbox_vpod_cluster_type = "cc-vsphere-prod"
 
     def __init__(self, region, args, verbose=False, verify_ssl=False):
@@ -79,6 +81,28 @@ class ConfigGenerator:
             urllib3.disable_warnings()
             self.netbox.http_session = requests.Session()
             self.netbox.http_session.verify = False
+
+    @classmethod
+    def _ignore_filter(cls, items: Iterable[NbRecord]) -> Generator[NbRecord, None, None]:
+        for item in items:
+            if any(x.slug in cls.ignore_tags for x in getattr(item, 'tags', list())):
+                print(f'Item {item.url} has ignore tag set')
+            else:
+                yield item
+
+    @classmethod
+    def switch_filter(cls, switches: Iterable[NbRecord]) -> Generator[NbRecord, None, None]:
+        for switch in cls._ignore_filter(switches):
+            tags = [x.slug for x in getattr(switch, 'tags', list())]
+            # ensure the switch has at least one tag that we care about
+            if not any((x in cls.pod_roles.keys() for x in tags)):
+                print(f"Device {switch.name} has none of the supported functional tags")
+                continue
+            if getattr(switch.platform, 'slug', None) not in c_const.PLATFORMS:
+                print(f"Warning: Device {switch.name} is of platform {getattr(switch.platform, 'slug', None)}, "
+                      "which is not supported by the driver/config generator")
+                continue
+            yield switch
 
     @classmethod
     def _ensure_single_item(cls, item_set: Iterable[Any], entity: str, identifier: str, attribute: str) -> Any:
@@ -164,15 +188,7 @@ class ConfigGenerator:
             raise ConfigException(f"Region {region} has multiple ASNs: {site_asns}")
         return site_asns.pop()
 
-    def make_switch(self, asn_region: int, switch: NbRecord, user: str, password: str) -> Optional[conf.Switch]:
-
-        # platform check!
-        platform = getattr(switch.platform, 'slug', None)
-        if platform not in c_const.PLATFORMS:
-            print(f"Warning: Device {switch.name} is of platform {platform}, "
-                  "which is not supported by the driver/config generator")
-            return None
-
+    def make_switch(self, asn_region: int, switch: NbRecord, user: str, password: str) -> conf.Switch:
         # use nb primary address for now, later this is probably going to be loopback10
         if not switch.primary_ip:
             raise ConfigSchemeException(f"Device {switch.name} does not have a usable primary address")
@@ -184,7 +200,7 @@ class ConfigGenerator:
         return conf.Switch(
             name=switch.name,
             host=host_ip,
-            platform=platform,
+            platform=getattr(switch.platform, 'slug'),
             bgp_source_ip=l3_data['loopback0'],
             user=user,
             password=password)
@@ -203,8 +219,7 @@ class ConfigGenerator:
             members = []
             for switch in group_switches:
                 conf_switch = self.make_switch(asn_region, switch, switch_user, switch_password)
-                if conf_switch:
-                    members.append(conf_switch)
+                members.append(conf_switch)
             if len(members) < 2:
                 raise ValueError(f'Switchgroup {switchgroup_id} has only 1 member')
             # FIXME: Warn when a switchgroup is larger 2
@@ -222,7 +237,7 @@ class ConfigGenerator:
     def get_connected_devices(self, switches: List[NbRecord]) -> Tuple[Set[NbRecord], List[conf.Hostgroup]]:
         device_ports_map: Dict[NbRecord, List[conf.SwitchPort]] = defaultdict(list)
         for switch in switches:
-            ifaces = self.netbox.dcim.interfaces.filter(device_id=switch.id, connection_status=True)
+            ifaces = self._ignore_filter(self.netbox.dcim.interfaces.filter(device_id=switch.id))
             for iface in ifaces:
                 # FIXME: ignore management, peerlink (maybe), unconnected ports
                 if iface.connected_endpoint is None:
@@ -230,6 +245,8 @@ class ConfigGenerator:
 
                 far_device = iface.connected_endpoint.device
                 if far_device.device_role.slug not in self.connection_roles:
+                    continue
+                if getattr(far_device.tenant, 'slug', None) not in self.connection_tenants:
                     continue
 
                 if self.verbose:
@@ -361,7 +378,8 @@ class ConfigGenerator:
         switch_user = self.args.switch_user
         switch_password = self.args.switch_password
 
-        nb_switches = list(self.netbox.dcim.devices.filter(region=self.region, role=self.leaf_role, status='active'))
+        nb_switches = list(self.switch_filter(self.netbox.dcim.devices.filter(region=self.region, role=self.leaf_role,
+                                                                              status='active')))
         interconnect_hostgroups = self.get_interconnect_hostgroups(nb_switches)
         asn_region = self.get_asn_region(self.region)
         switchgroups = self.get_switchgroups(asn_region, nb_switches, switch_user, switch_password)
