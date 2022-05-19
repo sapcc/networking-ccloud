@@ -19,7 +19,7 @@ import logging
 from operator import itemgetter
 import re
 import urllib3
-from typing import Any, Dict, Optional, List, Tuple, Set, Iterable, Generator, Union
+from typing import Any, Dict, Generator, Iterable, List, Optional, Set, Tuple, Union
 
 import pynetbox
 from pynetbox.core.response import Record as NbRecord
