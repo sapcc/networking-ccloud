@@ -147,6 +147,28 @@ class ConfigGenerator:
         return sorted(switchports, key=keyfunc)
 
     @classmethod
+    def handle_interface_or_portchannel(cls, iface: NbRecord, candidate_interfaces: List[conf.SwitchPort]):
+
+        device_name = iface.device.name  # type: ignore
+        if iface.lag is not None:
+            # make sure the Port-Channel is not ignored
+            if not next(cls._ignore_filter([iface.lag]), False):
+                return candidate_interfaces
+            # We fill this list only if this filter comes back False, so this is assumed to be unique
+            lags = filter(lambda x: x.switch == device_name and
+                          x.name == iface.lag.name and x.lacp, candidate_interfaces)  # type: ignore
+            lag: Optional[conf.SwitchPort] = next(lags, None)
+            if lag:
+                lag.members.append(iface.name)
+            else:
+                candidate_interfaces.append(conf.SwitchPort(switch=device_name, lacp=True,
+                                                            name=iface.lag.name, members=[iface.name]))
+        else:
+            # not a lag
+            candidate_interfaces.append(conf.SwitchPort(switch=device_name, name=iface.name))
+        return candidate_interfaces
+
+    @classmethod
     def get_switchgroup_attributes(cls, devices: List[NbRecord]) -> Dict[str, str]:
 
         attributes = dict()
@@ -266,23 +288,26 @@ class ConfigGenerator:
                           f"device {far_device.name} port {iface.connected_endpoint.name} "
                           f"role {far_device.device_role.name}")
 
+                ports_to_device = device_ports_map.get(far_device, [])
+                device_ports_map[far_device] = self.handle_interface_or_portchannel(iface, ports_to_device)
+
         hgs = [conf.Hostgroup(binding_hosts=[h.name], direct_binding=True, members=self.sort_switchports(m))
                for h, m in device_ports_map.items()]
         return set(device_ports_map.keys()), hgs
 
     def get_interconnect_hostgroups(self, nb_switches: List[NbRecord]) -> List[conf.Hostgroup]:
-        bgws: Dict[int, conf.Hostgroup] = dict()
+        interconnects: Dict[int, conf.Hostgroup] = dict()
         for nb_switch in nb_switches:
             roles = {self.pod_roles.get(t.slug) for t in getattr(nb_switch, 'tags', [])}
             if c_const.DEVICE_TYPE_BGW in roles:
                 switchgroup_id = self.parse_ccloud_switch_number_resources(nb_switch.name)['switchgroup_id']
                 swp = conf.SwitchPort(switch=nb_switch.name, name=None)
-                hg = bgws.get(switchgroup_id)
+                hg = interconnects.get(switchgroup_id)
                 if not hg:
                     hg = conf.Hostgroup(binding_hosts=[f'{c_const.DEVICE_TYPE_BGW}{switchgroup_id}'],
                                         handle_availability_zones=[getattr(nb_switch.site, 'slug', None)],
                                         role=c_const.DEVICE_TYPE_BGW, members=[swp])
-                    bgws[switchgroup_id] = hg
+                    interconnects[switchgroup_id] = hg
                 else:
                     hg.members.append(swp)  # type: ignore
             if c_const.DEVICE_TYPE_TRANSIT in roles:
@@ -297,29 +322,43 @@ class ConfigGenerator:
 
                 switchgroup_id = self.parse_ccloud_switch_number_resources(nb_switch.name)['switchgroup_id']
 
-                # Find all ACI connected interfaces and add them as members to the hg
-                # FIXME: also account for port-channel interfaces
-                members = list()
-                for iface in self.netbox.dcim.interfaces.filter(device_id=nb_switch.id,
-                                                                connected_endpoint_type='dcim.interface'):
+                # Find all interfaces connected to a device of type aci-leaf and add them as members to the hg
+                ifaces = self._ignore_filter(self.netbox.dcim.interfaces.filter(device_id=nb_switch.id))
+                aci_facing_ifaces = list()
+                for iface in ifaces:
                     connected_device_role = iface
                     for attr in ('connected_endpoint', 'device', 'device_role', 'slug'):
                         connected_device_role = getattr(connected_device_role, attr, None)
                     if not connected_device_role:
                         continue
                     if connected_device_role == "aci-leaf":
-                        members.append(conf.SwitchPort(switch=nb_switch.name, name=iface.name))
-                if not members:
+                        # This can be VPCs on ACI side, so it makes no sense to group on remote devices.
+                        # We just group them on the same port-channel name
+                        aci_facing_ifaces = self.handle_interface_or_portchannel(iface, aci_facing_ifaces)
+
+                if not aci_facing_ifaces:
                     raise ConfigException(f'{nb_switch.name} is labelled as transit but has no ACI facing interfaces')
-                hg = bgws.get(switchgroup_id)
+
+                if len(aci_facing_ifaces) > 1:
+                    raise ConfigException(f'On {nb_switch} found {", ".join(x.name for x in aci_facing_ifaces)} '
+                                          'facing to the same device. This must be a single Port-channel or it '
+                                          'might form a loop')
+
+                hg = interconnects.get(switchgroup_id)
                 if not hg:
                     hg = conf.Hostgroup(binding_hosts=[f'{c_const.DEVICE_TYPE_TRANSIT}{switchgroup_id}'],
                                         handle_availability_zones=handled_azs,
-                                        role=c_const.DEVICE_TYPE_TRANSIT, members=members)
-                    bgws[switchgroup_id] = hg
+                                        role=c_const.DEVICE_TYPE_TRANSIT, members=aci_facing_ifaces)
+                    interconnects[switchgroup_id] = hg
                 else:
-                    hg.members.extend(members)
-        return list(bgws.values())
+                    hg.members.extend(aci_facing_ifaces)
+
+        interconnects_with_sorted_members = list()
+        for interconnect in interconnects.values():
+            interconnect.members = self.sort_switchports(interconnect.members)  # type: ignore
+            interconnects_with_sorted_members.append(interconnect)
+
+        return interconnects_with_sorted_members
 
     @classmethod
     def cluster_is_valid(cls, cluster) -> bool:
