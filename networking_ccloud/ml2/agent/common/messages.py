@@ -268,7 +268,7 @@ class SwitchConfigUpdateList:
             self.add_binding_host_to_config(device_hg, device.network_id, vni, device_segment[ml2_api.SEGMENTATION_ID],
                                             is_bgw=device.device_type == cc_const.DEVICE_TYPE_BGW)
 
-    def execute(self, context):
+    def execute(self, context, synchronous=True):
         platform_updates = {}
         for scu in self.switch_config_updates.values():
             platform = self.drv_conf.get_switch_by_name(scu.switch_name).platform
@@ -279,6 +279,6 @@ class SwitchConfigUpdateList:
 
         for platform, updates in platform_updates.items():
             rpc_client = CCFabricSwitchAgentRPCClient.get_for_platform(platform)
-            rpc_client.apply_config_update(context, updates)
+            rpc_client.apply_config_update(context, updates, synchronous=synchronous)
 
         return True

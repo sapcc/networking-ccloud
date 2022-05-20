@@ -72,6 +72,8 @@ class CCFabricSwitchAgentRPCClient:
         cctxt = self.client.prepare()
         return cctxt.call(context, 'get_switch_status', switches=switches)
 
-    def apply_config_update(self, context, config):
+    def apply_config_update(self, context, config, synchronous=True):
         cctxt = self.client.prepare()
-        return cctxt.call(context, 'apply_config_update', config=[c.dict() for c in config])
+        meth_name = "call" if synchronous else "cast"
+        meth = getattr(cctxt, meth_name)
+        return meth(context, 'apply_config_update', config=[c.dict() for c in config])
