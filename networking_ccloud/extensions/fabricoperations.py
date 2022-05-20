@@ -193,10 +193,8 @@ class FabricNetworksController(wsgi.Controller):
         vni = top_segments[network_id]['segmentation_id']
 
         net_segments = self.fabric_plugin.get_hosts_on_segments(context, network_ids=[network_id])
-        if network_id not in net_segments:
-            raise web_exc.HTTPInternalServerError(f"Network id {network_id} has segments attached to it")
 
-        for binding_host, segment_1 in net_segments[network_id].items():
+        for binding_host, segment_1 in net_segments.get(network_id, {}).items():
             vlan = segment_1['segmentation_id']
             hg_config = self.drv_conf.get_hostgroup_by_host(binding_host)
             if not hg_config:
