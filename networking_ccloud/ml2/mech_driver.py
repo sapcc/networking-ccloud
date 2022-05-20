@@ -347,7 +347,7 @@ class CCFabricMechanismDriver(ml2_api.MechanismDriver, CCFabricDriverAPI):
                                             is_bgw=device_type == cc_const.DEVICE_TYPE_BGW)
             LOG.debug("Removing config for %s %s on network delete of %s", device_type, device_host, network_id)
 
-        if not scul.execute(context._plugin_context):
+        if not scul.execute(context._plugin_context, synchronous=False):
             LOG.warning("Deletion of network %s yielded no config updates!", network_id)
 
     def create_port_precommit(self, context):
@@ -526,6 +526,6 @@ class CCFabricMechanismDriver(ml2_api.MechanismDriver, CCFabricDriverAPI):
                                         segment_0[ml2_api.SEGMENTATION_ID], segment_1[ml2_api.SEGMENTATION_ID],
                                         trunk_vlan, keep_mapping, exclude_hosts)
 
-        if not scul.execute(context):
+        if not scul.execute(context, synchronous=False):
             LOG.warning("Update for host %s on %s yielded no config updates! add=%s, keep=%s, excl=%s",
                         binding_host, network_id, add, keep_mapping, exclude_hosts)
