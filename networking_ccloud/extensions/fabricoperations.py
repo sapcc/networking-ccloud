@@ -26,6 +26,7 @@ from neutron_lib import exceptions as nl_exc
 from neutron_lib.plugins import directory
 from neutron_lib.plugins.ml2 import api as ml2_api
 from oslo_log import log as logging
+from oslo_messaging import RemoteError
 from webob import exc as web_exc
 
 from networking_ccloud.common.config import get_driver_config
@@ -163,7 +164,10 @@ class FabricNetworksController(wsgi.Controller):
 
         LOG.info("Got API request for syncing network %s", network_id)
         scul = self._make_config_from_network(request.context, network_id)
-        config_generated = scul.execute(request.context)
+        try:
+            config_generated = scul.execute(request.context)
+        except RemoteError as e:
+            raise web_exc.HTTPInternalServerError(f"{e.exc_type} {e.value}")
         return {'sync_sent': config_generated}
 
     @check_cloud_admin
@@ -277,7 +281,10 @@ class SwitchesController(wsgi.Controller):
 
         LOG.info("Got API request for syncing switch %s", switch.name)
         scul = self._make_switch_config(request.context, switch, sg)
-        config_generated = scul.execute(request.context)
+        try:
+            config_generated = scul.execute(request.context)
+        except RemoteError as e:
+            raise web_exc.HTTPInternalServerError(f"{e.exc_type} {e.value}")
         return {'sync_sent': config_generated}
 
     @check_cloud_admin
@@ -292,7 +299,10 @@ class SwitchesController(wsgi.Controller):
                     # FIXME: exclude hosts
                     scul.add_binding_host_to_config(hg, inet.name, inet.vni, inet.vlan)
         self._clean_switches(scul, switch)
-        config_generated = scul.execute(request.context)
+        try:
+            config_generated = scul.execute(request.context)
+        except RemoteError as e:
+            raise web_exc.HTTPInternalServerError(f"{e.exc_type} {e.value}")
         return {'sync_sent': config_generated}
 
     def _add_device_info(self, context, switches):
