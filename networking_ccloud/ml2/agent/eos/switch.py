@@ -47,11 +47,11 @@ class EOSSwitch(SwitchBase):
 
             LOG.exception("Command failed in %.2fs on %s %s (even after retry), cmd: %s",
                           time.time() - start_time, self.name, self.host, cmd)
-            raise cc_exc.SwitchConnectionError(str(e))
+            raise cc_exc.SwitchConnectionError(f"{self.name} ({self.host}) {e}")
         except Exception as e:
             LOG.exception("Command failed in %.2fs on %s %s, cmd: %s",
                           time.time() - start_time, self.name, self.host, cmd)
-            raise cc_exc.SwitchConnectionError(str(e))
+            raise cc_exc.SwitchConnectionError(f"{self.name} ({self.host}) {e.__class__.__name__} {e}")
 
         LOG.debug("Command succeeded in %.2fs on %s %s, cmd: %s", time.time() - start_time, self.name, self.host, cmd)
 
