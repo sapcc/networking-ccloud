@@ -13,6 +13,8 @@
 #    under the License.
 
 from enum import Enum
+import ipaddress
+import re
 from typing import List
 
 from neutron_lib.plugins.ml2 import api as ml2_api
@@ -24,6 +26,52 @@ from networking_ccloud.common import constants as cc_const
 from networking_ccloud.ml2.agent.common.api import CCFabricSwitchAgentRPCClient
 
 LOG = logging.getLogger(__name__)
+
+
+def validate_route_target(rt) -> str:
+    # https://datatracker.ietf.org/doc/html/rfc4360#section-4
+    # https://datatracker.ietf.org/doc/html/rfc4364#section-4.2
+    if not isinstance(rt, str):
+        rt = str(rt)
+
+    if rt.isdecimal():
+        rt = int(rt)
+        if (rt >> 48) & 0xFF != 0x2:
+            raise ValueError("Route targets are extended attributes and need to have a 0x2 in the type field's "
+                             f"low order position - {rt} does not have this set (RFC 4360 sec 4)")
+        rt_type = rt >> 56
+        # 8byte rt
+        if rt_type == 0:
+            # 2 byte asn, 4byte admin field
+            a = (rt >> 32) & (2**16 - 1)
+            b = rt & (2**32 - 1)
+            rt = f"{a}:{b}"
+        elif rt_type == 1:
+            # 4 byte ip, 2byte admin field
+            a = (rt >> 16) & (2**32 - 1)
+            b = rt & (2**16 - 1)
+            rt = f"{ipaddress.ip_address(a)}:{b}"
+        elif rt_type == 2:
+            # 4 byte asn, 2byte admin field
+            a = (rt >> 16) & (2**32 - 1)
+            b = rt & (2**16 - 1)
+            if a > 2**16:
+                rt = f"{a >> 16}.{a & (2**16 - 1)}:{b}"
+            else:
+                rt = f"{a}:{b}"
+        else:
+            raise ValueError(f"Rt {rt} has invalid type {rt_type}, see RFC 4364 sec 4.2")
+    else:
+        # ip:num, asn:num, num:num
+        m = re.match(r"^(?P<first>(?:\d+\.\d+\.\d+\.\d+)|(?:\d+\.\d+)|(?:\d+)):(?P<second>\d+)$", rt)
+        if not m:
+            raise ValueError(f"RT '{rt}' is not in a recognizable format")
+        # automatically reformat cases where ASN is > 16bit to AS dot notation
+        first = m.group('first')
+        if first.isdecimal() and int(first) >= 2**16:
+            first = int(first)
+            rt = f"{first >> 16}.{first & (2**16 - 1)}:{m.group('second')}"
+    return rt
 
 
 class OperationEnum(str, Enum):
@@ -45,15 +93,24 @@ class VXLANMapping(pydantic.BaseModel):
 class BGPVlan(pydantic.BaseModel):
     # FIXME: validator
     rd: str
+    rd_evpn_domain_all: bool = False
     vlan: pydantic.conint(gt=0, lt=4094)
-    vni: pydantic.conint(gt=0, lt=2**24)
-    bgw_mode: bool = False
+
+    rt_imports: List[str] = []
+    rt_exports: List[str] = []
+    rt_imports_evpn: List[str] = []
+    rt_exports_evpn: List[str] = []
+
+    _norm_rt_imports = pydantic.validator('rt_imports', each_item=True, allow_reuse=True)(validate_route_target)
+    _norm_rt_exports = pydantic.validator('rt_exports', each_item=True, allow_reuse=True)(validate_route_target)
+    _norm_rt_imports_evpn = pydantic.validator('rt_imports_evpn',
+                                               each_item=True, allow_reuse=True)(validate_route_target)
+    _norm_rt_exports_evpn = pydantic.validator('rt_exports_evpn',
+                                               each_item=True, allow_reuse=True)(validate_route_target)
 
 
 class BGP(pydantic.BaseModel):
     asn: str
-
-    # regional asn (only used for bgws)
     asn_region: str
 
     vlans: List[BGPVlan] = None
@@ -61,13 +118,24 @@ class BGP(pydantic.BaseModel):
     _normalize_asn = pydantic.validator('asn', allow_reuse=True)(validate_asn)
     _normalize_asn_region = pydantic.validator('asn_region', allow_reuse=True)(validate_asn)
 
-    def add_vlan(self, rd, vlan, vni, bgw_mode=False):
+    def add_vlan(self, vlan, vni, bgw_mode=False):
+        # FIXME: raise if vni > 2byte (can't encode it in RT otherwise, write snarky commit message for that)
         if not self.vlans:
             self.vlans = []
+
+        rd = f"{self.asn}:{vni}"
         for bv in self.vlans:
-            if bv.rd == rd and bv.vlan == vlan and bv.vni == vni:
+            if bv.rd == rd and bv.vlan == vlan:
                 return
-        self.vlans.append(BGPVlan(rd=rd, vlan=vlan, vni=vni, bgw_mode=bgw_mode))
+
+        rt = f"{self.asn_region}:{vni}"
+        bvargs = dict(rt_imports=[rt], rt_exports=[rt])
+        if bgw_mode:
+            bvargs['rd_evpn_domain_all'] = True
+            bvargs['rt_imports_evpn'] = [rt]
+            bvargs['rt_exports_evpn'] = [rt]
+
+        self.vlans.append(BGPVlan(rd=rd, vlan=vlan, **bvargs))
 
 
 class VlanTranslation(pydantic.BaseModel):
@@ -200,7 +268,7 @@ class SwitchConfigUpdateList:
                 if not scu.bgp:
                     sg = self.drv_conf.get_switchgroup_by_switch_name(switch.name)
                     scu.bgp = BGP(asn=sg.asn, asn_region=self.drv_conf.global_config.asn_region)
-                scu.bgp.add_vlan(switch.get_rt(seg_vni), seg_vlan, seg_vni, bgw_mode=is_bgw)
+                scu.bgp.add_vlan(seg_vlan, seg_vni, bgw_mode=is_bgw)
 
             # vlan-vxlan mapping
             if seg_vni and (add or not keep_mapping):

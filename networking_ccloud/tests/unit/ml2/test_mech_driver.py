@@ -556,7 +556,7 @@ class TestCCFabricMechanismDriverInterconnects(CCFabricMechanismDriverTestBase):
                 self.assertEqual(1, len(s.vlans), "Only one VLAN config expected")
                 self.assertEqual(1, len(s.bgp.vlans))
                 if s.switch_name.startswith("bgw"):
-                    self.assertTrue(s.bgp.vlans[0].bgw_mode)
+                    self.assertTrue(s.bgp.vlans[0].rd_evpn_domain_all)
                 else:
                     # transit
                     for iface in s.ifaces:
