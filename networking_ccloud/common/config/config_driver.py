@@ -378,6 +378,13 @@ class Hostgroup(pydantic.BaseModel):
         return False
 
 
+class VRF(pydantic.BaseModel):
+    name: str
+
+    # magic number we use for vni, rt import/export calculation
+    number: pydantic.conint(gt=0)
+
+
 class AvailabilityZone(pydantic.BaseModel):
     name: str
     suffix: str
@@ -396,6 +403,7 @@ class GlobalConfig(pydantic.BaseModel):
     asn_region: str
     default_vlan_ranges: List[str]
     availability_zones: List[AvailabilityZone]
+    vrfs: List[VRF]
 
     _normalize_asn = pydantic.validator('asn_region', allow_reuse=True)(validate_asn)
     _normalize_vlan_ranges = pydantic.validator('default_vlan_ranges',

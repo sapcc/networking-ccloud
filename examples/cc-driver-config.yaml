@@ -6,6 +6,7 @@ global_config:
     - name: qa-de-2a
       suffix: a
       number: 1
+  vrfs: []
 
 hostgroups:
 - binding_hosts:
