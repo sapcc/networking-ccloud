@@ -2,6 +2,10 @@ global_config:
   asn_region: 65132
   default_vlan_ranges:
     - 2000:3750
+  availability_zones:
+    - name: qa-de-2a
+      suffix: a
+      number: 1
 
 hostgroups:
 - binding_hosts:

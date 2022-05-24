@@ -108,13 +108,29 @@ def make_interconnect(role, host, switch_base, handle_azs):
 
 def make_global_config(asn_region=65123, **kwargs):
     kwargs.setdefault("default_vlan_ranges", ["2000:3750"])
+    kwargs.setdefault("availability_zones", [])
     return config_driver.GlobalConfig(asn_region=asn_region, **kwargs)
+
+
+def make_azs(names):
+    azs = []
+    for name in names:
+        az_num = ord(name[-1]) - ord('a') + 1
+        azs.append(config_driver.AvailabilityZone(name=name, suffix=name[-1], number=az_num))
+    return azs
+
+
+def make_azs_from_switchgroups(switchgroups):
+    if switchgroups is None:
+        return []
+
+    return make_azs(az for az in set(sg.availability_zone for sg in switchgroups))
 
 
 # whole config
 def make_config(switchgroups=None, hostgroups=None, global_config=None):
     if not global_config:
-        global_config = make_global_config()
+        global_config = make_global_config(availability_zones=make_azs_from_switchgroups(switchgroups))
 
     return config_driver.DriverConfig(
         switchgroups=switchgroups or [],
