@@ -109,6 +109,7 @@ def make_interconnect(role, host, switch_base, handle_azs):
 def make_global_config(asn_region=65123, **kwargs):
     kwargs.setdefault("default_vlan_ranges", ["2000:3750"])
     kwargs.setdefault("availability_zones", [])
+    kwargs.setdefault("vrfs", [])
     return config_driver.GlobalConfig(asn_region=asn_region, **kwargs)
 
 

@@ -116,13 +116,14 @@ class TestDriverConfigValidation(base.TestCase):
         self.assertRaisesRegex(ValueError, ".*needs to have a start that.*", config.GlobalConfig, asn_region=65000,
                                default_vlan_ranges=["456:123"], availability_zones=[])
 
-        config.GlobalConfig(asn_region=65000, default_vlan_ranges=["2000:3750"], availability_zones=[])
-        config.GlobalConfig(asn_region=65000, default_vlan_ranges=["2000:2000"], availability_zones=[])
-        config.GlobalConfig(asn_region=65000, default_vlan_ranges=["100:200", "500:600"], availability_zones=[])
+        config.GlobalConfig(asn_region=65000, default_vlan_ranges=["2000:3750"], availability_zones=[], vrfs=[])
+        config.GlobalConfig(asn_region=65000, default_vlan_ranges=["2000:2000"], availability_zones=[], vrfs=[])
+        config.GlobalConfig(asn_region=65000, default_vlan_ranges=["100:200", "500:600"], availability_zones=[],
+                            vrfs=[])
 
     def test_all_switchgroup_azs_need_to_exist(self):
         global_config = config.GlobalConfig(asn_region=65000, default_vlan_ranges=["2000:3750"],
-                                            availability_zones=cfix.make_azs(["qa-de-1a"]))
+                                            availability_zones=cfix.make_azs(["qa-de-1a"]), vrfs=[])
         switchgroups = [
             cfix.make_switchgroup("seagull", availability_zone="qa-de-1a"),
             cfix.make_switchgroup("crow", availability_zone="qa-de-1b"),
