@@ -378,9 +378,24 @@ class Hostgroup(pydantic.BaseModel):
         return False
 
 
+class AvailabilityZone(pydantic.BaseModel):
+    name: str
+    suffix: str
+    number: pydantic.conint(gt=0, lt=10)  # needs to be one digit
+
+    @pydantic.validator('name')
+    def validate_name(cls, v):
+        return v.lower()
+
+    @pydantic.validator('suffix')
+    def validate_suffix(cls, v):
+        return v.lower()
+
+
 class GlobalConfig(pydantic.BaseModel):
     asn_region: str
     default_vlan_ranges: List[str]
+    availability_zones: List[AvailabilityZone]
 
     _normalize_asn = pydantic.validator('asn_region', allow_reuse=True)(validate_asn)
     _normalize_vlan_ranges = pydantic.validator('default_vlan_ranges',
@@ -496,6 +511,18 @@ class DriverConfig(pydantic.BaseModel):
 
         return values
 
+    @pydantic.root_validator
+    def ensure_all_switchgroup_azs_exist(cls, values):
+        if 'global_config' not in values:
+            return values
+        azs = [az.name for az in values['global_config'].availability_zones]
+        for sg in values.get('switchgroups', []):
+            if sg.availability_zone not in azs:
+                raise ValueError(f"SwitchGroup {sg.name} has invalid az {sg.availability_zone} - "
+                                 f"options are '{', '.join(azs)}'")
+
+        return values
+
     def get_platforms(self):
         """Get all platforms as a set used in the given config"""
         v = set()
@@ -558,4 +585,4 @@ class DriverConfig(pydantic.BaseModel):
                    if not (ignore_special and hg_config.role))
 
     def list_availability_zones(self):
-        return sorted(set(sg.availability_zone for sg in self.switchgroups))
+        return sorted(az.name for az in self.global_config.availability_zones)

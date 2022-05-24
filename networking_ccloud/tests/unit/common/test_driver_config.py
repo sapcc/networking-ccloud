@@ -82,7 +82,7 @@ class TestDriverConfigValidation(base.TestCase):
 
     def test_hostgroup_transit_always_services_own_az(self):
         # should work
-        gc = cfix.make_global_config()
+        gc = cfix.make_global_config(availability_zones=cfix.make_azs(["qa-de-1a", "qa-de-1b"]))
         sg = cfix.make_switchgroup("seagull", availability_zone="qa-de-1a")
         hg = config.Hostgroup(role="transit", handle_availability_zones=["qa-de-1a"], binding_hosts=["transit1"],
                               members=[config.SwitchPort(switch="seagull-sw1", name="e1/1/1")])
@@ -110,15 +110,25 @@ class TestDriverConfigValidation(base.TestCase):
 
     def test_global_default_vlan_ranges(self):
         self.assertRaisesRegex(ValueError, ".*not in format.*", config.GlobalConfig, asn_region=65000,
-                               default_vlan_ranges=["foo:bar"])
+                               default_vlan_ranges=["foo:bar"], availability_zones=[])
         self.assertRaisesRegex(ValueError, ".*need to be in range.*", config.GlobalConfig, asn_region=65000,
-                               default_vlan_ranges=["123:456789"])
+                               default_vlan_ranges=["123:456789"], availability_zones=[])
         self.assertRaisesRegex(ValueError, ".*needs to have a start that.*", config.GlobalConfig, asn_region=65000,
-                               default_vlan_ranges=["456:123"])
+                               default_vlan_ranges=["456:123"], availability_zones=[])
 
-        config.GlobalConfig(asn_region=65000, default_vlan_ranges=["2000:3750"])
-        config.GlobalConfig(asn_region=65000, default_vlan_ranges=["2000:2000"])
-        config.GlobalConfig(asn_region=65000, default_vlan_ranges=["100:200", "500:600"])
+        config.GlobalConfig(asn_region=65000, default_vlan_ranges=["2000:3750"], availability_zones=[])
+        config.GlobalConfig(asn_region=65000, default_vlan_ranges=["2000:2000"], availability_zones=[])
+        config.GlobalConfig(asn_region=65000, default_vlan_ranges=["100:200", "500:600"], availability_zones=[])
+
+    def test_all_switchgroup_azs_need_to_exist(self):
+        global_config = config.GlobalConfig(asn_region=65000, default_vlan_ranges=["2000:3750"],
+                                            availability_zones=cfix.make_azs(["qa-de-1a"]))
+        switchgroups = [
+            cfix.make_switchgroup("seagull", availability_zone="qa-de-1a"),
+            cfix.make_switchgroup("crow", availability_zone="qa-de-1b"),
+        ]
+        self.assertRaisesRegex(ValueError, ".*SwitchGroup crow has invalid az qa-de-1b.* options are.*qa-de-1a.*",
+                               cfix.make_config, switchgroups=switchgroups, hostgroups=[], global_config=global_config)
 
 
 class TestDriverConfig(base.TestCase):
