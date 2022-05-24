@@ -51,9 +51,20 @@ class TestSwitchConfigUpdate(base.TestCase):
 
         # bgp
         bgp = agent_msg.BGP(asn=65000, asn_region=65123)
-        bgp.add_vlan("foo", 23, 42)
-        bgp.add_vlan("foo", 23, 42)
+        bgp.add_vlan(23, 42)
+        bgp.add_vlan(23, 42)
         self.assertEqual(1, len(bgp.vlans))
-        bgp.add_vlan("foo", 13, 37)
-        bgp.add_vlan("bar", 23, 42)
+        bgp.add_vlan(13, 37)
+        bgp.add_vlan(23, 42)
+        bgp.add_vlan(100, 100)
         self.assertEqual(3, len(bgp.vlans))
+
+    def test_rt_validation(self):
+        # int conversion
+        self.assertEqual("65130:10091", agent_msg.validate_route_target("842681173419883"))
+        self.assertEqual("65000.1337:6667", agent_msg.validate_route_target(144957310991145483))
+        self.assertEqual("23.23.23.23:4242", agent_msg.validate_route_target("72645931930423442"))
+
+        # format fixing
+        self.assertEqual("65130.23:1234", agent_msg.validate_route_target("4268359703:1234"))
+        self.assertEqual("123:123", agent_msg.validate_route_target("123:123"))

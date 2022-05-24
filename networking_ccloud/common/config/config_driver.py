@@ -100,9 +100,6 @@ class Switch(pydantic.BaseModel):
 
         return v
 
-    def get_rt(self, vni):
-        return f"{self.bgp_source_ip}:{vni}"
-
 
 class HostgroupRole(str, Enum):
     transit = cc_const.DEVICE_TYPE_TRANSIT

@@ -144,20 +144,24 @@ class EOSSwitch(SwitchBase):
                 for bgp_vlan in config.bgp.vlans:
                     if config.operation in (Op.add, Op.replace):
                         commands.append(f"vlan {bgp_vlan.vlan}")
-                        if not bgp_vlan.bgw_mode:
-                            # default / vpod mode
-                            commands.append(f"rd {config.bgp.asn}:{bgp_vlan.vni}")
-                            # FIXME: do we need to replace existing import/export statement?
-                            commands.append(f"route-target import {config.bgp.asn_region}:{bgp_vlan.vni}")
-                            commands.append(f"route-target export {config.bgp.asn_region}:{bgp_vlan.vni}")
-                        else:
-                            # bgw
-                            commands.append(f"rd evpn domain all {config.bgp.asn}:{bgp_vlan.vni}")
-                            commands.append(f"route-target both {config.bgp.asn_region}:{bgp_vlan.vni}")
-                            commands.append("route-target import export evpn domain remote "
-                                            f"{config.bgp.asn_region}:{bgp_vlan.vni}")
-                        commands.append("redistribute learned")
 
+                        # rd
+                        if bgp_vlan.rd_evpn_domain_all:
+                            commands.append(f"rd evpn domain all {bgp_vlan.rd}")
+                        else:
+                            commands.append(f"rd {bgp_vlan.rd}")
+
+                        # route-targets
+                        for rt in bgp_vlan.rt_imports:
+                            commands.append(f"route-target import {rt}")
+                        for rt in bgp_vlan.rt_exports:
+                            commands.append(f"route-target export {rt}")
+                        for rt in bgp_vlan.rt_imports_evpn:
+                            commands.append(f"route-target import evpn domain remote {rt}")
+                        for rt in bgp_vlan.rt_exports_evpn:
+                            commands.append(f"route-target export evpn domain remote {rt}")
+
+                        commands.append("redistribute learned")
                         commands.append("exit")
                     else:
                         commands.append(f"no vlan {bgp_vlan.vlan}")
