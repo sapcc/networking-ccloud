@@ -14,9 +14,9 @@
 
 from collections import defaultdict, Counter
 import ipaddress
-from itertools import groupby
+from itertools import chain, groupby
 import logging
-from operator import itemgetter
+from operator import attrgetter, itemgetter
 import re
 import urllib3
 from typing import Any, Dict, Generator, Iterable, List, Optional, Set, Tuple, Union
@@ -113,6 +113,23 @@ class ConfigGenerator:
             raise ConfigSchemeException(f'{entity} identified by {identifier}: '
                                         f'Unexpected values for {attribute}, expected 1 but got {len(item_set)}')
         return item_set.pop()
+
+    def get_azs(self) -> List[conf.AvailabilityZone]:
+        azs = list()
+        for site in self.netbox.dcim.sites.filter(region=self.region):
+            suffix = site.slug[len(self.region):].lower()
+            number = ord(suffix) - ord('a') + 1
+            azs.append(conf.AvailabilityZone(name=site.slug, suffix=suffix, number=number))
+        return sorted(azs, key=attrgetter('number'))
+
+    def get_cloud_vrfs(self) -> List[conf.VRF]:
+        vrfs = list()
+        search_strings = ['CC-CLOUD', 'CC-MGMT']
+        nb_return = chain(*(self.netbox.ipam.vrfs.filter(q=x, tenant=self.connection_tenants) for x in search_strings))
+        for vrf in nb_return:
+            rd_suffix = int(vrf.rd[vrf.rd.find(':') + 1:])
+            vrfs.append(conf.VRF(name=vrf.name, number=rd_suffix))  # type: ignore
+        return sorted(vrfs, key=attrgetter('number'))
 
     @classmethod
     def parse_ccloud_switch_number_resources(cls, device_name: str) -> Dict[str, int]:
@@ -432,7 +449,8 @@ class ConfigGenerator:
 
         binding_host_hg_map = {hg.binding_hosts[0]: hg for hg in direct_hgs}
 
-        global_config = conf.GlobalConfig(asn_region=asn_region, default_vlan_ranges=DEFAULT_VLAN_RANGES)
+        global_config = conf.GlobalConfig(asn_region=asn_region, default_vlan_ranges=DEFAULT_VLAN_RANGES,
+                                          vrfs=self.get_cloud_vrfs(), availability_zones=self.get_azs())
 
         # FIXME: meta hostgroups based on device-role
         # FIXME: check that no hostgroup has switches from two different switchgroups
