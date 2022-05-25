@@ -126,7 +126,7 @@ class ConfigGenerator:
     def get_cloud_vrfs(self) -> List[conf.VRF]:
         vrfs = list()
         search_strings = ['CC-CLOUD', 'CC-MGMT']
-        nb_return = chain(*(self.netbox.ipam.vrfs.filter(q=x, tenant=self.connection_tenants) for x in search_strings))
+        nb_return = chain(*(self.netbox.ipam.vrfs.filter(q=x, tenant=self.tenants) for x in search_strings))
         for vrf in nb_return:
             rd_suffix = int(vrf.rd[vrf.rd.find(':') + 1:])
             vrfs.append(conf.VRF(name=vrf.name, number=rd_suffix))  # type: ignore
