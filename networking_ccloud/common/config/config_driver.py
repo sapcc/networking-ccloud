@@ -431,6 +431,24 @@ class GlobalConfig(pydantic.BaseModel):
     _normalize_vlan_ranges = pydantic.validator('default_vlan_ranges',
                                                 each_item=True, allow_reuse=True)(validate_vlan_ranges)
 
+    @pydantic.validator('vrfs')
+    def check_vrf_name_unique(cls, values):
+        names = set()
+        for vrf in values:
+            if vrf.name in names:
+                raise ValueError(f'VRF {vrf.name} is duplicated')
+            names.add(vrf.name)
+        return values
+
+    @pydantic.validator('vrfs')
+    def check_vrf_number_unique(cls, values):
+        nums = set()
+        for vrf in values:
+            if vrf.number in nums:
+                raise ValueError(f'VRF id {vrf.number} is duplicated on VRF {vrf.name}')
+            nums.add(vrf.number)
+        return values
+
 
 class DriverConfig(pydantic.BaseModel):
     global_config: GlobalConfig
