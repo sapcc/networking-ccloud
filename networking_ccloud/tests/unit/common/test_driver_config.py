@@ -151,6 +151,21 @@ class TestDriverConfigValidation(base.TestCase):
         self.assertRaisesRegex(ValueError, exc, config.InfraNetwork, name='i-am-a-network-address', vlan=1202,
                                vni=1202, vrf='DHCP-VRF', networks=['1.2.3.0/24'])
 
+    def test_infra_network_vrf_presence(self):
+        vrfs = cfix.make_vrfs(['ROUTE-ME', 'SWITCH-ME'])
+        infra_net_ok = config.InfraNetwork(name='l3-correct-vrf', vlan=1202, vni=1202, vrf='ROUTE-ME')
+        infra_net_bad = config.InfraNetwork(name='l3-incorrect-vrf', vlan=1202, vni=1202, vrf='DROP-ME')
+        infra_net_l2 = config.InfraNetwork(name='l2', vlan=1202, vni=1202)
+
+        switchgroup = cfix.make_switchgroup('aint-no-cisco-if-it-doesnt-crash')
+        global_config = cfix.make_global_config(availability_zones=cfix.make_azs_from_switchgroups([switchgroup]),
+                                                vrfs=vrfs)
+        hostgroups = cfix.make_hostgroups(switchgroup, infra_networks=[infra_net_ok, infra_net_bad, infra_net_l2])
+
+        self.assertRaisesRegex(ValueError, "Associated VRF DROP-ME of infra network l3-incorrect-vrf is not existing",
+                               config.DriverConfig, switchgroups=[switchgroup], hostgroups=hostgroups,
+                               global_config=global_config)
+
 
 class TestDriverConfig(base.TestCase):
     def setUp(self):

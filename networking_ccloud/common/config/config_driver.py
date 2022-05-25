@@ -553,6 +553,22 @@ class DriverConfig(pydantic.BaseModel):
 
         return values
 
+    @pydantic.root_validator
+    def ensure_all_infra_network_vrf_exist(cls, values):
+        if 'global_config' not in values:
+            return values
+        if 'hostgroups' not in values:
+            return values
+        global_config:  GlobalConfig = values['global_config']
+        hgs: List[Hostgroup] = values['hostgroups']
+        vrf_names = set(x.name for x in global_config.vrfs)
+        for hg in hgs:
+            if hg.infra_networks:
+                for net in hg.infra_networks:
+                    if net.vrf and net.vrf not in vrf_names:
+                        raise ValueError(f'Associated VRF {net.vrf} of infra network {net.name} is not existing')
+        return values
+
     def get_platforms(self):
         """Get all platforms as a set used in the given config"""
         v = set()
