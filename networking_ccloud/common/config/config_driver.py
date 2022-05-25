@@ -196,20 +196,42 @@ class SwitchPort(pydantic.BaseModel):
 
 class InfraNetwork(pydantic.BaseModel):
     name: str
-    native_vlan_pool: str = None
-    vlan: pydantic.conint(gt=0, lt=4096)
-    networks: List[str] = None
-    vni: pydantic.conint(gt=0, lt=2**24) = None
+    vlan: pydantic.conint(gt=1, lt=4095)
+    vrf: str = None
+    networks: List[str] = []
+    vni: pydantic.conint(gt=0, lt=2**24)
     untagged: bool = False
-    dhcp_relays: List[str] = None
+    dhcp_relays: List[str] = []
 
-    _normalize_networks = pydantic.validator('networks', each_item=True, allow_reuse=True)(validate_ip_address)
+    _normalize_relays = pydantic.validator('dhcp_relays', each_item=True, allow_reuse=True)(validate_ip_address)
+
+    def __hash__(self) -> int:
+        return hash((self.name, self.vlan, self.vrf, tuple(self.networks),
+                    self.vni, self.untagged, tuple(self.dhcp_relays)))
+
+    @pydantic.validator('networks', each_item=True)
+    def ensure_host_bit_set(cls, net):
+        net = ipaddress.ip_interface(net)
+        if str(net) == str(net.network):
+            raise ValueError(f'Network {net} is supposed to be used as gateway and hence needs hosts bits set')
+        return str(net)
 
     @pydantic.root_validator
     def ensure_correct_value_combination(cls, values):
-        # FIXME: we probably need a different logic here
-        if bool(values.get('vni')) ^ bool(values.get('networks')):
-            raise ValueError("If network is set vni needs to be set and vice versa")
+        if len(values.get('networks')) > 0 and not bool(values.get('vrf')):
+            raise ValueError("If network is given a VRF must be set too")
+        if len(values.get('dhcp_relays')) > 0 and not len(values.get('networks')) > 0:
+            raise ValueError("If dhcp_relays is given a network must be present too")
+        return values
+
+    @pydantic.root_validator
+    def ensure_dhcp_relay_not_in_networks(cls, values):
+        for network in values.get('networks', []):
+            network = ipaddress.ip_interface(network)
+            for relay in values.get('dhcp_relays', []):
+                relay = ipaddress.ip_address(relay)
+                if relay in network.network:
+                    raise ValueError(f'dhcp_relay {relay} is contained in network {network}')
         return values
 
 

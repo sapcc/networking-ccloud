@@ -60,7 +60,8 @@ class ConfigGenerator:
     leaf_role = "evpn-leaf"
     spine_role = "evpn-spine"
     connection_roles = {"server", "neutron-router"}
-    connection_tenants = {"converged-cloud"}
+    infra_network_vrf = 'CC-MGMT'
+    tenants = {"converged-cloud"}
     pod_roles = {
         "cc-apod": SWITCHGROUP_ROLE_APOD,
         "cc-vpod": SWITCHGROUP_ROLE_VPOD,
@@ -187,6 +188,56 @@ class ConfigGenerator:
             candidate_interfaces.append(conf.SwitchPort(switch=device_name, name=iface.name))
         return candidate_interfaces
 
+    def get_svi_ips_per_vlan(self, device: NbRecord) -> Dict[NbRecord, List[NbRecord]]:
+        all_ips = self.netbox.ipam.ip_addresses.filter(device_id=device.id, role='anycast')
+        vlan_ips = defaultdict(list)
+        for ip in all_ips:
+            if ip.assigned_object.untagged_vlan:
+                vlan_ips[ip.assigned_object.untagged_vlan].append(ip)
+        return vlan_ips
+
+    def make_infra_networks(self, iface: NbRecord, svis: Dict[NbRecord, List[NbRecord]]) -> Set[conf.InfraNetwork]:
+
+        # lag superseeds physcal interface
+        infra_nets = set()
+        if iface.lag:
+            iface = iface.lag
+
+        # FIXME: support untagged VLANs
+        # FIXME: support DHCP relay
+        for vlan in getattr(iface, 'tagged_vlans', list()):
+            mandatory_attrs = ('vid', 'tenant')
+            for attr in mandatory_attrs:
+                if not getattr(vlan, attr, None):
+                    raise ConfigException(f'VLAN {vlan.id} has no attribute {attr}')
+            if vlan.tenant.slug not in self.tenants:
+                continue
+            if not getattr(vlan, 'group', None):
+                raise ConfigException(f'vlan {vlan.id} has no VLAN group')
+            m = re.match(r'.*?(\d+)$', vlan.group.slug)  # expects something like cc-vpod271
+            if not m:
+                raise ConfigException(f'vlan group {vlan.group.id} must end with digits identifying the bb/np/stp')
+            pod_sequence = int(m.group(1))
+            # took this from the excel, this might change
+            vni = int(f'10{pod_sequence:03d}{vlan.vid:03d}')
+            # make sure that the svi interface's address actually resides in the correct prefix
+            networks = list()
+            for gateway in svis[vlan]:
+                prefix = ipaddress.ip_network(gateway.address, strict=False)
+                if not self.netbox.ipam.prefixes.get(vlan_id=vlan.id, prefix=prefix.with_prefixlen):
+                    raise ConfigException(f'Vlan {vlan.id} bound on interface {iface.id} is l3 enabled, but SVI '
+                                          f'interface\'s address {gateway.address} address does not reside in the '
+                                          'vlan\'s assigned prefix')
+                if not gateway.vrf or gateway.vrf.name != self.infra_network_vrf:
+                    raise ConfigException('Gateway address with ID {gateway.id} does not reside in VRF'
+                                          f'{gateway.vrf} but must for InfraNetwork')
+                networks.append(gateway.address)
+
+            infra_net = conf.InfraNetwork(name=f'bb{pod_sequence}-{vlan.name.lower().replace(" ", "-")}',
+                                          vlan=vlan.vid, vrf=self.infra_network_vrf, networks=networks, vni=vni)
+            infra_nets.add(infra_net)
+        return infra_nets
+
     @classmethod
     def get_switchgroup_attributes(cls, devices: List[NbRecord]) -> Dict[str, str]:
 
@@ -289,7 +340,9 @@ class ConfigGenerator:
 
     def get_connected_devices(self, switches: List[NbRecord]) -> Tuple[Set[NbRecord], List[conf.Hostgroup]]:
         device_ports_map: Dict[NbRecord, List[conf.SwitchPort]] = defaultdict(list)
+        device_infra_nets_map: Dict[NbRecord, Set[conf.InfraNetwork]] = dict()
         for switch in switches:
+            svi_vlan_ip_map = self.get_svi_ips_per_vlan(switch)
             ifaces = self._ignore_filter(self.netbox.dcim.interfaces.filter(device_id=switch.id))
             for iface in ifaces:
                 # FIXME: ignore management, peerlink (maybe), unconnected ports
@@ -299,7 +352,7 @@ class ConfigGenerator:
                 far_device = iface.connected_endpoint.device
                 if far_device.device_role.slug not in self.connection_roles:
                     continue
-                if getattr(far_device.tenant, 'slug', None) not in self.connection_tenants:
+                if getattr(far_device.tenant, 'slug', None) not in self.tenants:
                     continue
 
                 if self.verbose:
@@ -308,9 +361,17 @@ class ConfigGenerator:
                           f"role {far_device.device_role.name}")
 
                 ports_to_device = device_ports_map.get(far_device, [])
+                # ensure InfraNetworks are symmetric
+                infra_nets = self.make_infra_networks(iface, svi_vlan_ip_map)
+                if far_device in device_infra_nets_map:
+                    if device_infra_nets_map[far_device] != infra_nets:
+                        raise ConfigException(f'Host {far_device.name} has asymmetric infra networks on both switches')
+                else:
+                    device_infra_nets_map[far_device] = infra_nets
                 device_ports_map[far_device] = self.handle_interface_or_portchannel(iface, ports_to_device)
 
-        hgs = [conf.Hostgroup(binding_hosts=[h.name], direct_binding=True, members=self.sort_switchports(m))
+        hgs = [conf.Hostgroup(binding_hosts=[h.name], direct_binding=True, members=self.sort_switchports(m),
+                              infra_networks=sorted(device_infra_nets_map[h], key=lambda x: x.vlan))
                for h, m in device_ports_map.items()]
         return set(device_ports_map.keys()), hgs
 
@@ -432,6 +493,28 @@ class ConfigGenerator:
             metagroup.members.sort()  # type: ignore
         return list(metagroups.values())
 
+    @classmethod
+    def purge_infranetworks_on_metagroup(cls, metagroup: conf.Hostgroup, member_hgs: List[conf.Hostgroup]):
+        if not metagroup.metagroup:
+            raise ValueError('Argument metagroup must be a metagroup')
+        metagroup_members = set(metagroup.members)
+        members_hgs_binding_hosts = set(x.binding_hosts[0] for x in member_hgs)
+        if metagroup_members != members_hgs_binding_hosts:
+            raise ValueError("'member_hgs.binding_host[0]' and metagroup.members are not matching")
+
+        minimum_common_infra_nets = set(member_hgs[0].infra_networks)
+        for member in member_hgs:
+            minimum_common_infra_nets.intersection_update(member.infra_networks)
+
+        # purge them from the member_hgs
+        for member in member_hgs:
+            remaining_infra_nets = list()
+            for infra_net in member.infra_networks:
+                if infra_net not in minimum_common_infra_nets:
+                    remaining_infra_nets.append(infra_net)
+            member.infra_networks = remaining_infra_nets if remaining_infra_nets else None  # type: ignore
+        metagroup.infra_networks = sorted(minimum_common_infra_nets, key=attrgetter('vlan'))
+
     def generate_config(self):
 
         switch_user = self.args.switch_user
@@ -457,13 +540,11 @@ class ConfigGenerator:
         binding_hosts_in_metagroup = set()
         hostgroups = list()
         for metagroup in metagroups:
-            for member in metagroup.members:  # type: ignore
-                direct_binding_host = binding_host_hg_map.get(member)  # type: ignore
-                if direct_binding_host:
-                    hostgroups.append(direct_binding_host)
-                    binding_hosts_in_metagroup.add(direct_binding_host.binding_hosts[0])
-                    # FIXME: Host in multiple metagroups
-                    # FIXME: Host does not exist
+            direct_binding_hosts = [binding_host_hg_map[member] for member in metagroup.members  # type: ignore
+                                    if binding_host_hg_map.get(member)]  # type: ignore
+            binding_hosts_in_metagroup.update(x.binding_hosts[0] for x in direct_binding_hosts)
+            self.purge_infranetworks_on_metagroup(metagroup, direct_binding_hosts)
+            hostgroups.extend(direct_binding_hosts)
             hostgroups.append(metagroup)
 
         missing_hosts = sorted(binding_host_hg_map.keys() - binding_hosts_in_metagroup)

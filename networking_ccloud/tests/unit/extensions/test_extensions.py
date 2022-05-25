@@ -83,9 +83,8 @@ class TestNetworkExtension(test_segment.SegmentTestCase, base.PortBindingHelper)
                                   switch_vars=dict(platform=cc_const.PLATFORM_EOS)),
         ]
         seagull_infra_nets = [
-            # FIXME: networks entry needs to be a CIDR, but bug in config doesn't allow that
-            InfraNetwork(name="infra_net_l3", vlan=23, networks=["10.23.42.1"], vni=6667),
-            InfraNetwork(name="infra_net_vlan", vlan=42),
+            InfraNetwork(name="infra_net_l3", vlan=23, networks=["10.23.42.1/24"], vrf='PRIVATE-VRF', vni=6667),
+            InfraNetwork(name="infra_net_vlan", vlan=42, vni=14),
         ]
         hg_seagull = cfix.make_metagroup("seagull", meta_kwargs={'infra_networks': seagull_infra_nets})
         hg_crow = cfix.make_metagroup("crow")

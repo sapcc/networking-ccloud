@@ -131,6 +131,26 @@ class TestDriverConfigValidation(base.TestCase):
         self.assertRaisesRegex(ValueError, ".*SwitchGroup crow has invalid az qa-de-1b.* options are.*qa-de-1a.*",
                                cfix.make_config, switchgroups=switchgroups, hostgroups=[], global_config=global_config)
 
+    def test_l3_infra_network_requires_vrf(self):
+        exc = 'If network is given a VRF must be set too'
+        self.assertRaisesRegex(ValueError, exc, config.InfraNetwork, name='where-did-the-vrf-go', vlan=1202,
+                               networks=['1.2.0.2/24'], vni=1202)
+
+    def test_infra_network_dhcp_requires_network(self):
+        exc = 'If dhcp_relays is given a network must be present too'
+        self.assertRaisesRegex(ValueError, exc, config.InfraNetwork, name='no-network-lot-cry', vlan=1202,
+                               vni=1202, vrf='DHCP-VRF', dhcp_relays=['1.2.3.4'])
+
+    def test_infra_network_dhcp_not_in_network(self):
+        exc = 'dhcp_relay .* is contained in network'
+        self.assertRaisesRegex(ValueError, exc, config.InfraNetwork, name='why-relay-me', vlan=1202,
+                               vni=1202, vrf='DHCP-VRF', dhcp_relays=['1.2.3.4'], networks=['1.2.3.5/24'])
+
+    def test_l3_infra_network_needs_host_bits(self):
+        exc = 'Network .* is supposed to be used as gateway and hence needs hosts bits set'
+        self.assertRaisesRegex(ValueError, exc, config.InfraNetwork, name='i-am-a-network-address', vlan=1202,
+                               vni=1202, vrf='DHCP-VRF', networks=['1.2.3.0/24'])
+
 
 class TestDriverConfig(base.TestCase):
     def setUp(self):
