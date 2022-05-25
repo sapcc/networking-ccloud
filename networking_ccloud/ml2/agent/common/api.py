@@ -41,6 +41,9 @@ class CCFabricSwitchAgentAPI:
     def apply_config_update(self, context, config):
         raise NotImplementedError
 
+    def get_switch_config(self, context, switches):
+        raise NotImplementedError
+
 
 class CCFabricSwitchAgentRPCClient:
     """Client side RPC interface definition for talking to switching agents
@@ -77,3 +80,7 @@ class CCFabricSwitchAgentRPCClient:
         meth_name = "call" if synchronous else "cast"
         meth = getattr(cctxt, meth_name)
         return meth(context, 'apply_config_update', config=[c.dict() for c in config])
+
+    def get_switch_config(self, context, switches=None):
+        cctxt = self.client.prepare()
+        return cctxt.call(context, 'get_switch_config', switches=switches)

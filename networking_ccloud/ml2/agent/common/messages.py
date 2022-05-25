@@ -211,13 +211,28 @@ class SwitchConfigUpdate(pydantic.BaseModel):
 
         return iface
 
-    def get_or_create_iface(self, switchport):
+    def get_iface(self, name):
         if self.ifaces is None:
             self.ifaces = []
 
         for iface in self.ifaces:
-            if iface.name == switchport.name:
+            if iface.name == name:
                 return iface
+        return None
+
+    def get_or_create_iface(self, name):
+        iface = self.get_iface(name)
+        if iface:
+            return iface
+
+        iface = IfaceConfig(name=name)
+        self.ifaces.append(iface)
+        return iface
+
+    def get_or_create_iface_from_switchport(self, switchport):
+        iface = self.get_iface(switchport.name)
+        if iface:
+            return iface
 
         iface = IfaceConfig.from_switchport(switchport)
         self.ifaces.append(iface)
@@ -278,7 +293,7 @@ class SwitchConfigUpdateList:
             # interface config
             if not is_bgw:
                 for sp in switchports:
-                    iface = scu.get_or_create_iface(sp)
+                    iface = scu.get_or_create_iface_from_switchport(sp)
                     iface.add_trunk_vlan(seg_vlan)
 
                     if hg_config.direct_binding and not hg_config.role:

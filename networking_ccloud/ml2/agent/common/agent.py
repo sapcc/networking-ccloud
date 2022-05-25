@@ -162,6 +162,18 @@ class CCFabricSwitchAgent(manager.Manager, cc_agent_api.CCFabricSwitchAgentAPI):
                 result['switches'][switch.name] = dict(reachable=False, error=str(e))
         return result
 
+    def get_switch_config(self, context, switches):
+        result = {'switches': {}}
+        for switch in self._switches:
+            if switches and switch.name not in switches:
+                continue
+            try:
+                config = switch.get_config().dict(exclude_unset=True, exclude_defaults=True)
+                result['switches'][switch.name] = dict(reachable=True, config=config)
+            except cc_exc.SwitchConnectionError as e:
+                result['switches'][switch.name] = dict(reachable=False, error=str(e))
+        return result
+
     def apply_config_update(self, context, config):
         result = {}
         for update in config:

@@ -52,5 +52,8 @@ class SwitchBase(abc.ABC):
     def get_switch_status(self):
         raise NotImplementedError
 
+    def get_config(self):
+        raise NotImplementedError
+
     def apply_config_update(self, config):
         raise NotImplementedError
