@@ -166,6 +166,19 @@ class TestDriverConfigValidation(base.TestCase):
                                config.DriverConfig, switchgroups=[switchgroup], hostgroups=hostgroups,
                                global_config=global_config)
 
+    def test_duplicate_vrf_name(self):
+        vrfs = cfix.make_vrfs(['ROUTE-ME', 'ROUTE-ME'])
+
+        self.assertRaisesRegex(ValueError, "VRF ROUTE-ME is duplicated",
+                               cfix.make_global_config, cfix.make_azs(['monster-az-a']), vrfs=vrfs)
+
+    def test_duplicate_vrf_id(self):
+        vrfs = cfix.make_vrfs(['ROUTE-ME', 'SWITCH-ME'])
+        vrfs[0].number = vrfs[1].number
+
+        self.assertRaisesRegex(ValueError, "VRF id 2 is duplicated on VRF SWITCH-ME",
+                               cfix.make_global_config, cfix.make_azs(['monster-az-a']), vrfs=vrfs)
+
 
 class TestDriverConfig(base.TestCase):
     def setUp(self):
