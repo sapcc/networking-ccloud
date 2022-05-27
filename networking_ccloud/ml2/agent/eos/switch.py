@@ -113,13 +113,27 @@ class EOSSwitch(SwitchBase):
         if config.vxlan_maps is not None:
             commands.append("interface Vxlan1")
 
-            if config.operation == Op.replace:
+            # handle already existing mappings
+            if config.operation in (Op.add, Op.replace):
                 # purge mappings that are on the device but shouldn't
-                wanted_maps = [(v.vlan, v.vni) for v in config.vxlan_maps]
                 curr_maps = self.send_cmd("show interfaces Vxlan1")['interfaces']['Vxlan1']['vlanToVniMap']
-                for vlan, data in curr_maps.items():
-                    if data.get('vni') and (int(vlan), data['vni']) not in wanted_maps:
-                        commands.append(f"no vxlan vlan {vlan} vni {data['vni']}")
+                if config.operation == Op.add:
+                    # purge mappings referenced by config update, but point to something else
+                    for vlan, data in curr_maps.items():
+                        switch_vlan = int(vlan)
+                        switch_vni = data['vni']
+                        for os_map in config.vxlan_maps:
+                            if (os_map.vlan == switch_vlan and os_map.vni != switch_vni) \
+                                    or (os_map.vni == switch_vni and os_map.vlan != switch_vlan):
+                                LOG.warning("Removing stale vxlan map <vni %s vlan %s> in favor of <vni %s vlan %s> "
+                                            "on switch %s (%s)",
+                                            switch_vni, switch_vlan, os_map.vni, os_map.vlan, self.name, self.host)
+                                commands.append(f"no vxlan vlan {vlan} vni {data['vni']}")
+                else:
+                    wanted_maps = [(v.vlan, v.vni) for v in config.vxlan_maps]
+                    for vlan, data in curr_maps.items():
+                        if data['vni'] and (int(vlan), data['vni']) not in wanted_maps:
+                            commands.append(f"no vxlan vlan {vlan} vni {data['vni']}")
 
             # add / remove requested mappings
             for vmap in config.vxlan_maps:
@@ -264,7 +278,7 @@ class EOSSwitch(SwitchBase):
         for vlan_name, data in curr_bgp_vlans.items():
             m = vre.match(vlan_name)
             if not m:
-                LOG.warning("Could not match bgp vpn instanec name '%s'", vlan_name)
+                LOG.warning("Could not match bgp vpn instance name '%s'", vlan_name)
                 continue
 
             bv = agent_msg.BGPVlan(rd=data['rd'], vlan=int(m.group('vlan')),

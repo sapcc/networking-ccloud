@@ -43,6 +43,12 @@ class TestEOSConfigUpdates(base.TestCase):
             ['configure', 'vlan 1000', 'name nest', 'exit', 'vlan 1001', 'name basket', 'exit', 'end'], format='json')
 
     def test_add_everything(self):
+        def execute(cmd, format='json'):
+            if cmd == "show interfaces Vxlan1":
+                return {"result": [{"interfaces": {"Vxlan1": {"vlanToVniMap": {"2121": {"vni": 31337}}}}}]}
+            return {"result": None}
+        self.switch._api.execute.side_effect = execute
+
         expected_config = [
             'configure',
             'vlan 1000',
@@ -186,6 +192,33 @@ class TestEOSConfigUpdates(base.TestCase):
         iface2 = messages.IfaceConfig(name="Ethernet23/1")
         iface2.add_trunk_vlan(1001)
         cu.add_iface(iface2)
+
+        self.switch.apply_config_update(cu)
+        self.switch._api.execute.assert_called_with(expected_config, format='json')
+
+    def test_add_vlan_map_with_existing(self):
+        def execute(cmd, format='json'):
+            if cmd == "show interfaces Vxlan1":
+                return {"result": [
+                    {"interfaces":
+                        {"Vxlan1":
+                            {"vlanToVniMap": {"2000": {"vni": 31337}, "2500": {"vni": 232323}, "2": {"vni": 3}}}}}]}
+            return {"result": None}
+        self.switch._api.execute.side_effect = execute
+
+        expected_config = [
+            'configure',
+            'interface Vxlan1',
+            'no vxlan vlan 2000 vni 31337',
+            'no vxlan vlan 2500 vni 232323',
+            'vxlan vlan add 1000 vni 232323',
+            'vxlan vlan add 2000 vni 424242',
+            'exit',
+            'end']
+
+        cu = messages.SwitchConfigUpdate(switch_name="seagull-sw1", operation=messages.OperationEnum.add)
+        cu.add_vxlan_map(232323, 1000)
+        cu.add_vxlan_map(424242, 2000)
 
         self.switch.apply_config_update(cu)
         self.switch._api.execute.assert_called_with(expected_config, format='json')
