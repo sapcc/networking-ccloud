@@ -264,6 +264,22 @@ class TestNetworkExtension(test_segment.SegmentTestCase, base.PortBindingHelper)
                 for iface in swcfg.ifaces:
                     self.assertEqual({111}, set(iface.trunk_vlans))
 
+    def test_switch_get_config(self):
+        with mock.patch.object(CCFabricSwitchAgentRPCClient, 'get_switch_config') as mock_gsc:
+            mock_gsc.return_value = {
+                'switches': {
+                    'seagull-sw1': {'reachable': True, 'config': {'operation': 'add', 'switch_name': 'seagull-sw1'}},
+                },
+            }
+            resp = self.app.get("/cc-fabric/switches/seagull-sw1/config")
+            expected = {
+                'reachable': True,
+                'config': {
+                    'switch_name': 'seagull-sw1',
+                },
+            }
+            self.assertEqual(expected, resp.json)
+
     def test_switchgroups(self):
         # index
         resp = self.app.get("/cc-fabric/switchgroups")
@@ -319,5 +335,30 @@ class TestNetworkExtension(test_segment.SegmentTestCase, base.PortBindingHelper)
             expected = {
                 'seagull-sw1': {'sync_sent': True},
                 'seagull-sw2': {'sync_sent': True},
+            }
+            self.assertEqual(expected, resp.json)
+
+    def test_switchgroup_get_config(self):
+        with mock.patch.object(CCFabricSwitchAgentRPCClient, 'get_switch_config') as mock_gsc:
+            mock_gsc.return_value = {
+                'switches': {
+                    'seagull-sw1': {'reachable': True, 'config': {'operation': 'add', 'switch_name': 'seagull-sw1'}},
+                    'seagull-sw2': {'reachable': True, 'config': {'operation': 'add', 'switch_name': 'seagull-sw2'}},
+                },
+            }
+            resp = self.app.get("/cc-fabric/switchgroups/seagull/config")
+            expected = {
+                'seagull-sw1': {
+                    'reachable': True,
+                    'config': {
+                        'switch_name': 'seagull-sw1',
+                    },
+                },
+                'seagull-sw2': {
+                    'reachable': True,
+                    'config': {
+                        'switch_name': 'seagull-sw2',
+                    },
+                },
             }
             self.assertEqual(expected, resp.json)
