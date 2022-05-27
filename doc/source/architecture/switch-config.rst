@@ -1,6 +1,6 @@
 Device Config
 ~~~~~~~~~~~~~
-This document describes the mapping of Openstack Neutron objects to device configuration including limits and supported feature combinations.
+This document describes the mapping of Openstack Neutron objects and Infra Networks to device configuration including limits and supported feature combinations.
 
 *********
 Network
@@ -1042,4 +1042,175 @@ Scaling Limits
      - 
    * - Static IPv4 Routes
      -
-     - 
+
+
+
+****************
+Infra Networks
+****************
+
+Infra Networks are layer 2 or layer 3 non Openstack backbone networks that are required for infrastructure readyness, such as management, replication or storage networks. Infra Networks will be bound by the driver, but will reside outside the regular segment range. Infra Networks can be AZ-local or regional. As Infra Networks are non Openstack objects, configuration for them will be provided via the `driver config`_.
+
+.. _`driver config`: ../configuration/config-driver
+
+
+Sample Infra Network Definition
+#################################
+Find the following example of an Infra Networks below nested in a :code:`hostgroup` object:
+
+.. code-block:: yaml
+
+  infra_networks:
+    - name: bb271-bb-console
+      networks:
+      - 10.247.22.1/25
+      vlan: 100
+      vni: 10271100
+      vrf: BB-MGMT
+    - name: bb271-replication
+      vlan: 101
+      vni: 10271101
+    - name: bb271-sync
+      vlan: 102
+      vni: 10371101
+      az_local: False
+    - name: bb271-bb-mgmt
+      networks:
+      - 10.247.22.129/25
+      vlan: 103
+      vni: 10271103
+      vrf: BB-MGMT
+      # only focusses if this network will be bound on interconnects l2-wise
+      # as the VRF does not support az-locality, all l3 endpoints will be known
+      # in the region
+      az_local: False  
+
+From the :code:`driver_config` we also know the VRF identification number:
+
+.. code-block:: yaml
+
+  vrfs:
+  - name: BB-MGMT
+    number: 300
+    supports_az_local: False
+
+The networks `bb271-bb-console` and `bb271-bb-mgmt` are layer 3 networks where the TORs will provide anycast gateway functionality while `bb271-replication` and `bb271-sync` are pure layer 2 network. Infra Networks are :code:`az_local` by default, the only regional networks thus are `bb271-bb-mgmt` and `bb271-bb-mgmt` which will be bound on interconnects too. Since, the VRF of `bb271-bb-mgmt` does not support az-locality, layer 3 routes will still be populated through the whole region.
+
+On Device configuration
+#######################
+
+aPOD/vPOD/stPOD/netPOD/bPOD/Transit leafs
+-----------------------------------------
+
+**EOS**:
+::
+
+  route-map RM-BB-MGMT
+    set extcommunity rt 65130:300
+  route-map RM-BB-MGMT-AGGREGATE
+    set extcommunity rt 65130:300 rt 65130:1
+
+  vrf instance BB-MGMT
+
+  ip routing vrf BB-MGMT
+
+  interface vlan 100
+    description bb271-bb-console
+    vrf BB-MGMT
+    ip address virtual 10.247.22.1/25
+
+  interface vlan 103
+    description bb271-bb-mgmt
+    vrf BB-MGMT
+    ip address virtual 10.247.22.129/25
+
+   interface Vxlan1
+      vxlan vlan 100 vni 10271100
+      vxlan vlan 101 vni 10227101
+      vxlan vlan 102 vni 10227102
+      vxlan vlan 103 vni 10227103
+      vxlan vrf BB-MGMT vni 300
+
+   vlan 100
+      name bb271-bb-console
+
+   vlan 101
+      name bb271-bb-replication
+
+   vlan 102
+      name bb271-bb-sync
+
+   vlan 103
+      name bb271-bb-mgmt
+
+   router bgp 65130.1112
+    vrf BB-MGMT
+      rd 65130.1112:300
+      route-target import evpn 65130:300
+      route-target export evpn 65130:300
+      # We are able to aggregate the 2x /25 into a /24, so we will
+      aggregate-address 10.247.22.0/24 route-map RM-BB-MGMT-AGGREGATE
+      network 10.247.22.0/25 route-map RM-BB-MGMT
+      network 10.247.22.128/25 route-map RM-BB-MGMT
+
+    vlan 100
+      # FIXME: this is uint is to big to fit the admin field of the RD/RT
+      rd 65130.1112:10271100
+      route-target both 65130.1:10271100
+      redistribute learned
+
+    vlan 101
+      # FIXME: this is uint is to big to fit the admin field of the RD/RT
+      rd 65130.1112:10271101
+      route-target both 65130.1:10271101
+      redistribute learned
+
+    vlan 102
+      # FIXME: this is uint is to big to fit the admin field of the RD/RT
+      rd 65130.1112:10271102
+      route-target both 65130.1:10271102
+      redistribute learned
+    
+    vlan 103
+      # FIXME: this is uint is to big to fit the admin field of the RD/RT
+      rd 65130.1112:10271103
+      route-target both 65130.1:10271103
+      redistribute learned
+
+**NX-OS**:
+::
+
+  # FIXME
+
+
+Border Gateway
+--------------
+Only applicable for regional networks.
+
+**EOS**:
+::
+
+   interface Vxlan1
+      vxlan vlan 102 vni 10227102
+      vxlan vlan 103 vni 10227103
+
+   vlan 102
+      name bb271-bb-sync
+
+   vlan 103
+      name bb271-bb-mgmt
+
+   router bgp 65130.1103
+      vlan 102
+        # FIXME: this is uint is to big to fit the admin field of the RD/RT
+        rd evpn domain all 65130.1103:10271102
+        route-target both 65130:10271102
+        route-target import export evpn domain remote 65130:10271102
+        redistribute learned
+      
+      vlan 103
+        # FIXME: this is uint is to big to fit the admin field of the RD/RT
+        rd evpn domain all 65130.1103:10271103
+        route-target both 65130:10271103
+        route-target import export evpn domain remote 65130:10271103
+        redistribute learned
