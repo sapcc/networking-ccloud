@@ -306,7 +306,6 @@ class TestNetworkExtension(test_segment.SegmentTestCase, base.PortBindingHelper)
             resp = self.app.get("/cc-fabric/switchgroups?device_info=1")
             sgs = resp.json
             self.assertEqual(7, len(sgs))
-            print(sgs[0])
             self.assertTrue("seagull", sgs[0]['members'][0]['device_info']['reachable'])
             self.assertEqual(14, mock_gss.call_count)
             mock_gss.reset_mock()
