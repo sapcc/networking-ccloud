@@ -1,10 +1,10 @@
 
 <!DOCTYPE html>
 
-<html>
+<html lang="en">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="generator" content="Docutils 0.17.1: http://docutils.sourceforge.net/" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="generator" content="Docutils 0.18.1: http://docutils.sourceforge.net/" />
 
     <title>Install and configure &#8212; networking-ccloud 0.0.0 documentation</title>
     <link rel="stylesheet" type="text/css" href="../_static/pygments.css" />
@@ -12,6 +12,7 @@
     <script data-url_root="../" id="documentation_options" src="../_static/documentation_options.js"></script>
     <script src="../_static/jquery.js"></script>
     <script src="../_static/underscore.js"></script>
+    <script src="../_static/_sphinx_javascript_frameworks_compat.js"></script>
     <script src="../_static/doctools.js"></script>
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
@@ -116,11 +117,11 @@ ga('send', 'pageview');
               <div class="docs-body" role="main">
 
   <section id="install-and-configure">
-<span id="install"></span><h1>Install and configure<a class="headerlink" href="#install-and-configure" title="Permalink to this headline">¶</a></h1>
+<span id="install"></span><h1>Install and configure<a class="headerlink" href="#install-and-configure" title="Permalink to this heading">¶</a></h1>
 <p>This section describes how to install and configure the
 Networking CCloud VXLAN Fabric service, code-named networking_ccloud, on the controller node.</p>
 <section id="installation">
-<h2>Installation<a class="headerlink" href="#installation" title="Permalink to this headline">¶</a></h2>
+<h2>Installation<a class="headerlink" href="#installation" title="Permalink to this heading">¶</a></h2>
 <p>Install the driver via pip into your system:</p>
 <blockquote>
 <div><div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp"># </span>pip install https://github.com/sapcc/networking-ccloud/
@@ -129,7 +130,7 @@ Networking CCloud VXLAN Fabric service, code-named networking_ccloud, on the con
 </div></blockquote>
 </section>
 <section id="neutron-configuration">
-<h2>Neutron Configuration<a class="headerlink" href="#neutron-configuration" title="Permalink to this headline">¶</a></h2>
+<h2>Neutron Configuration<a class="headerlink" href="#neutron-configuration" title="Permalink to this heading">¶</a></h2>
 <p>The driver needs to be included in your <code class="docutils literal notranslate"><span class="pre">mechanism_drivers</span></code>. Make sure that
 the driver is configured to be at the beginning of your drivers, else this might
 cause problems with the hierarchical portbinding.</p>
@@ -143,7 +144,7 @@ cause problems with the hierarchical portbinding.</p>
 cc-fabric for now.</p>
 </section>
 <section id="driver-configuration">
-<h2>Driver Configuration<a class="headerlink" href="#driver-configuration" title="Permalink to this headline">¶</a></h2>
+<h2>Driver Configuration<a class="headerlink" href="#driver-configuration" title="Permalink to this heading">¶</a></h2>
 <p>The configuration is split in two parts:
 1. The “oslo config” part, which contains some generic configuration and the path to the driver config
 2. The driver config</p>
@@ -152,7 +153,7 @@ switchgroups and the bindinghost &lt;–&gt; hostgroup mapping, amongst other st
 you can use <cite>cc-netbox-config-gen</cite> to generate a driver config.</p>
 </section>
 <section id="agent-configuration">
-<h2>Agent Configuration<a class="headerlink" href="#agent-configuration" title="Permalink to this headline">¶</a></h2>
+<h2>Agent Configuration<a class="headerlink" href="#agent-configuration" title="Permalink to this heading">¶</a></h2>
 <p>The switch agent takes care of all device configuration. You will need to
 start one agent per switch vendor. The agent takes the same configuration files
 as the ml2 driver, so make sure to supply it with the same driver config as the
@@ -181,7 +182,7 @@ access to the switches, all other information is ignored.</p>
           
           </div>
           <div class="row docs-byline bottom">
-            <div class="docs-updated">this page last updated: 2022-05-25 17:32:40</div>
+            <div class="docs-updated">this page last updated: 2022-05-27 15:56:15</div>
           </div>
           <div class="row">
             <div class="col-lg-8 col-md-8 col-sm-8 docs-license">

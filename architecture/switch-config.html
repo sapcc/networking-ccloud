@@ -1,10 +1,10 @@
 
 <!DOCTYPE html>
 
-<html>
+<html lang="en">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="generator" content="Docutils 0.17.1: http://docutils.sourceforge.net/" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="generator" content="Docutils 0.18.1: http://docutils.sourceforge.net/" />
 
     <title>Device Config &#8212; networking-ccloud 0.0.0 documentation</title>
     <link rel="stylesheet" type="text/css" href="../_static/pygments.css" />
@@ -12,6 +12,7 @@
     <script data-url_root="../" id="documentation_options" src="../_static/documentation_options.js"></script>
     <script src="../_static/jquery.js"></script>
     <script src="../_static/underscore.js"></script>
+    <script src="../_static/_sphinx_javascript_frameworks_compat.js"></script>
     <script src="../_static/doctools.js"></script>
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
@@ -116,29 +117,29 @@ ga('send', 'pageview');
               <div class="docs-body" role="main">
 
   <section id="device-config">
-<h1>Device Config<a class="headerlink" href="#device-config" title="Permalink to this headline">¶</a></h1>
+<h1>Device Config<a class="headerlink" href="#device-config" title="Permalink to this heading">¶</a></h1>
 <p>This document describes the mapping of Openstack Neutron objects to device configuration including limits and supported feature combinations.</p>
 <section id="network">
-<h2>Network<a class="headerlink" href="#network" title="Permalink to this headline">¶</a></h2>
+<h2>Network<a class="headerlink" href="#network" title="Permalink to this heading">¶</a></h2>
 <p>A Neutron Network is the basis for all other operations it is an assumed L2 broadcast domain.</p>
 <section id="overview">
-<h3>Overview<a class="headerlink" href="#overview" title="Permalink to this headline">¶</a></h3>
+<h3>Overview<a class="headerlink" href="#overview" title="Permalink to this heading">¶</a></h3>
 <p>This driver implements Neutron networks by way of establishing a 1:1 mapping between a Neutron Network and a VXLAN-EVPN VNI.
 The VNI ID is managed by the Neutron server and is recorded as top level segment in the neutron segments table for a specific network.The driver will on demand create sub-segments (hierarchical port binding) whenever a specific network is required on a EVPN leaf switch or group of leaf switches. Those sub segments include a segmentation ID of type VLAN which is the switch/group local VLAN ID which will be used for VNI to VLAN mapping by the driver.</p>
 <section id="single-az">
-<h4>Single AZ<a class="headerlink" href="#single-az" title="Permalink to this headline">¶</a></h4>
+<h4>Single AZ<a class="headerlink" href="#single-az" title="Permalink to this heading">¶</a></h4>
 <p>Single AZ networks are only configured within one EVPN domain. Inter-AZ traffic for single AZ
 networks is routed L3 only.</p>
 </section>
 <section id="multi-az">
-<h4>Multi AZ<a class="headerlink" href="#multi-az" title="Permalink to this headline">¶</a></h4>
+<h4>Multi AZ<a class="headerlink" href="#multi-az" title="Permalink to this heading">¶</a></h4>
 <p>Multi AZ networks span over multiple EVPN Domains, the network is extended between EVPN domains
 using EVPN border gateway or EVPN multi site functionality. The driver will configure ALL
 border gateways when the first port is going through ml2 port binding for a given network
 and will remove the configuration when the last port in the network is removed.</p>
 </section>
 <section id="workflow">
-<h4>Workflow<a class="headerlink" href="#workflow" title="Permalink to this headline">¶</a></h4>
+<h4>Workflow<a class="headerlink" href="#workflow" title="Permalink to this heading">¶</a></h4>
 <p>All fabric configuration is triggered by ml2 port binding requests, depending on the
 network settings the below workflow is triggered to determine the config and scope
 that is required to extend the neutron network to the devices.</p>
@@ -148,11 +149,11 @@ that is required to extend the neutron network to the devices.</p>
 </section>
 </section>
 <section id="legacy-fabric-integration">
-<h3>Legacy Fabric Integration<a class="headerlink" href="#legacy-fabric-integration" title="Permalink to this headline">¶</a></h3>
+<h3>Legacy Fabric Integration<a class="headerlink" href="#legacy-fabric-integration" title="Permalink to this heading">¶</a></h3>
 <p>The driver supports the integration with a legacy network fabric managed by
 another neutron driver in a multi-az environment.</p>
 <section id="legacy-driver-coordination">
-<h4>Legacy driver coordination<a class="headerlink" href="#legacy-driver-coordination" title="Permalink to this headline">¶</a></h4>
+<h4>Legacy driver coordination<a class="headerlink" href="#legacy-driver-coordination" title="Permalink to this heading">¶</a></h4>
 <p>The transit (a L2 trunk between fabrics) is used to connect the fabric to
 another network environment managed by a different ml2
 top level driver. The legacy driver and this driver (networking-ccloud) both
@@ -177,7 +178,7 @@ which has transits defined.</p>
 and is guaranteed to be solved in the underlying base configuration.</p>
 </section>
 <section id="legacy-fabric-interconnection">
-<h4>Legacy fabric interconnection<a class="headerlink" href="#legacy-fabric-interconnection" title="Permalink to this headline">¶</a></h4>
+<h4>Legacy fabric interconnection<a class="headerlink" href="#legacy-fabric-interconnection" title="Permalink to this heading">¶</a></h4>
 <p>The transit is done by having switch pairs connected back-to-back, one on
 each side and having the drivers coordinate on the VLANs used on both sides.
 Networking-ccloud will create the necessary segment, as it is on top of the hierarchy.
@@ -188,7 +189,7 @@ will schedule to the least used pair.</p>
 The following topology variations need to be supported, for below scenarios it is expected that the network is already in use in legacy.</p>
 </section>
 <section id="id1">
-<h4>Single AZ<a class="headerlink" href="#id1" title="Permalink to this headline">¶</a></h4>
+<h4>Single AZ<a class="headerlink" href="#id1" title="Permalink to this heading">¶</a></h4>
 <p>There exists only a single AZ and both fabrics are interconnected with one or more transit pairs.</p>
 <figure class="align-center">
 <a class="reference internal image-reference" href="../_images/legacy_fabric_type_single_az.svg"><img alt="../_images/legacy_fabric_type_single_az.svg" src="../_images/legacy_fabric_type_single_az.svg" width="300px" /></a>
@@ -204,7 +205,7 @@ The following topology variations need to be supported, for below scenarios it i
 </ul>
 </section>
 <section id="dual-az-with-dual-legacy-az">
-<h4>Dual AZ with Dual Legacy AZ<a class="headerlink" href="#dual-az-with-dual-legacy-az" title="Permalink to this headline">¶</a></h4>
+<h4>Dual AZ with Dual Legacy AZ<a class="headerlink" href="#dual-az-with-dual-legacy-az" title="Permalink to this heading">¶</a></h4>
 <p>There are two AZs and both have a legacy and a EVPN deployment.</p>
 <figure class="align-center">
 <a class="reference internal image-reference" href="../_images/legacy_fabric_type_dual_az.svg"><img alt="../_images/legacy_fabric_type_dual_az.svg" src="../_images/legacy_fabric_type_dual_az.svg" width="300px" /></a>
@@ -228,7 +229,7 @@ The following topology variations need to be supported, for below scenarios it i
 </ul>
 </section>
 <section id="dual-az-with-single-legacy-az">
-<h4>Dual AZ with Single Legacy AZ<a class="headerlink" href="#dual-az-with-single-legacy-az" title="Permalink to this headline">¶</a></h4>
+<h4>Dual AZ with Single Legacy AZ<a class="headerlink" href="#dual-az-with-single-legacy-az" title="Permalink to this heading">¶</a></h4>
 <p>There are two AZs and only one AZ has a legacy and a EVPN deployment.</p>
 <figure class="align-center">
 <a class="reference internal image-reference" href="../_images/legacy_fabric_type_dual_az_evpn.svg"><img alt="../_images/legacy_fabric_type_dual_az_evpn.svg" src="../_images/legacy_fabric_type_dual_az_evpn.svg" width="300px" /></a>
@@ -259,7 +260,7 @@ The following topology variations need to be supported, for below scenarios it i
 </ul>
 </section>
 <section id="multi-az-with-multi-legacy-az">
-<h4>Multi AZ with Multi Legacy AZ<a class="headerlink" href="#multi-az-with-multi-legacy-az" title="Permalink to this headline">¶</a></h4>
+<h4>Multi AZ with Multi Legacy AZ<a class="headerlink" href="#multi-az-with-multi-legacy-az" title="Permalink to this heading">¶</a></h4>
 <figure class="align-center">
 <a class="reference internal image-reference" href="../_images/legacy_fabric_type_multi_az.svg"><img alt="../_images/legacy_fabric_type_multi_az.svg" src="../_images/legacy_fabric_type_multi_az.svg" width="450px" /></a>
 </figure>
@@ -282,7 +283,7 @@ The following topology variations need to be supported, for below scenarios it i
 </ul>
 </section>
 <section id="multi-az-with-dual-legacy-az">
-<h4>Multi AZ with Dual Legacy AZ<a class="headerlink" href="#multi-az-with-dual-legacy-az" title="Permalink to this headline">¶</a></h4>
+<h4>Multi AZ with Dual Legacy AZ<a class="headerlink" href="#multi-az-with-dual-legacy-az" title="Permalink to this heading">¶</a></h4>
 <figure class="align-center">
 <a class="reference internal image-reference" href="../_images/legacy_fabric_type_multi_az_evpn.svg"><img alt="../_images/legacy_fabric_type_multi_az_evpn.svg" src="../_images/legacy_fabric_type_multi_az_evpn.svg" width="450px" /></a>
 </figure>
@@ -313,7 +314,7 @@ The following topology variations need to be supported, for below scenarios it i
 </section>
 </section>
 <section id="sample-driver-configuration">
-<h3>Sample Driver Configuration<a class="headerlink" href="#sample-driver-configuration" title="Permalink to this headline">¶</a></h3>
+<h3>Sample Driver Configuration<a class="headerlink" href="#sample-driver-configuration" title="Permalink to this heading">¶</a></h3>
 <div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="p">[</span><span class="n">ml2_cc_fabric</span><span class="p">]</span>
 <span class="n">regional_l3</span> <span class="o">=</span> <span class="n">false</span>
 <span class="n">az_l3</span> <span class="o">=</span> <span class="n">qa</span><span class="o">-</span><span class="n">de</span><span class="o">-</span><span class="mi">1</span><span class="n">d</span>
@@ -388,7 +389,7 @@ The following topology variations need to be supported, for below scenarios it i
 </div>
 </section>
 <section id="sample-network-definition">
-<h3>Sample Network Definition<a class="headerlink" href="#sample-network-definition" title="Permalink to this headline">¶</a></h3>
+<h3>Sample Network Definition<a class="headerlink" href="#sample-network-definition" title="Permalink to this heading">¶</a></h3>
 <div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="p">{</span>
   <span class="s2">&quot;admin_state_up&quot;</span><span class="p">:</span> <span class="n">true</span><span class="p">,</span>
   <span class="s2">&quot;availability_zones&quot;</span><span class="p">:</span> <span class="p">[</span>
@@ -434,7 +435,7 @@ The following topology variations need to be supported, for below scenarios it i
 </pre></div>
 </div>
 <section id="single-az-network">
-<h4>Single AZ Network<a class="headerlink" href="#single-az-network" title="Permalink to this headline">¶</a></h4>
+<h4>Single AZ Network<a class="headerlink" href="#single-az-network" title="Permalink to this heading">¶</a></h4>
 <p>Networks with a single AZ are identified by having a availability_zones list of size 1.
 Networks with multiple hints are not supported by the driver and will be rejected.</p>
 <div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="p">{</span>
@@ -480,7 +481,7 @@ Networks with multiple hints are not supported by the driver and will be rejecte
 </div>
 </section>
 <section id="multi-az-network">
-<h4>Multi AZ Network<a class="headerlink" href="#multi-az-network" title="Permalink to this headline">¶</a></h4>
+<h4>Multi AZ Network<a class="headerlink" href="#multi-az-network" title="Permalink to this heading">¶</a></h4>
 <p>Networks with multiple AZs are identified by having a availability_zones list of size N,
 meaning all possible AZs of the region. Networks only spanning some but not all AZs are not supported by the driver.
 Regional networks are expected to not have an AZ hint set.</p>
@@ -498,9 +499,9 @@ Regional networks are expected to not have an AZ hint set.</p>
 </section>
 </section>
 <section id="on-device-configuration">
-<h3>On Device configuration<a class="headerlink" href="#on-device-configuration" title="Permalink to this headline">¶</a></h3>
+<h3>On Device configuration<a class="headerlink" href="#on-device-configuration" title="Permalink to this heading">¶</a></h3>
 <section id="apod-vpod-stpod-netpod-bpod-transit-leafs">
-<h4>aPOD/vPOD/stPOD/netPOD/bPOD/Transit leafs<a class="headerlink" href="#apod-vpod-stpod-netpod-bpod-transit-leafs" title="Permalink to this headline">¶</a></h4>
+<h4>aPOD/vPOD/stPOD/netPOD/bPOD/Transit leafs<a class="headerlink" href="#apod-vpod-stpod-netpod-bpod-transit-leafs" title="Permalink to this heading">¶</a></h4>
 <p><strong>EOS</strong>:</p>
 <div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">interface</span> <span class="n">Vxlan1</span>
    <span class="n">vxlan</span> <span class="n">vlan</span> <span class="mi">3150</span> <span class="n">vni</span> <span class="mi">10394</span>
@@ -534,7 +535,7 @@ Regional networks are expected to not have an AZ hint set.</p>
 </div>
 </section>
 <section id="border-gateway">
-<h4>Border Gateway<a class="headerlink" href="#border-gateway" title="Permalink to this headline">¶</a></h4>
+<h4>Border Gateway<a class="headerlink" href="#border-gateway" title="Permalink to this heading">¶</a></h4>
 <p>Only applicable for regional networks.</p>
 <p><strong>EOS</strong>:</p>
 <div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">interface</span> <span class="n">Vxlan1</span>
@@ -556,7 +557,7 @@ Regional networks are expected to not have an AZ hint set.</p>
 </section>
 </section>
 <section id="subnet">
-<h2>Subnet<a class="headerlink" href="#subnet" title="Permalink to this headline">¶</a></h2>
+<h2>Subnet<a class="headerlink" href="#subnet" title="Permalink to this heading">¶</a></h2>
 <p>There exists RT convention to describe the span of a subnet (regional vs AZ local) and
 to tag a prefix as a supernet that should be announced towards upstream routers:</p>
 <ul class="simple">
@@ -565,9 +566,9 @@ to tag a prefix as a supernet that should be announced towards upstream routers:
 <li><p><strong>RT REGIONAL_ASN:1:</strong> 65130:1 is tagging the prefix as a supernet in QA-DE-1, this is expected to be added to the above if required</p></li>
 </ul>
 <section id="external-network">
-<h3>External Network<a class="headerlink" href="#external-network" title="Permalink to this headline">¶</a></h3>
+<h3>External Network<a class="headerlink" href="#external-network" title="Permalink to this heading">¶</a></h3>
 <section id="id2">
-<h4>Sample Driver Configuration<a class="headerlink" href="#id2" title="Permalink to this headline">¶</a></h4>
+<h4>Sample Driver Configuration<a class="headerlink" href="#id2" title="Permalink to this heading">¶</a></h4>
 <div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="p">[</span><span class="n">address</span><span class="o">-</span><span class="n">scope</span><span class="p">:</span><span class="n">hcp03</span><span class="o">-</span><span class="n">public</span><span class="p">]</span>
 <span class="n">export_rt_suffix</span> <span class="o">=</span> <span class="mi">102</span>
 <span class="n">import_rt_suffix</span> <span class="o">=</span> <span class="mi">102</span>
@@ -576,7 +577,7 @@ to tag a prefix as a supernet that should be announced towards upstream routers:
 </div>
 </section>
 <section id="sample-subnet-definition">
-<h4>Sample Subnet Definition<a class="headerlink" href="#sample-subnet-definition" title="Permalink to this headline">¶</a></h4>
+<h4>Sample Subnet Definition<a class="headerlink" href="#sample-subnet-definition" title="Permalink to this heading">¶</a></h4>
 <div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="c1">######### Example External Address Scope</span>
 <span class="p">{</span>
   <span class="s2">&quot;id&quot;</span><span class="p">:</span> <span class="s2">&quot;f2fd984c-45b1-4465-9f99-e72f86b896fa&quot;</span><span class="p">,</span>
@@ -653,7 +654,7 @@ to tag a prefix as a supernet that should be announced towards upstream routers:
 </div>
 </section>
 <section id="id3">
-<h4>On Device configuration<a class="headerlink" href="#id3" title="Permalink to this headline">¶</a></h4>
+<h4>On Device configuration<a class="headerlink" href="#id3" title="Permalink to this heading">¶</a></h4>
 <p><strong>EOS</strong>:</p>
 <div class="highlight-default notranslate"><div class="highlight"><pre><span></span>route-map RM-CC-CLOUD02
    set extcommunity rt 65130:102
@@ -755,7 +756,7 @@ router bgp 65130.1103
 </section>
 </section>
 <section id="dapnet-directly-accessible-private-network">
-<h3>DAPnet Directly Accessible Private Network<a class="headerlink" href="#dapnet-directly-accessible-private-network" title="Permalink to this headline">¶</a></h3>
+<h3>DAPnet Directly Accessible Private Network<a class="headerlink" href="#dapnet-directly-accessible-private-network" title="Permalink to this heading">¶</a></h3>
 <p>The driver supports tenant networks that are router internal (Neutron Router is the default gw)
 but exempt from NAT. Those networks are identified in Neutron by comparing the address-scope
 of a routers internal and external network, if they match it is assumed that no NAT is required
@@ -763,7 +764,7 @@ since the scope is the same. The driver needs to identify if there are tenant ro
 and if those currently have DAPnets assigned to them. If this is the case the fabric as the upstream
 router must have routes set to those networks pointing to the respective tenant router.</p>
 <section id="sample-dapnet-definition">
-<h4>Sample DAPnet Definition<a class="headerlink" href="#sample-dapnet-definition" title="Permalink to this headline">¶</a></h4>
+<h4>Sample DAPnet Definition<a class="headerlink" href="#sample-dapnet-definition" title="Permalink to this heading">¶</a></h4>
 <div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="c1">######### Example External Network</span>
 <span class="p">{</span>
   <span class="s2">&quot;id&quot;</span><span class="p">:</span> <span class="s2">&quot;aeec9fd4-30f7-4398-8554-34acb36b7712&quot;</span><span class="p">,</span>
@@ -803,7 +804,7 @@ router must have routes set to those networks pointing to the respective tenant 
 </div>
 </section>
 <section id="id4">
-<h4>On Device configuration<a class="headerlink" href="#id4" title="Permalink to this headline">¶</a></h4>
+<h4>On Device configuration<a class="headerlink" href="#id4" title="Permalink to this heading">¶</a></h4>
 <p><strong>EOS</strong>:</p>
 <div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">ip</span> <span class="n">route</span> <span class="n">vrf</span> <span class="n">CC</span><span class="o">-</span><span class="n">CLOUD02</span> <span class="mf">10.47.100.0</span><span class="o">/</span><span class="mi">24</span> <span class="mf">10.47.8.197</span>
 
@@ -826,7 +827,7 @@ router must have routes set to those networks pointing to the respective tenant 
 </section>
 </section>
 <section id="subnet-pool">
-<h2>Subnet Pool<a class="headerlink" href="#subnet-pool" title="Permalink to this headline">¶</a></h2>
+<h2>Subnet Pool<a class="headerlink" href="#subnet-pool" title="Permalink to this heading">¶</a></h2>
 <p>The external subnets which are fabric relevant are identified by being created from
 a subnet pool belonging to an address-scope which is listed in the driver configuration.
 If a subnet is matching this criteria it is created as described in the subnet section.
@@ -850,7 +851,7 @@ of the driver managed configuration. For each vrf the driver will do:</p>
 <a class="reference internal image-reference" href="../_images/subnet_aggregation_flow.svg"><img alt="../_images/subnet_aggregation_flow.svg" src="../_images/subnet_aggregation_flow.svg" width="300px" /></a>
 </figure>
 <section id="driver-configuration">
-<h3>Driver Configuration<a class="headerlink" href="#driver-configuration" title="Permalink to this headline">¶</a></h3>
+<h3>Driver Configuration<a class="headerlink" href="#driver-configuration" title="Permalink to this heading">¶</a></h3>
 <div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="p">[</span><span class="n">address</span><span class="o">-</span><span class="n">scope</span><span class="p">:</span><span class="n">hcp03</span><span class="o">-</span><span class="n">public</span><span class="p">]</span>
 <span class="n">export_rt_suffix</span> <span class="o">=</span> <span class="mi">102</span>
 <span class="n">import_rt_suffix</span> <span class="o">=</span> <span class="mi">102</span>
@@ -876,7 +877,7 @@ of the driver managed configuration. For each vrf the driver will do:</p>
 </div>
 </section>
 <section id="sample-subnet-pool-definition">
-<h3>Sample Subnet Pool Definition<a class="headerlink" href="#sample-subnet-pool-definition" title="Permalink to this headline">¶</a></h3>
+<h3>Sample Subnet Pool Definition<a class="headerlink" href="#sample-subnet-pool-definition" title="Permalink to this heading">¶</a></h3>
 <div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="p">{</span>
   <span class="s2">&quot;id&quot;</span><span class="p">:</span> <span class="s2">&quot;f2fd984c-45b1-4465-9f99-e72f86b896fa&quot;</span><span class="p">,</span>
   <span class="s2">&quot;ip_version&quot;</span><span class="p">:</span> <span class="mi">4</span><span class="p">,</span>
@@ -935,9 +936,9 @@ of the driver managed configuration. For each vrf the driver will do:</p>
 </div>
 </section>
 <section id="id5">
-<h3>On Device Configuration<a class="headerlink" href="#id5" title="Permalink to this headline">¶</a></h3>
+<h3>On Device Configuration<a class="headerlink" href="#id5" title="Permalink to this heading">¶</a></h3>
 <section id="id6">
-<h4>aPOD/vPOD/stPOD/netPOD/bPOD/Transit leafs<a class="headerlink" href="#id6" title="Permalink to this headline">¶</a></h4>
+<h4>aPOD/vPOD/stPOD/netPOD/bPOD/Transit leafs<a class="headerlink" href="#id6" title="Permalink to this heading">¶</a></h4>
 <p><strong>EOS</strong>:</p>
 <div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">router</span> <span class="n">bgp</span> <span class="mf">65130.1103</span>
    <span class="n">vrf</span> <span class="n">CC</span><span class="o">-</span><span class="n">CLOUD02</span>
@@ -959,7 +960,7 @@ of the driver managed configuration. For each vrf the driver will do:</p>
 </section>
 </section>
 <section id="floating-ip">
-<h2>Floating IP<a class="headerlink" href="#floating-ip" title="Permalink to this headline">¶</a></h2>
+<h2>Floating IP<a class="headerlink" href="#floating-ip" title="Permalink to this heading">¶</a></h2>
 <p>The high churn rate and mac-to-ip mobility cause significant ARP traffic in the fabric if
 not otherwise mitigated. To reduce the number of ARP packets required the driver will
 in combination with the Neutron L3 driver create and maintain static arp entries to
@@ -971,7 +972,7 @@ endpoint table generate a Type-2 MAC/IP route for the entry. Other leafs are not
 to generate Type-2 until such point as the destination MAC address becomes active
 at that leaf.</p>
 <section id="sample-floating-ip-definition">
-<h3>Sample Floating IP Definition<a class="headerlink" href="#sample-floating-ip-definition" title="Permalink to this headline">¶</a></h3>
+<h3>Sample Floating IP Definition<a class="headerlink" href="#sample-floating-ip-definition" title="Permalink to this heading">¶</a></h3>
 <div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="c1"># Neutron Router external Port connected to netPOD leaf serving the Floating IP</span>
 <span class="p">{</span>
   <span class="s2">&quot;binding_vif_type&quot;</span><span class="p">:</span> <span class="s2">&quot;asr1k&quot;</span><span class="p">,</span>
@@ -989,9 +990,9 @@ at that leaf.</p>
 </div>
 </section>
 <section id="id7">
-<h3>On Device Configuration<a class="headerlink" href="#id7" title="Permalink to this headline">¶</a></h3>
+<h3>On Device Configuration<a class="headerlink" href="#id7" title="Permalink to this heading">¶</a></h3>
 <section id="netpod-leafs">
-<h4>netPOD leafs<a class="headerlink" href="#netpod-leafs" title="Permalink to this headline">¶</a></h4>
+<h4>netPOD leafs<a class="headerlink" href="#netpod-leafs" title="Permalink to this heading">¶</a></h4>
 <p><strong>EOS</strong>:</p>
 <div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">arp</span> <span class="n">vrf</span> <span class="n">CC</span><span class="o">-</span><span class="n">CLOUD02</span> <span class="mf">10.47.104.75</span> <span class="n">fa16</span><span class="mf">.3e6</span><span class="n">d</span><span class="o">.</span><span class="n">d333</span>
 </pre></div>
@@ -1006,7 +1007,7 @@ at that leaf.</p>
 </section>
 </section>
 <section id="port">
-<h2>Port<a class="headerlink" href="#port" title="Permalink to this headline">¶</a></h2>
+<h2>Port<a class="headerlink" href="#port" title="Permalink to this heading">¶</a></h2>
 <p>The driver handles multiple types of ports or port binding requests,
 for all requests the driver manages the top level segment, segment creation for HPB
 and configuring the relevant front ports for handing off networks
@@ -1015,7 +1016,7 @@ chain and execute final port binding. For bare metal ports / servers directly
 attached to the fabric the driver will do the final port binding as no
 other driver is subsequently called.</p>
 <section id="vlan-handoff">
-<h3>VLAN Handoff<a class="headerlink" href="#vlan-handoff" title="Permalink to this headline">¶</a></h3>
+<h3>VLAN Handoff<a class="headerlink" href="#vlan-handoff" title="Permalink to this heading">¶</a></h3>
 <p>This type of handoff is the most commonly used, the driver will allocate
 and configure a VNI to VLAN mapping (HPB segment) on all leaf switches relevant for the
 hostgroup in the port binding request as well as adding the vlan to all relevant ports on the switches.
@@ -1024,7 +1025,7 @@ the attached device accordingly and finalize the port binding afterwards.</p>
 <p>In addition to the Neutron networks in question the relevant infra networks defined in driver configuration
 for the ports will be added.</p>
 <section id="sample-driver-config">
-<h4>Sample Driver Config<a class="headerlink" href="#sample-driver-config" title="Permalink to this headline">¶</a></h4>
+<h4>Sample Driver Config<a class="headerlink" href="#sample-driver-config" title="Permalink to this heading">¶</a></h4>
 <div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">hostgroups</span><span class="p">:</span>
    <span class="o">-</span> <span class="n">binding_hosts</span><span class="p">:</span>
      <span class="o">-</span> <span class="n">node001</span><span class="o">-</span><span class="n">bb301</span>
@@ -1060,7 +1061,7 @@ for the ports will be added.</p>
 </div>
 </section>
 <section id="sample-port-definition">
-<h4>Sample Port Definition<a class="headerlink" href="#sample-port-definition" title="Permalink to this headline">¶</a></h4>
+<h4>Sample Port Definition<a class="headerlink" href="#sample-port-definition" title="Permalink to this heading">¶</a></h4>
 <div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="c1"># Network</span>
 <span class="p">{</span>
   <span class="s2">&quot;id&quot;</span><span class="p">:</span> <span class="s2">&quot;aeec9fd4-30f7-4398-8554-34acb36b7712&quot;</span><span class="p">,</span>
@@ -1088,7 +1089,7 @@ for the ports will be added.</p>
 </div>
 </section>
 <section id="vmware-nsx-t-neutron-network-agent-octavia-f5-netapp-ironic-ucs-neutron-asr-ml2">
-<h4>VMware NSX-t, Neutron Network Agent, Octavia F5, Netapp, Ironic UCS, Neutron ASR ml2<a class="headerlink" href="#vmware-nsx-t-neutron-network-agent-octavia-f5-netapp-ironic-ucs-neutron-asr-ml2" title="Permalink to this headline">¶</a></h4>
+<h4>VMware NSX-t, Neutron Network Agent, Octavia F5, Netapp, Ironic UCS, Neutron ASR ml2<a class="headerlink" href="#vmware-nsx-t-neutron-network-agent-octavia-f5-netapp-ironic-ucs-neutron-asr-ml2" title="Permalink to this heading">¶</a></h4>
 <p><strong>EOS</strong>:</p>
 <div class="highlight-default notranslate"><div class="highlight"><pre><span></span>interface Ethernet1/1
    description &quot;connect to node001-bb301&quot;
@@ -1130,19 +1131,19 @@ interface Port-Channel201
 </div>
 </section>
 <section id="ironic-bare-metal-ports">
-<h4>Ironic Bare Metal Ports<a class="headerlink" href="#ironic-bare-metal-ports" title="Permalink to this headline">¶</a></h4>
+<h4>Ironic Bare Metal Ports<a class="headerlink" href="#ironic-bare-metal-ports" title="Permalink to this heading">¶</a></h4>
 </section>
 </section>
 <section id="vxlan-evpn-handoff">
-<h3>VXLAN EVPN Handoff<a class="headerlink" href="#vxlan-evpn-handoff" title="Permalink to this headline">¶</a></h3>
+<h3>VXLAN EVPN Handoff<a class="headerlink" href="#vxlan-evpn-handoff" title="Permalink to this heading">¶</a></h3>
 </section>
 <section id="vxlan-flood-and-learn-handoff">
-<h3>VXLAN Flood and Learn Handoff<a class="headerlink" href="#vxlan-flood-and-learn-handoff" title="Permalink to this headline">¶</a></h3>
+<h3>VXLAN Flood and Learn Handoff<a class="headerlink" href="#vxlan-flood-and-learn-handoff" title="Permalink to this heading">¶</a></h3>
 </section>
 </section>
 <section id="scaling-limits">
-<h2>Scaling Limits<a class="headerlink" href="#scaling-limits" title="Permalink to this headline">¶</a></h2>
-<table class="colwidths-given docutils align-default" id="id8">
+<h2>Scaling Limits<a class="headerlink" href="#scaling-limits" title="Permalink to this heading">¶</a></h2>
+<table class="docutils align-default" id="id8">
 <caption><span class="caption-text">Relevant Device Scaling Limits</span><a class="headerlink" href="#id8" title="Permalink to this table">¶</a></caption>
 <colgroup>
 <col style="width: 33%" />
@@ -1198,7 +1199,7 @@ interface Port-Channel201
           
           </div>
           <div class="row docs-byline bottom">
-            <div class="docs-updated">this page last updated: 2022-05-25 17:32:40</div>
+            <div class="docs-updated">this page last updated: 2022-05-27 15:56:15</div>
           </div>
           <div class="row">
             <div class="col-lg-8 col-md-8 col-sm-8 docs-license">

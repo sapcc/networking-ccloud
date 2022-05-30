@@ -1,10 +1,10 @@
 
 <!DOCTYPE html>
 
-<html>
+<html lang="en">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="generator" content="Docutils 0.17.1: http://docutils.sourceforge.net/" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="generator" content="Docutils 0.18.1: http://docutils.sourceforge.net/" />
 
     <title>CC-Fabric ML2 Driver Internals &#8212; networking-ccloud 0.0.0 documentation</title>
     <link rel="stylesheet" type="text/css" href="../_static/pygments.css" />
@@ -12,6 +12,7 @@
     <script data-url_root="../" id="documentation_options" src="../_static/documentation_options.js"></script>
     <script src="../_static/jquery.js"></script>
     <script src="../_static/underscore.js"></script>
+    <script src="../_static/_sphinx_javascript_frameworks_compat.js"></script>
     <script src="../_static/doctools.js"></script>
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
@@ -116,15 +117,15 @@ ga('send', 'pageview');
               <div class="docs-body" role="main">
 
   <section id="cc-fabric-ml2-driver-internals">
-<h1>CC-Fabric ML2 Driver Internals<a class="headerlink" href="#cc-fabric-ml2-driver-internals" title="Permalink to this headline">¶</a></h1>
+<h1>CC-Fabric ML2 Driver Internals<a class="headerlink" href="#cc-fabric-ml2-driver-internals" title="Permalink to this heading">¶</a></h1>
 <p>NOTE: these are currently drafts and thoughts that have been recorded over the course of the project.
 Some have been written before implementation, some while implementation was being done. Therefore they
 might not be 100% accurate or need a review.</p>
 <section id="structural-overview">
-<h2>Structural Overview<a class="headerlink" href="#structural-overview" title="Permalink to this headline">¶</a></h2>
+<h2>Structural Overview<a class="headerlink" href="#structural-overview" title="Permalink to this heading">¶</a></h2>
 </section>
 <section id="db-api-and-config-objects-how-they-match-together">
-<h2>DB, API and Config Objects &amp; How They Match Together<a class="headerlink" href="#db-api-and-config-objects-how-they-match-together" title="Permalink to this headline">¶</a></h2>
+<h2>DB, API and Config Objects &amp; How They Match Together<a class="headerlink" href="#db-api-and-config-objects-how-they-match-together" title="Permalink to this heading">¶</a></h2>
 <dl class="simple">
 <dt>The following API objects are relevant for a network configuration:</dt><dd><ul class="simple">
 <li><dl class="simple">
@@ -216,7 +217,7 @@ Ports are bound to segments and hold a binding_host as well, which should match 
 </dl>
 </section>
 <section id="sync-operations">
-<h2>Sync Operations<a class="headerlink" href="#sync-operations" title="Permalink to this headline">¶</a></h2>
+<h2>Sync Operations<a class="headerlink" href="#sync-operations" title="Permalink to this heading">¶</a></h2>
 <dl class="simple">
 <dt>There are three sync operations the driver is using:</dt><dd><ul class="simple">
 <li><p>hostgroup-network-sync - sync for a single hostgroupin one network on all switches, used on port bind or port delete</p></li>
@@ -262,10 +263,10 @@ Ports are bound to segments and hold a binding_host as well, which should match 
 </dl>
 </section>
 <section id="agent-design">
-<h2>Agent Design<a class="headerlink" href="#agent-design" title="Permalink to this headline">¶</a></h2>
+<h2>Agent Design<a class="headerlink" href="#agent-design" title="Permalink to this heading">¶</a></h2>
 </section>
 <section id="agent-communication">
-<h2>Agent Communication<a class="headerlink" href="#agent-communication" title="Permalink to this headline">¶</a></h2>
+<h2>Agent Communication<a class="headerlink" href="#agent-communication" title="Permalink to this heading">¶</a></h2>
 <p>Operation: add, remove, replace</p>
 <dl class="simple">
 <dt>For communicating a change to an agent we need to include the following information per switch:</dt><dd><ul class="simple">
@@ -303,39 +304,39 @@ alternative idea would be to only configure this interface in case of direct-on-
 native vlans.</p>
 </section>
 <section id="network-syncloop-in-agent">
-<h2>Network Syncloop (in Agent)<a class="headerlink" href="#network-syncloop-in-agent" title="Permalink to this headline">¶</a></h2>
+<h2>Network Syncloop (in Agent)<a class="headerlink" href="#network-syncloop-in-agent" title="Permalink to this heading">¶</a></h2>
 </section>
 <section id="network-scheduling-on-borderleafs-and-aci-transits">
-<h2>Network Scheduling on Borderleafs and ACI Transits<a class="headerlink" href="#network-scheduling-on-borderleafs-and-aci-transits" title="Permalink to this headline">¶</a></h2>
+<h2>Network Scheduling on Borderleafs and ACI Transits<a class="headerlink" href="#network-scheduling-on-borderleafs-and-aci-transits" title="Permalink to this heading">¶</a></h2>
 <p>Both Borderleafs and ACI Transit Switches have a maximum capacity of x VLANS (2000 on Arista, 1750 on ACI).</p>
 </section>
 <section id="in-driver-api-for-debugging-and-maintenance">
-<h2>In-Driver API for Debugging and Maintenance<a class="headerlink" href="#in-driver-api-for-debugging-and-maintenance" title="Permalink to this headline">¶</a></h2>
+<h2>In-Driver API for Debugging and Maintenance<a class="headerlink" href="#in-driver-api-for-debugging-and-maintenance" title="Permalink to this heading">¶</a></h2>
 <p>The In-Driver API is an API directly inside the driver using OpenStack authentication and other OpenStack facilities to
 provide debug information and driver commands (sync a router, switch host-mode).</p>
 <section id="network-related-actions">
-<h3>Network-Related Actions<a class="headerlink" href="#network-related-actions" title="Permalink to this headline">¶</a></h3>
+<h3>Network-Related Actions<a class="headerlink" href="#network-related-actions" title="Permalink to this heading">¶</a></h3>
 </section>
 <section id="current-network-status">
-<h3>Current Network Status<a class="headerlink" href="#current-network-status" title="Permalink to this headline">¶</a></h3>
+<h3>Current Network Status<a class="headerlink" href="#current-network-status" title="Permalink to this heading">¶</a></h3>
 <p>Show status of a given network, pulled from OpenStack DB, enrichted with driver-config knowledge. This will include
 hostgroups bound to the network, on which leaf switches the network should be bound, etc. This is basically the same
 data the driver hands out to its agents to sync a network.</p>
 </section>
 <section id="network-diff">
-<h3>Network Diff<a class="headerlink" href="#network-diff" title="Permalink to this headline">¶</a></h3>
+<h3>Network Diff<a class="headerlink" href="#network-diff" title="Permalink to this heading">¶</a></h3>
 <p>Get the current network state and ask each agent for a diff. The agent will use the sync data to generate device config,
 pull the current state off of the device and return a diff between those two. This will be returned to the API-user in a
 per-device dictionary.</p>
 </section>
 <section id="network-sync">
-<h3>Network Sync<a class="headerlink" href="#network-sync" title="Permalink to this headline">¶</a></h3>
+<h3>Network Sync<a class="headerlink" href="#network-sync" title="Permalink to this heading">¶</a></h3>
 <p>Tell the driver to reapply the network config to all leaf switches the network should be on. We MAY want to check other
 switches for leftover config (check that the VNI is not configured on any device it should not be on), though this could
 also be handled by a separate per-device cleanup loop.</p>
 </section>
 <section id="switch-leafpair-related-actions">
-<h3>Switch / Leafpair Related Actions<a class="headerlink" href="#switch-leafpair-related-actions" title="Permalink to this headline">¶</a></h3>
+<h3>Switch / Leafpair Related Actions<a class="headerlink" href="#switch-leafpair-related-actions" title="Permalink to this heading">¶</a></h3>
 <dl class="simple">
 <dt>Currently in brainstorming phase:</dt><dd><ul class="simple">
 <li><dl class="simple">
@@ -351,7 +352,7 @@ also be handled by a separate per-device cleanup loop.</p>
 </dl>
 </section>
 <section id="driver-related-actions">
-<h3>Driver Related Actions<a class="headerlink" href="#driver-related-actions" title="Permalink to this headline">¶</a></h3>
+<h3>Driver Related Actions<a class="headerlink" href="#driver-related-actions" title="Permalink to this heading">¶</a></h3>
 <ul class="simple">
 <li><dl class="simple">
 <dt>show syncloop status</dt><dd><ul>
@@ -379,7 +380,7 @@ also be handled by a separate per-device cleanup loop.</p>
           
           </div>
           <div class="row docs-byline bottom">
-            <div class="docs-updated">this page last updated: 2022-05-25 17:32:40</div>
+            <div class="docs-updated">this page last updated: 2022-05-27 15:56:15</div>
           </div>
           <div class="row">
             <div class="col-lg-8 col-md-8 col-sm-8 docs-license">

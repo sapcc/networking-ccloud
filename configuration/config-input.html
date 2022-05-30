@@ -1,10 +1,10 @@
 
 <!DOCTYPE html>
 
-<html>
+<html lang="en">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="generator" content="Docutils 0.17.1: http://docutils.sourceforge.net/" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="generator" content="Docutils 0.18.1: http://docutils.sourceforge.net/" />
 
     <title>Generator Input &#8212; networking-ccloud 0.0.0 documentation</title>
     <link rel="stylesheet" type="text/css" href="../_static/pygments.css" />
@@ -12,6 +12,7 @@
     <script data-url_root="../" id="documentation_options" src="../_static/documentation_options.js"></script>
     <script src="../_static/jquery.js"></script>
     <script src="../_static/underscore.js"></script>
+    <script src="../_static/_sphinx_javascript_frameworks_compat.js"></script>
     <script src="../_static/doctools.js"></script>
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
@@ -116,17 +117,17 @@ ga('send', 'pageview');
               <div class="docs-body" role="main">
 
   <section id="generator-input">
-<h1>Generator Input<a class="headerlink" href="#generator-input" title="Permalink to this headline">¶</a></h1>
+<h1>Generator Input<a class="headerlink" href="#generator-input" title="Permalink to this heading">¶</a></h1>
 <p>The driver configuration is generated based on input from external tooling (Netbox) and the following conventions.</p>
 <section id="leaf-pair">
-<h2>Leaf Pair<a class="headerlink" href="#leaf-pair" title="Permalink to this headline">¶</a></h2>
+<h2>Leaf Pair<a class="headerlink" href="#leaf-pair" title="Permalink to this heading">¶</a></h2>
 <p>All EVPN fabric members will be of the following Netbox roles:</p>
 <ul class="simple">
 <li><p><strong>EVPN Spine</strong>: Used for all spine switches, not configured by driver</p></li>
 <li><p><strong>EVPN Leaf</strong>: Used for all leaf switches in the EVPN fabric</p></li>
 </ul>
 <section id="hostname-convention">
-<h3>Hostname Convention<a class="headerlink" href="#hostname-convention" title="Permalink to this headline">¶</a></h3>
+<h3>Hostname Convention<a class="headerlink" href="#hostname-convention" title="Permalink to this heading">¶</a></h3>
 <p>Leaf pair hostnames must be compliant with the following regex:</p>
 <div class="highlight-default notranslate"><div class="highlight"><pre><span></span>^(?P&lt;region&gt;\w{2}-\w{2}-\d)-sw(?P&lt;az&gt;\d)(?P&lt;pod&gt;\d)(?P&lt;switchgroup&gt;\d{2})(?P&lt;leaf&gt;[ab])(?:-(?P&lt;role&gt;[a-z]+(?P&lt;bb_no&gt;[0-9]+)?))$
 </pre></div>
@@ -161,10 +162,10 @@ ga('send', 'pageview');
 </div>
 </section>
 <section id="leaf-types">
-<h3>Leaf Types<a class="headerlink" href="#leaf-types" title="Permalink to this headline">¶</a></h3>
+<h3>Leaf Types<a class="headerlink" href="#leaf-types" title="Permalink to this heading">¶</a></h3>
 <p>All fabric leaf switches must be tagged with exactly one of below subrole identifiers.</p>
 <section id="ccloud-pod-leaves">
-<h4>CCloud Pod Leaves<a class="headerlink" href="#ccloud-pod-leaves" title="Permalink to this headline">¶</a></h4>
+<h4>CCloud Pod Leaves<a class="headerlink" href="#ccloud-pod-leaves" title="Permalink to this heading">¶</a></h4>
 <p>Any leaf connecting any CC platform equipment must be tagged with the applicable tag of the following:</p>
 <div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">CC</span><span class="o">-</span><span class="n">APOD</span><span class="o">|</span><span class="n">CC</span><span class="o">-</span><span class="n">BPOD</span><span class="o">|</span><span class="n">CC</span><span class="o">-</span><span class="n">NETPOD</span><span class="o">|</span><span class="n">CC</span><span class="o">-</span><span class="n">STPOD</span><span class="o">|</span><span class="n">CC</span><span class="o">-</span><span class="n">VPOD</span>
 </pre></div>
@@ -177,7 +178,7 @@ ga('send', 'pageview');
 </div>
 </section>
 <section id="cnd-evpn-leaf-types">
-<h4>CND EVPN Leaf Types:<a class="headerlink" href="#cnd-evpn-leaf-types" title="Permalink to this headline">¶</a></h4>
+<h4>CND EVPN Leaf Types:<a class="headerlink" href="#cnd-evpn-leaf-types" title="Permalink to this heading">¶</a></h4>
 <p>The driver needs to identify certain non-pod leaf pairs to
 push tenant configuration:</p>
 <ul class="simple">
@@ -203,9 +204,9 @@ push tenant configuration:</p>
 </section>
 </section>
 <section id="l2-l3-networks">
-<h2>L2/L3 Networks<a class="headerlink" href="#l2-l3-networks" title="Permalink to this headline">¶</a></h2>
+<h2>L2/L3 Networks<a class="headerlink" href="#l2-l3-networks" title="Permalink to this heading">¶</a></h2>
 <section id="tenant-network-vlan-range">
-<h3>Tenant Network VLAN range<a class="headerlink" href="#tenant-network-vlan-range" title="Permalink to this headline">¶</a></h3>
+<h3>Tenant Network VLAN range<a class="headerlink" href="#tenant-network-vlan-range" title="Permalink to this heading">¶</a></h3>
 <p>The VLAN range segments should be allocated from is per convention defined as:</p>
 <div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="mi">2000</span><span class="o">-</span><span class="mi">3750</span>
 </pre></div>
@@ -226,7 +227,7 @@ push tenant configuration:</p>
 </div>
 </section>
 <section id="infrastructure-networks">
-<h3>Infrastructure Networks<a class="headerlink" href="#infrastructure-networks" title="Permalink to this headline">¶</a></h3>
+<h3>Infrastructure Networks<a class="headerlink" href="#infrastructure-networks" title="Permalink to this heading">¶</a></h3>
 <p>Infrastructure networks (infra networks) are required to deliver the platform’s control plane communication.
 These can be used for hypervisor specific purposes, management access or provisioning.</p>
 <p>Infra networks can be pure layer 2 networks or routed layer 3 networks with an anycast gateway bound on the leaf switch.
@@ -276,7 +277,7 @@ We retreive the precreated network assignments follows:</p>
 </pre></div>
 </div>
 <section id="anycast-gateway">
-<h4>Anycast Gateway<a class="headerlink" href="#anycast-gateway" title="Permalink to this headline">¶</a></h4>
+<h4>Anycast Gateway<a class="headerlink" href="#anycast-gateway" title="Permalink to this heading">¶</a></h4>
 <p>If a local anycast gateway for an layer 3 infra network shall be configured, a corresponding  SVI interface must be created in Netbox in order to reflect the anycast gateway.
 The SVI interface must be created on both leaf switches of a pod and must be exactly named as SVI interfaces are named
 in the device specific configuration. Each SVI interface must have an <em>IP Address</em> object linked that associates to
@@ -296,7 +297,7 @@ An SVI interface must also have the VLAN it corresponds to set as <em>unatagged_
 </div>
 </section>
 <section id="dhcp-relay">
-<h4>DHCP Relay<a class="headerlink" href="#dhcp-relay" title="Permalink to this headline">¶</a></h4>
+<h4>DHCP Relay<a class="headerlink" href="#dhcp-relay" title="Permalink to this heading">¶</a></h4>
 <p>For infra networks requiring a DHCP relay one or more Netbox <em>Tags</em>
 must be added to the <em>VLAN</em> object, one for each DHCP relay server
 in the form:</p>
@@ -307,13 +308,9 @@ in the form:</p>
 </section>
 </section>
 <section id="l2-networks-vlan-to-vni-mapping">
-<h3>L2 Networks VLAN to VNI mapping<a class="headerlink" href="#l2-networks-vlan-to-vni-mapping" title="Permalink to this headline">¶</a></h3>
+<h3>L2 Networks VLAN to VNI mapping<a class="headerlink" href="#l2-networks-vlan-to-vni-mapping" title="Permalink to this heading">¶</a></h3>
 <p>Netbox does not yet support a model for overlay network VNIs, the following conventions are used:</p>
 <table class="docutils align-default">
-<colgroup>
-<col style="width: 26%" />
-<col style="width: 74%" />
-</colgroup>
 <thead>
 <tr class="row-odd"><th class="head"><p>Network Type</p></th>
 <th class="head"><p>VNI Allocation</p></th>
@@ -357,21 +354,21 @@ in the form:</p>
 </section>
 </section>
 <section id="ports-and-interfaces">
-<h2>Ports and Interfaces<a class="headerlink" href="#ports-and-interfaces" title="Permalink to this headline">¶</a></h2>
+<h2>Ports and Interfaces<a class="headerlink" href="#ports-and-interfaces" title="Permalink to this heading">¶</a></h2>
 <p>The driver is responsible for front ports on pod equipment, configures certain infra networks on such ports or
 bundles ports in LAG and MLAG logical interfaces. This section describes Netbox modelling requirements for the driver’s input.</p>
 <section id="cables">
-<h3>Cables<a class="headerlink" href="#cables" title="Permalink to this headline">¶</a></h3>
+<h3>Cables<a class="headerlink" href="#cables" title="Permalink to this heading">¶</a></h3>
 <p>All cables must be modelled according to physical connections. Cables must be marked as <cite>installed</cite> when installed.
 This does also include Leaf to Spine links, which are necessary for diagnostic tooling.</p>
 </section>
 <section id="link-aggregation-groups">
-<h3>Link Aggregation Groups<a class="headerlink" href="#link-aggregation-groups" title="Permalink to this headline">¶</a></h3>
+<h3>Link Aggregation Groups<a class="headerlink" href="#link-aggregation-groups" title="Permalink to this heading">¶</a></h3>
 <p>There are two types Link Aggregation Groups (LAGs)), static which are defined in Netbox as LAG
 with member interfaces and dynamic which are defined via CCloud port groups self service.</p>
 <p>To ensure LAG definitions do not conflict, the id range is distinct for
 both use cases as follows.</p>
-<table class="colwidths-given docutils align-default" id="id1">
+<table class="docutils align-default" id="id1">
 <caption><span class="caption-text">LAG Ranges</span><a class="headerlink" href="#id1" title="Permalink to this table">¶</a></caption>
 <colgroup>
 <col style="width: 25%" />
@@ -419,7 +416,7 @@ variants:</p>
 </div>
 </section>
 <section id="infrastructure-network-assignment">
-<h3>Infrastructure Network Assignment<a class="headerlink" href="#infrastructure-network-assignment" title="Permalink to this headline">¶</a></h3>
+<h3>Infrastructure Network Assignment<a class="headerlink" href="#infrastructure-network-assignment" title="Permalink to this heading">¶</a></h3>
 <p>In order to bind infra networks to interfaces, the <em>VLAN</em> must be bound to the <em>interface</em> object in Netbox.
 <em>VLANs</em> must only be bound to the logical interface, so if an interface is a LAG member, the VLAN object must be bound on the LAG.</p>
 <p><em>VLANs</em> can either be bound as <em>tagged_vlans</em> or one VLAN may be bound as <em>untagged_vlan</em> on the interface.
@@ -450,7 +447,7 @@ The interface mode must be set to ‘tagged’ in order to server the ‘tagged_
           
           </div>
           <div class="row docs-byline bottom">
-            <div class="docs-updated">this page last updated: 2022-05-25 17:32:40</div>
+            <div class="docs-updated">this page last updated: 2022-05-27 15:56:15</div>
           </div>
           <div class="row">
             <div class="col-lg-8 col-md-8 col-sm-8 docs-license">
