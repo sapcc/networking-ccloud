@@ -574,7 +574,7 @@ class DriverConfig(pydantic.BaseModel):
             return values
         if 'hostgroups' not in values:
             return values
-        global_config:  GlobalConfig = values['global_config']
+        global_config: GlobalConfig = values['global_config']
         hgs: List[Hostgroup] = values['hostgroups']
         vrf_names = set(x.name for x in global_config.vrfs)
         for hg in hgs:
