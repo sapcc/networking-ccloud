@@ -249,7 +249,7 @@ class ConfigGenerator:
 
             # roles
             if device.tags:
-                pod_roles = set(filter(lambda x: x,  (cls.pod_roles.get(x.slug, None) for x in device.tags)))
+                pod_roles = set(filter(lambda x: x, (cls.pod_roles.get(x.slug, None) for x in device.tags)))
 
             # azs
             if not device.site:
