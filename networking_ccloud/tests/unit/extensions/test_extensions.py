@@ -221,8 +221,26 @@ class TestNetworkExtension(test_segment.SegmentTestCase, base.PortBindingHelper)
 
             # check that infra networks and portbindings are synced
             for swcfg in swcfgs:
+                viface = None
                 for iface in swcfg.ifaces:
-                    self.assertEqual({23, 42, 100}, set(iface.trunk_vlans))
+                    if iface.name.startswith("vlan"):
+                        self.assertIsNone(viface, "Only one Vlan interface expected")
+                        viface = iface
+                    else:
+                        self.assertEqual({23, 42, 100}, set(iface.trunk_vlans))
+
+                # check vlan interface
+                self.assertIsNotNone(viface, "Expected one Vlan interface for infra net")
+                InfraNetwork(name="infra_net_l3", vlan=23, networks=["10.23.42.1/24"], vrf='PRIVATE-VRF', vni=6667),
+                self.assertEqual("vlan 23", viface.name)
+                self.assertEqual(['10.23.42.1/24'], viface.ip_addresses)
+                self.assertEqual("PRIVATE-VRF", viface.vrf)
+                self.assertIsNone(viface.trunk_vlans)
+
+                # check bgp vrf
+                self.assertEqual(1, len(swcfg.bgp.vrfs))
+                self.assertEqual("PRIVATE-VRF", swcfg.bgp.vrfs[0].name)
+                self.assertEqual("RM-PRIVATE-VRF-A", swcfg.bgp.vrfs[0].networks[0].route_map)
 
     def test_switch_sync_vpod_infra_networks(self):
         with mock.patch.object(CCFabricSwitchAgentRPCClient, 'apply_config_update') as mock_acu:
