@@ -528,7 +528,7 @@ class ConfigGenerator:
             for infra_net in member.infra_networks:
                 if infra_net not in minimum_common_infra_nets:
                     remaining_infra_nets.append(infra_net)
-            member.infra_networks = remaining_infra_nets if remaining_infra_nets else None  # type: ignore
+            member.infra_networks = remaining_infra_nets
         metagroup.infra_networks = sorted(minimum_common_infra_nets, key=attrgetter('vlan'))
 
     def generate_config(self):

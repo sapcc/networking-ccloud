@@ -271,7 +271,7 @@ class Hostgroup(pydantic.BaseModel):
     handle_availability_zones: List[str] = None
 
     # infra networks attached to hostgroup
-    infra_networks: List[InfraNetwork] = None
+    infra_networks: List[InfraNetwork] = []
 
     class Config:
         use_enum_values = True
