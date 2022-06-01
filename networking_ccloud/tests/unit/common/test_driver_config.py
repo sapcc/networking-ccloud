@@ -151,6 +151,25 @@ class TestDriverConfigValidation(base.TestCase):
         self.assertRaisesRegex(ValueError, exc, config.InfraNetwork, name='i-am-a-network-address', vlan=1202,
                                vni=1202, vrf='DHCP-VRF', networks=['1.2.3.0/24'])
 
+    def test_l3_infra_network_aggregate_needs_networks(self):
+        exc = 'There are more aggregates than networks'
+        self.assertRaisesRegex(ValueError, exc, config.InfraNetwork, name='i-miss-my-network', vlan=1202,
+                               vni=1202, vrf='ROUTE-ME', aggregates=['1.2.3.0/24'])
+
+    def test_l3_infra_network_with_aggregate(self):
+        config.InfraNetwork(name='aggregate-me-if-you-can', vlan=1202, vni=1202, vrf='ROUTE-ME',
+                            aggregates=['1.2.3.0/24'], networks=['1.2.3.1/25'])
+
+    def test_l3_infra_network_network_not_contained_in_aggregate(self):
+        exc = 'Aggregate .* is not a supernet of any network in networks'
+        self.assertRaisesRegex(ValueError, exc, config.InfraNetwork, name='aggregate-me-if-you-can', vlan=1202,
+                               vni=1202, vrf='ROUTE-ME', aggregates=['1.2.3.0/24'], networks=['1.2.10.1/24'])
+
+    def test_l3_infra_network_is_aggregate(self):
+        exc = 'Aggregate .* is equal to one of the networks'
+        self.assertRaisesRegex(ValueError, exc, config.InfraNetwork, name='aggregate-me-if-you-can', vlan=1202,
+                               vni=1202, vrf='ROUTE-ME', aggregates=['1.2.3.0/24'], networks=['1.2.3.1/24'])
+
     def test_infra_network_vrf_presence(self):
         vrfs = cfix.make_vrfs(['ROUTE-ME', 'SWITCH-ME'])
         infra_net_ok = config.InfraNetwork(name='l3-correct-vrf', vlan=1202, vni=1202, vrf='ROUTE-ME')

@@ -196,6 +196,7 @@ class InfraNetwork(pydantic.BaseModel):
     vlan: pydantic.conint(gt=1, lt=4095)
     vrf: str = None
     networks: List[str] = []
+    aggregates: List[str] = []
     vni: pydantic.conint(gt=0, lt=2**24)
     untagged: bool = False
     dhcp_relays: List[str] = []
@@ -213,12 +214,20 @@ class InfraNetwork(pydantic.BaseModel):
             raise ValueError(f'Network {net} is supposed to be used as gateway and hence needs hosts bits set')
         return str(net)
 
+    @pydantic.validator('aggregates', each_item=True)
+    def ensure_network(cls, net):
+        # raises ValueError if host bits are set
+        net = ipaddress.ip_network(net, strict=True)
+        return str(net)
+
     @pydantic.root_validator
     def ensure_correct_value_combination(cls, values):
         if len(values.get('networks')) > 0 and not bool(values.get('vrf')):
             raise ValueError("If network is given a VRF must be set too")
         if len(values.get('dhcp_relays')) > 0 and not len(values.get('networks')) > 0:
             raise ValueError("If dhcp_relays is given a network must be present too")
+        if len(values.get('aggregates', [])) > len(values.get('networks', [])):
+            raise ValueError('There are more aggregates than networks')
         return values
 
     @pydantic.root_validator
@@ -229,6 +238,16 @@ class InfraNetwork(pydantic.BaseModel):
                 relay = ipaddress.ip_address(relay)
                 if relay in network.network:
                     raise ValueError(f'dhcp_relay {relay} is contained in network {network}')
+        return values
+
+    @pydantic.root_validator
+    def ensure_aggregate_is_supernet_of_networks(cls, values):
+        for aggregate in values.get('aggregates', []):
+            aggregate = ipaddress.ip_network(aggregate)
+            if any(ipaddress.ip_interface(x).network == aggregate for x in values.get('networks', [])):
+                raise ValueError(f'Aggregate {aggregate} is equal to one of the networks')
+            if not any(ipaddress.ip_interface(x) in aggregate for x in values.get('networks', [])):
+                raise ValueError(f'Aggregate {aggregate} is not a supernet of any network in networks')
         return values
 
 

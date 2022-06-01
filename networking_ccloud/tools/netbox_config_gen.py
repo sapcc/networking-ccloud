@@ -222,9 +222,11 @@ class ConfigGenerator:
             vni = int(f'10{pod_sequence:03d}{vlan.vid:03d}')
             # make sure that the svi interface's address actually resides in the correct prefix
             networks = list()
+            parent_prefixes = set()
             for gateway in svis[vlan]:
                 prefix = ipaddress.ip_network(gateway.address, strict=False)
-                if not self.netbox.ipam.prefixes.get(vlan_id=vlan.id, prefix=prefix.with_prefixlen):
+                nb_prefix = self.netbox.ipam.prefixes.get(vlan_id=vlan.id, prefix=prefix.with_prefixlen)
+                if not nb_prefix:
                     raise ConfigException(f'Vlan {vlan.id} bound on interface {iface.id} is l3 enabled, but SVI '
                                           f'interface\'s address {gateway.address} address does not reside in the '
                                           'vlan\'s assigned prefix')
@@ -232,9 +234,23 @@ class ConfigGenerator:
                     raise ConfigException('Gateway address with ID {gateway.id} does not reside in VRF'
                                           f'{gateway.vrf} but must for InfraNetwork')
                 networks.append(gateway.address)
+                nb_parent_prefix = self.netbox.ipam.prefixes.get(contains=prefix.with_prefixlen,
+                                                                 vrf_id=nb_prefix.vrf.id,
+                                                                 tenant_id=nb_prefix.tenant.id,
+                                                                 site_id=nb_prefix.site.id,
+                                                                 mask_length__lte=prefix.prefixlen - 1)
+                if not nb_parent_prefix:
+                    raise ConfigException(f'Could not find supernet for {gateway.address}')
+                parent_prefixes.add(ipaddress.ip_network(nb_parent_prefix.prefix))
 
-            infra_net = conf.InfraNetwork(name=f'bb{pod_sequence}-{vlan.name.lower().replace(" ", "-")}',
-                                          vlan=vlan.vid, vrf=self.infra_network_vrf, networks=networks, vni=vni)
+            infra_net_name = f'bb{pod_sequence}-{vlan.name.lower().replace(" ", "-")}'
+            if len(parent_prefixes) > 1:
+                raise ConfigException(f'For {infra_net_name} the prefixes are sourced from multiple parent '
+                                      f'networks {parent_prefixes}')
+
+            infra_net = conf.InfraNetwork(name=infra_net_name, vlan=vlan.vid, vrf=self.infra_network_vrf,
+                                          networks=networks, vni=vni, aggregates=[str(parent_prefixes.pop())])
+
             infra_nets.add(infra_net)
         return infra_nets
 
