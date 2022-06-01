@@ -12,8 +12,11 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
+from networking_ccloud.common.config import _override_driver_config
+from networking_ccloud.common.config.config_driver import InfraNetwork
 from networking_ccloud.ml2.agent.common import messages as agent_msg
 from networking_ccloud.tests import base
+from networking_ccloud.tests.common import config_fixtures as cfix
 
 
 class TestSwitchConfigUpdate(base.TestCase):
@@ -68,3 +71,42 @@ class TestSwitchConfigUpdate(base.TestCase):
         # format fixing
         self.assertEqual("65130.23:1234", agent_msg.validate_route_target("4268359703:1234"))
         self.assertEqual("123:123", agent_msg.validate_route_target("123:123"))
+
+
+class TestSwitchConfigUpdateList(base.TestCase):
+    def setUp(self):
+        super().setUp()
+
+        switchgroups = [
+            cfix.make_switchgroup("seagull", availability_zone="qa-de-1a"),
+        ]
+        seagull_infra_nets = [
+            InfraNetwork(name="infra_net_l3", vlan=23, networks=["10.23.42.1/24"], vrf='TEST', vni=6667),
+        ]
+        hg_seagull = cfix.make_metagroup("seagull", meta_kwargs={'infra_networks': seagull_infra_nets})
+        hostgroups = hg_seagull
+        self.drv_conf = cfix.make_config(switchgroups=switchgroups, hostgroups=hostgroups)
+        _override_driver_config(self.drv_conf)
+
+    def test_add_vrf(self):
+        scul = agent_msg.SwitchConfigUpdateList(agent_msg.OperationEnum.add, self.drv_conf)
+
+        hg = self.drv_conf.get_hostgroup_by_host("nova-compute-seagull")
+        scul.add_vrf(hg, "TEST", "some network", 31337, 2323,
+                     ["10.100.1.0/24"], ["10.100.0.0/23"], az_local=True)
+
+        swcfg = scul.switch_config_updates["seagull-sw1"]
+        print(swcfg.dict())
+
+        # check vrf present
+        # FIXME: add check
+        # check route-maps present
+        # FIXME: add check
+        # check bgp vrf present
+        # FIXME: add check
+        # check vrf vxlan maps
+        # FIXME: add check
+        #   check networks present
+        bgpvrf = swcfg.bgp.vrfs[0]
+        self.assertEqual(["10.100.0.0/23"], [n.network for n in bgpvrf.aggregates])
+        self.assertEqual({"10.100.1.0/24", "10.100.0.0/23"}, {n.network for n in bgpvrf.networks})

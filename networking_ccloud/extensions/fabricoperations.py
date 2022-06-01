@@ -293,9 +293,12 @@ class SwitchesController(wsgi.Controller):
         scul = agent_msg.SwitchConfigUpdateList(agent_msg.OperationEnum.replace, self.drv_conf)
         for hg in self.drv_conf.get_hostgroups_by_switch(switch.name):
             if hg.infra_networks:
-                for inet in hg.infra_networks:
+                for infra_net in hg.infra_networks:
                     # FIXME: exclude hosts
-                    scul.add_binding_host_to_config(hg, inet.name, inet.vni, inet.vlan)
+                    scul.add_binding_host_to_config(hg, infra_net.name, infra_net.vni, infra_net.vlan)
+                    if infra_net.vrf:
+                        scul.add_vrf(hg, infra_net.vrf, infra_net.name, infra_net.vni, infra_net.vlan,
+                                     infra_net.networks, infra_net.aggregates, az_local=True)
         self._clean_switches(scul, switch)
         try:
             config_generated = scul.execute(request.context)
@@ -349,9 +352,12 @@ class SwitchesController(wsgi.Controller):
 
         for hg in self.drv_conf.get_hostgroups_by_switch(switch.name):
             if hg.infra_networks:
-                for inet in hg.infra_networks:
+                for infra_net in hg.infra_networks:
                     # FIXME: exclude hosts
-                    scul.add_binding_host_to_config(hg, inet.name, inet.vni, inet.vlan)
+                    scul.add_binding_host_to_config(hg, infra_net.name, infra_net.vni, infra_net.vlan)
+                    if infra_net.vrf:
+                        scul.add_vrf(hg, infra_net.vrf, infra_net.name, infra_net.vni, infra_net.vlan,
+                                     infra_net.networks, infra_net.aggregates, az_local=True)
             if hg.role:
                 # transits/BGWs don't have bindings, so bind all physnets
                 # find all physnets or interconnects scheduled
