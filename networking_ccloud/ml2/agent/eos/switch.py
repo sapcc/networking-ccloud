@@ -160,9 +160,6 @@ class EOSSetConfig:
 
 
 class EOSSwitch(SwitchBase):
-
-    CONFIGURE_ORDER = ['vlan', 'vxlan_mapping', 'bgp', 'ifaces']
-
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.drv_conf = get_driver_config()

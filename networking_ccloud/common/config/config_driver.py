@@ -17,7 +17,7 @@ import ipaddress
 from itertools import groupby
 from operator import attrgetter
 import re
-from typing import List, Union
+from typing import List, Optional, Union
 
 import pydantic
 
@@ -73,6 +73,19 @@ def validate_asn(asn):
         return f"{asn >> 16}.{asn & 0xFFFF}"
     else:
         return str(asn)
+
+
+def ensure_host_bit_set(net):
+    net = ipaddress.ip_interface(net)
+    if str(net) == str(net.network):
+        raise ValueError(f'Network {net} is supposed to be used as gateway and hence needs hosts bits set')
+    return str(net)
+
+
+def ensure_network(net):
+    # raises ValueError if host bits are set
+    net = ipaddress.ip_network(net, strict=True)
+    return str(net)
 
 
 class Switch(pydantic.BaseModel):
@@ -206,23 +219,12 @@ class InfraNetwork(pydantic.BaseModel):
     dhcp_relays: List[str] = []
 
     _normalize_relays = pydantic.validator('dhcp_relays', each_item=True, allow_reuse=True)(validate_ip_address)
+    _ensure_host_bit_set = pydantic.validator('networks', each_item=True, allow_reuse=True)(ensure_host_bit_set)
+    _ensure_network = pydantic.validator('aggregates', each_item=True, allow_reuse=True)(ensure_network)
 
     def __hash__(self) -> int:
         return hash((self.name, self.vlan, self.vrf, tuple(self.networks),
                     self.vni, self.untagged, tuple(self.dhcp_relays)))
-
-    @pydantic.validator('networks', each_item=True)
-    def ensure_host_bit_set(cls, net):
-        net = ipaddress.ip_interface(net)
-        if str(net) == str(net.network):
-            raise ValueError(f'Network {net} is supposed to be used as gateway and hence needs hosts bits set')
-        return str(net)
-
-    @pydantic.validator('aggregates', each_item=True)
-    def ensure_network(cls, net):
-        # raises ValueError if host bits are set
-        net = ipaddress.ip_network(net, strict=True)
-        return str(net)
 
     @pydantic.root_validator
     def ensure_correct_value_combination(cls, values):
@@ -681,3 +683,15 @@ class DriverConfig(pydantic.BaseModel):
 
     def list_availability_zones(self):
         return sorted(az.name for az in self.global_config.availability_zones)
+
+    def get_vrf(self, name) -> Optional[VRF]:
+        for vrf in self.global_config.vrfs:
+            if vrf.name == name:
+                return vrf
+        return None
+
+    def get_availability_zone(self, name) -> Optional[AvailabilityZone]:
+        for az in self.global_config.availability_zones:
+            if az.name == name:
+                return az
+        return None

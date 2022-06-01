@@ -15,13 +15,14 @@
 from enum import Enum
 import ipaddress
 import re
-from typing import List
+from typing import List, Optional, Set, Union
 
 from neutron_lib.plugins.ml2 import api as ml2_api
 from oslo_log import log as logging
 import pydantic
 
-from networking_ccloud.common.config.config_driver import validate_asn
+import networking_ccloud.common.config.config_driver as dcfg
+from networking_ccloud.common.config.config_driver import validate_asn, ensure_host_bit_set, ensure_network
 from networking_ccloud.common import constants as cc_const
 from networking_ccloud.ml2.agent.common.api import CCFabricSwitchAgentRPCClient
 
@@ -96,6 +97,11 @@ class VXLANMapping(pydantic.BaseModel):
         return self.vlan < other.vlan
 
 
+class VRFVXLANMapping(pydantic.BaseModel):
+    vrf: str
+    vni: pydantic.conint(gt=0, lt=2**24)
+
+
 class BGPVlan(pydantic.BaseModel):
     # FIXME: validator
     rd: str
@@ -118,6 +124,58 @@ class BGPVlan(pydantic.BaseModel):
         return self.vlan < other.vlan
 
 
+class BGPVRFAggregate(pydantic.BaseModel):
+    network: str
+    route_map: str
+
+    _ensure_network = pydantic.validator('network', each_item=True, allow_reuse=True)(ensure_network)
+
+    def __hash__(self) -> int:
+        return hash(self.network)
+
+    def __lt__(self, other) -> bool:
+        return other.network < self.network
+
+
+class BGPVRFNetwork(pydantic.BaseModel):
+    network: str
+    route_map: str
+
+    _ensure_host_bit_set = pydantic.validator('network', each_item=True, allow_reuse=True)(ensure_host_bit_set)
+
+    def __hash__(self) -> int:
+        return hash(self.network)
+
+    def __lt__(self, other) -> bool:
+        return other.network < self.network
+
+
+class BGPVRF(pydantic.BaseModel):
+    # FIXME: validator
+    rd: str
+    name: str
+    rt_imports: Optional[List[str]] = None
+    rt_exports: Optional[List[str]] = None
+
+    # FIXME: set?
+    aggregates: Optional[Set[BGPVRFAggregate]] = None
+    networks: Optional[Set[BGPVRFNetwork]] = None
+
+    _norm_rt_imports = pydantic.validator('rt_imports', each_item=True, allow_reuse=True)(validate_route_target)
+    _norm_rt_exports = pydantic.validator('rt_exports', each_item=True, allow_reuse=True)(validate_route_target)
+
+    def add_default_rts(self, asn_region: str, vrf_number: int,
+                        local_az: dcfg.AvailabilityZone, all_azs: List[dcfg.AvailabilityZone]):
+        if not self.rt_imports:
+            self.rt_imports = list()
+        for az in all_azs:
+            self.rt_imports.append(f"{asn_region}:{az.number}{vrf_number}")
+
+        if not self.rt_exports:
+            self.rt_exports = list()
+        self.rt_exports.append(f"{asn_region}:{local_az.number}{vrf_number}")
+
+
 class BGP(pydantic.BaseModel):
     asn: str
     asn_region: str
@@ -127,6 +185,7 @@ class BGP(pydantic.BaseModel):
     switchgroup_id: int = None
 
     vlans: List[BGPVlan] = None
+    vrfs: List[BGPVRF] = None
 
     _normalize_asn = pydantic.validator('asn', allow_reuse=True)(validate_asn)
     _normalize_asn_region = pydantic.validator('asn_region', allow_reuse=True)(validate_asn)
@@ -156,6 +215,19 @@ class BGP(pydantic.BaseModel):
 
         self.vlans.append(BGPVlan(rd=rd, vlan=vlan, **bvargs))
 
+    def get_or_create_vrf(self, name: str, vrf_number: str) -> BGPVRF:
+        if not self.vrfs:
+            self.vrfs = []
+
+        for vrf in self.vrfs:
+            if vrf.name == name:
+                return vrf
+
+        rd = f"{self.asn}:{vrf_number}"
+        vrf = BGPVRF(name=name, rd=rd)
+        self.vrfs.append(vrf)
+        return vrf
+
 
 class VlanTranslation(pydantic.BaseModel):
     inside: pydantic.conint(gt=0, lt=4094)
@@ -164,6 +236,10 @@ class VlanTranslation(pydantic.BaseModel):
 
 class IfaceConfig(pydantic.BaseModel):
     name: str
+
+    vrf: str = None
+    ip_addresses: List[str] = None
+    description: str = None
 
     native_vlan: pydantic.conint(gt=0, lt=4094) = None
     trunk_vlans: List[pydantic.conint(gt=0, lt=4094)] = None
@@ -197,12 +273,36 @@ class IfaceConfig(pydantic.BaseModel):
         self.vlan_translations.append(VlanTranslation(inside=inside, outside=outside))
 
 
+class RouteMap(pydantic.BaseModel):
+    name: str
+    set_rts: List[str] = None
+
+    _norm_set_rts = pydantic.validator('set_rts', each_item=True, allow_reuse=True)(validate_route_target)
+
+    @staticmethod
+    def gen_name(name, prefix="RM", az_suffix=None, aggregate=False):
+        rm = [prefix, name]
+        if az_suffix:
+            rm.append(az_suffix.upper())
+        if aggregate:
+            rm.append("AGGREGATE")
+        return "-".join(rm)
+
+
+class VRF(pydantic.BaseModel):
+    name: str
+    ip_routing: bool = True
+
+
 class SwitchConfigUpdate(pydantic.BaseModel):
     switch_name: str
     operation: OperationEnum
 
     vlans: List[Vlan] = None
+    vrfs: List[VRF] = None
+    route_maps: List[RouteMap] = None
     vxlan_maps: List[VXLANMapping] = None
+    vrf_vxlan_maps: List[VXLANMapping] = None
     bgp: BGP = None
     ifaces: List[IfaceConfig] = None  # noqa: E701 (pyflakes bug)
 
@@ -238,6 +338,14 @@ class SwitchConfigUpdate(pydantic.BaseModel):
                 return
         self.vxlan_maps.append(VXLANMapping(vni=vni, vlan=vlan))
 
+    def add_vrf_vxlan_map(self, vrf, vni):
+        if self.vrf_vxlan_maps is None:
+            self.vrf_vxlan_maps = []
+        for vm in self.vrf_vxlan_maps:
+            if vm.vrf == vrf and vm.vni == vni:
+                return
+        self.vrf_vxlan_maps.append(VRFVXLANMapping(vrf=vrf, vni=vni))
+
     def add_iface(self, iface):
         if self.ifaces is None:
             self.ifaces = []
@@ -272,14 +380,32 @@ class SwitchConfigUpdate(pydantic.BaseModel):
         self.ifaces.append(iface)
         return iface
 
+    def add_vrf(self, name, ip_routing):
+        if not self.vrfs:
+            self.vrfs = []
+
+        for vrf in self.vrfs:
+            if vrf.name == name:
+                return
+        self.vrfs.append(VRF(name=name, ip_routing=ip_routing))
+
+    def add_route_map(self, name, **kwargs):
+        if not self.route_maps:
+            self.route_maps = []
+
+        for rm in self.route_maps:
+            if rm.name == name:
+                return
+        self.route_maps.append(RouteMap(name=name, **kwargs))
+
 
 class SwitchConfigUpdateList:
-    def __init__(self, operation, drv_conf):
+    def __init__(self, operation: OperationEnum, drv_conf: dcfg.DriverConfig):
         self.operation = operation
         self.drv_conf = drv_conf
         self.switch_config_updates = {}
 
-    def get_or_create_switch(self, switch_name):
+    def get_or_create_switch(self, switch_name) -> SwitchConfigUpdate:
         if switch_name not in self.switch_config_updates:
             self.switch_config_updates[switch_name] = SwitchConfigUpdate(switch_name=switch_name,
                                                                          operation=self.operation)
@@ -294,7 +420,7 @@ class SwitchConfigUpdateList:
 
         return self.add_binding_host_to_config(hg_config, *args, **kwargs)
 
-    def add_binding_host_to_config(self, hg_config, network_id, seg_vni, seg_vlan, trunk_vlan=None,
+    def add_binding_host_to_config(self, hg_config, network_name, vni, vlan, trunk_vlan=None,
                                    keep_mapping=False, exclude_hosts=None, is_bgw=False):
         """Add binding host config to all required switches
 
@@ -313,29 +439,29 @@ class SwitchConfigUpdateList:
             scu = self.get_or_create_switch(switch.name)
 
             # add bgp stuff
-            if seg_vni and (add or not keep_mapping):
+            if vni and (add or not keep_mapping):
                 if not scu.bgp:
                     sg = self.drv_conf.get_switchgroup_by_switch_name(switch.name)
                     scu.bgp = BGP(asn=sg.asn, asn_region=self.drv_conf.global_config.asn_region,
                                   switchgroup_id=sg.group_id)
-                scu.bgp.add_vlan(seg_vlan, seg_vni, bgw_mode=is_bgw)
+                scu.bgp.add_vlan(vlan, vni, bgw_mode=is_bgw)
 
             # vlan-vxlan mapping
-            if seg_vni and (add or not keep_mapping):
-                scu.add_vlan(seg_vlan, network_id)
-                scu.add_vxlan_map(seg_vni, seg_vlan)
+            if vni and (add or not keep_mapping):
+                scu.add_vlan(vlan, network_name)
+                scu.add_vxlan_map(vni, vlan)
 
             # interface config
             if not is_bgw:
                 for sp in switchports:
                     iface = scu.get_or_create_iface_from_switchport(sp)
-                    iface.add_trunk_vlan(seg_vlan)
+                    iface.add_trunk_vlan(vlan)
 
                     if hg_config.direct_binding and not hg_config.role:
                         if trunk_vlan:
-                            iface.add_vlan_translation(seg_vlan, trunk_vlan)
+                            iface.add_vlan_translation(vlan, trunk_vlan)
                         else:
-                            iface.native_vlan = seg_vlan
+                            iface.native_vlan = vlan
 
     def add_segments(self, net_segments, top_segments):
         for network_id, segments in net_segments.items():
@@ -385,6 +511,110 @@ class SwitchConfigUpdateList:
 
             self.add_binding_host_to_config(device_hg, device.network_id, vni, device_segment[ml2_api.SEGMENTATION_ID],
                                             is_bgw=device.device_type == cc_const.DEVICE_TYPE_BGW)
+
+    def _get_switch_bgp_l3_attributes(self, switch: dcfg.Switch, vrf: Union[str, dcfg.VRF]):  # type: ignore
+        sg: dcfg.SwitchGroup = self.drv_conf.get_switchgroup_by_switch_name(switch.name)  # type: ignore
+        az: dcfg.AvailabilityZone = self.drv_conf.get_availability_zone(sg.availability_zone)  # type: ignore
+
+        if isinstance(vrf, str):
+            vrf_name = vrf
+            vrf: dcfg.VRF = self.drv_conf.get_vrf(vrf_name)  # type: ignore
+            if not vrf:
+                # FIXME: should this be an exception? should this be a ValueError?
+                raise ValueError(f"No vrf found for VRF name '{vrf_name}'")
+
+        return dict(vrf=vrf, az=az, asn=sg.asn)
+
+    def add_vrf(self, hg_config: dcfg.Hostgroup, vrf: Union[dcfg.VRF, str],  # type: ignore
+                exclude_hosts: Optional[str] = None):
+
+        asn_region = self.drv_conf.global_config.asn_region
+        for switch_name, switchports in hg_config.iter_switchports(self.drv_conf, exclude_hosts=exclude_hosts):
+            switch: dcfg.Switch = self.drv_conf.get_switch_by_name(switch_name)  # type: ignore
+            scu = self.get_or_create_switch(switch.name)
+
+            bgp_l3_attribs = self._get_switch_bgp_l3_attributes(switch, vrf)
+            asn = bgp_l3_attribs['asn']
+            vrf: dcfg.VRF = bgp_l3_attribs['vrf']  # type: ignore
+            az: dcfg.AvailabilityZone = bgp_l3_attribs['az']  # type: ignore
+
+            # ip vrf / vrf instance
+            scu.add_vrf(vrf.name, ip_routing=True)
+
+            # route maps
+            scu.add_route_map(name=RouteMap.gen_name(vrf.name), set_rts=[f"{asn_region}:{vrf.number}"])
+            scu.add_route_map(name=RouteMap.gen_name(vrf.name, aggregate=True),
+                              set_rts=[f"{asn_region}:{vrf.number}", f"{asn_region}:1"])
+            scu.add_route_map(name=RouteMap.gen_name(vrf.name, az_suffix=az.suffix),
+                              set_rts=[f"{asn_region}:{az.number}{vrf.number}"])
+            scu.add_route_map(name=RouteMap.gen_name(vrf.name, az_suffix=az.suffix, aggregate=True),
+                              set_rts=[f"{asn_region}:{az.number}{vrf.number}", f"{asn_region}:1"])
+
+            # BGP base configuration to propagate VRF routes into EVPN
+            if not scu.bgp:
+                scu.bgp = BGP(asn=asn, asn_region=asn_region)
+
+            bgpvrf = scu.bgp.get_or_create_vrf(vrf.name, vrf.number)
+            bgpvrf.add_default_rts(asn_region, vrf.number, az, self.drv_conf.global_config.availability_zones)
+
+    def add_l3_networks_in_vrf(self, hg_config: dcfg.Hostgroup, vrf: Union[dcfg.VRF, str], network_name: str,
+                               vni: int, vlan: int, networks: List[str], aggregates: List[str], az_local: bool,
+                               exclude_hosts=None):
+
+        # FIXME: Due to the summarization we do, we cannot singularly just add a network or an aggregation, as this
+        #        could break existing networks on the device. I see 2 options here:
+        #        1. We implement anything working with networks and aggregates as a replace only method and assume that
+        #           this will only ever get called with all necessary networks. However as the configured networks
+        #           differ from switchgroup to switchgroup, we need to pass a switchgroup -> vrf -> present_networks
+        #           mapping as an argument to this function too.
+        #        2. We decide that we do the aggregation on the switch-class level, meaning we obtain a configuration
+        #           lock, read the current configured networks on that device and then build aggregates as well
+        #           as network statements
+
+        asn_region = self.drv_conf.global_config.asn_region
+
+        for switch_name, switchports in hg_config.iter_switchports(self.drv_conf, exclude_hosts=exclude_hosts):
+            switch: dcfg.Switch = self.drv_conf.get_switch_by_name(switch_name)  # type: ignore
+            scu = self.get_or_create_switch(switch.name)
+
+            bgp_l3_attribs = self._get_switch_bgp_l3_attributes(switch, vrf)
+            vrf: dcfg.VRF = bgp_l3_attribs['vrf']  # type: ignore
+            az: dcfg.AvailabilityZone = bgp_l3_attribs['az']  # type: ignore
+            asn = bgp_l3_attribs['asn']
+
+            # bgp vrf
+            # advertise network via BGP
+            if not scu.bgp:
+                scu.bgp = BGP(asn=asn, asn_region=asn_region)
+
+            bgpvrf = scu.bgp.get_or_create_vrf(vrf.name, vrf.number)
+
+            # build aggregates and networks + their route maps
+            rm_args = {'name': vrf.name}
+            if az_local:
+                rm_args['az_suffix'] = az.suffix
+
+            for aggr in aggregates:
+                bgpvrf_aggregate = BGPVRFAggregate(network=str(ipaddress.ip_network(aggr, strict=False)),
+                                                   route_map=RouteMap.gen_name(aggregate=True, **rm_args))
+                if not bgpvrf.aggregates:
+                    bgpvrf.aggregates = set()
+                bgpvrf.aggregates.add(bgpvrf_aggregate)
+
+            for net in networks:
+                aggregate = any(ipaddress.ip_network(aggr, strict=False) == ipaddress.ip_network(net, strict=False)
+                                for aggr in aggregates)
+                bgpvrf_net = BGPVRFNetwork(network=net, route_map=RouteMap.gen_name(aggregate=aggregate, **rm_args))
+                if not bgpvrf.networks:
+                    bgpvrf.networks = set()
+                bgpvrf.networks.add(bgpvrf_net)
+
+            # associate VRF
+            scu.add_vrf_vxlan_map(vrf.name, vni)
+
+            # anycast gateway interface
+            viface = IfaceConfig(name=f"Vlan{vlan}", description=network_name, vrf=vrf.name, ip_addresses=networks)
+            scu.add_iface(viface)
 
     def execute(self, context, synchronous=True):
         platform_updates = {}
