@@ -12,8 +12,11 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
+from collections import defaultdict
+from operator import attrgetter
 import re
 import time
+from typing import Dict, List, Optional
 
 from oslo_log import log as logging
 import pyeapi
@@ -25,16 +28,20 @@ from networking_ccloud.ml2.agent.common import messages as agent_msg
 from networking_ccloud.ml2.agent.common.messages import OperationEnum as Op
 from networking_ccloud.ml2.agent.common.switch import SwitchBase
 
+
 LOG = logging.getLogger(__name__)
 
 
 class EOSSwitch(SwitchBase):
+
+    CONFIGURE_ORDER = ['vlan', 'vxlan_mapping', 'bgp', 'ifaces']
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.drv_conf = get_driver_config()
 
     @classmethod
-    def get_platform(self):
+    def get_platform(cls):
         return cc_const.PLATFORM_EOS
 
     def login(self):
@@ -83,15 +90,18 @@ class EOSSwitch(SwitchBase):
             'uptime': ver['uptime'],
         }
 
-    def _make_config_from_update(self, config):
-        # build config
-        commands = ['configure']
+    def get_vlan_config(self) -> List[agent_msg.Vlan]:
+        vlans = [agent_msg.Vlan(vlan=int(vlan), name=data['name'])
+                 for vlan, data in self.send_cmd("show vlan")['vlans'].items()]
+        return sorted(vlans, key=attrgetter('vlan'))
 
-        if config.vlans:
-            if config.operation == Op.replace:
-                wanted_vlans = [v.vlan for v in config.vlans]
-                device_vlans = self.send_cmd("show vlan")['vlans']
-                for device_vlan in map(int, device_vlans.keys()):
+    def _make_vlan_config(self, vlans: Optional[List[agent_msg.Vlan]], operation: Op) -> List[str]:
+        commands = []
+        if vlans:
+            if operation == Op.replace:
+                wanted_vlans = [v.vlan for v in vlans]
+                device_vlans = self.get_vlan_config()
+                for device_vlan in (v.vlan for v in device_vlans):
                     # FIXME: either move this into constants or get this from config
                     # ignore default and peering vlans
                     if device_vlan <= 1 or device_vlan >= 4093:
@@ -99,8 +109,8 @@ class EOSSwitch(SwitchBase):
                     if device_vlan not in wanted_vlans:
                         commands.append(f"no vlan {device_vlan}")
 
-            for vlan in config.vlans:
-                if config.operation in (Op.add, Op.replace):
+            for vlan in vlans:
+                if operation in (Op.add, Op.replace):
                     commands.append(f"vlan {vlan.vlan}")
                     if vlan.name:
                         name = vlan.name.replace(" ", "_")
@@ -108,61 +118,91 @@ class EOSSwitch(SwitchBase):
                     commands.append("exit")
                 else:
                     commands.append(f"no vlan {vlan.vlan}")
+        return commands
 
-        # vxlan mappings
-        if config.vxlan_maps is not None:
+    def get_vxlan_mapping(self) -> List[agent_msg.VXLANMapping]:
+        result = self.send_cmd("show interfaces Vxlan1")['interfaces']['Vxlan1']['vlanToVniMap']
+        vxlan_maps = [agent_msg.VXLANMapping(vni=int(data['vni']), vlan=int(vlan))
+                      for vlan, data in result.items() if 'vni' in data]
+        return sorted(vxlan_maps, key=attrgetter('vlan'))
+
+    def _make_vxlan_mapping_config(self, vxlan_maps: Optional[List[agent_msg.VXLANMapping]],
+                                   operation: Op) -> List[str]:
+        commands = []
+        if vxlan_maps is not None:
             commands.append("interface Vxlan1")
 
             # handle already existing mappings
-            if config.operation in (Op.add, Op.replace):
+            if operation in (Op.add, Op.replace):
                 # purge mappings that are on the device but shouldn't
-                curr_maps = self.send_cmd("show interfaces Vxlan1")['interfaces']['Vxlan1']['vlanToVniMap']
-                if config.operation == Op.add:
+                curr_maps = self.get_vxlan_mapping()
+                if operation == Op.add:
                     # purge mappings referenced by config update, but point to something else
-                    for vlan, data in curr_maps.items():
-                        switch_vlan = int(vlan)
-                        switch_vni = data['vni']
-                        for os_map in config.vxlan_maps:
-                            if (os_map.vlan == switch_vlan and os_map.vni != switch_vni) \
-                                    or (os_map.vni == switch_vni and os_map.vlan != switch_vlan):
+                    for curr_map in curr_maps:
+                        for os_map in vxlan_maps:
+                            if (os_map.vlan == curr_map.vlan and os_map.vni != curr_map.vni) \
+                                    or (os_map.vni == curr_map.vni and os_map.vlan != curr_map.vlan):
                                 LOG.warning("Removing stale vxlan map <vni %s vlan %s> in favor of <vni %s vlan %s> "
                                             "on switch %s (%s)",
-                                            switch_vni, switch_vlan, os_map.vni, os_map.vlan, self.name, self.host)
-                                commands.append(f"no vxlan vlan {vlan} vni {data['vni']}")
+                                            curr_map.vni, curr_map.vlan, os_map.vni, os_map.vlan, self.name, self.host)
+                                commands.append(f"no vxlan vlan {curr_map.vlan} vni {curr_map.vni}")
                 else:
-                    wanted_maps = [(v.vlan, v.vni) for v in config.vxlan_maps]
-                    for vlan, data in curr_maps.items():
-                        if data['vni'] and (int(vlan), data['vni']) not in wanted_maps:
-                            commands.append(f"no vxlan vlan {vlan} vni {data['vni']}")
+                    wanted_maps = [(v.vlan, v.vni) for v in vxlan_maps]
+                    for curr_map in curr_maps:
+                        if (curr_map.vlan, curr_map.vni) not in wanted_maps:
+                            commands.append(f"no vxlan vlan {curr_map.vlan} vni {curr_map.vni}")
 
             # add / remove requested mappings
-            for vmap in config.vxlan_maps:
-                if config.operation in (Op.add, Op.replace):
+            for vmap in vxlan_maps:
+                if operation in (Op.add, Op.replace):
                     commands.append(f"vxlan vlan add {vmap.vlan} vni {vmap.vni}")
-                elif config.operation == Op.remove:
+                elif operation == Op.remove:
                     commands.append(f"no vxlan vlan {vmap.vlan} vni {vmap.vni}")
             commands.append("exit")
+        return commands
 
-        # bgp section
-        if config.bgp and config.bgp.vlans:
-            commands.append(f"router bgp {config.bgp.asn}")
+    def get_bgp_vlan_config(self) -> List[agent_msg.BGPVlan]:
+        curr_bgp_vlans = self.send_cmd("show bgp evpn instance")['bgpEvpnInstances']
+        vre = re.compile(r"VLAN (?P<vlan>\d+)")
+        bgp_vlans = []
+        for vlan_name, data in curr_bgp_vlans.items():
+            m = vre.match(vlan_name)
+            if not m:
+                LOG.warning("Could not match bgp vpn instance name '%s'", vlan_name)
+                continue
+
+            bv = agent_msg.BGPVlan(rd=data['rd'], vlan=int(m.group('vlan')),
+                                   rt_imports=data.get('importRts', []), rt_exports=data.get('exportRts', []),
+                                   rd_evpn_domain_all='remoteRd' in data,
+                                   rt_imports_evpn=data.get('importRemoteRts', []),
+                                   rt_exports_evpn=data.get('exportRemoteRts', []))
+            # FIXME: redistribute learned flag?
+            bgp_vlans.append(bv)
+        return bgp_vlans
+
+    def get_bgp_config(self) -> agent_msg.BGP:
+        bgp_sum = self.send_cmd("show bgp summary")['vrfs']['default']
+        bgp = agent_msg.BGP(asn=bgp_sum['asn'], asn_region=self.drv_conf.global_config.asn_region, vlans=[])
+        bgp.vlans = self.get_bgp_vlan_config()
+        return bgp
+
+    def _make_bgp_config(self, bgp: Optional[agent_msg.BGP], operation: Op) -> List[str]:
+        commands = []
+        if bgp and bgp.vlans:
+            commands.append(f"router bgp {bgp.asn}")
 
             # bgp vlan sections
-            if config.bgp.vlans:
-                if config.operation == Op.replace:
-                    wanted_bgp_vlans = [bv.vlan for bv in config.bgp.vlans]
-                    vre = re.compile(r"VLAN (?P<vlan>\d+)")
-                    curr_bgp_vlans = self.send_cmd("show bgp evpn instance")['bgpEvpnInstances']
-                    for entry in curr_bgp_vlans.keys():
-                        m = vre.match(entry)
-                        if m:
-                            v = int(m.group('vlan'))
-                            # FIXME: guard vlan range, same as above
-                            if v > 1 and v < 4093 and v not in wanted_bgp_vlans:
-                                commands.append(f"no vlan {v}")
+            if bgp.vlans:
+                if operation == Op.replace:
+                    wanted_bgp_vlans = [bv.vlan for bv in bgp.vlans]
+                    curr_bgp_vlans = self.get_bgp_vlan_config()
+                    for entry in curr_bgp_vlans:
+                        # FIXME: guard vlan range, same as above
+                        if entry.vlan > 1 and entry.vlan < 4093 and entry.vlan not in wanted_bgp_vlans:
+                            commands.append(f"no vlan {entry.vlan}")
 
-                for bgp_vlan in config.bgp.vlans:
-                    if config.operation in (Op.add, Op.replace):
+                for bgp_vlan in bgp.vlans:
+                    if operation in (Op.add, Op.replace):
                         commands.append(f"vlan {bgp_vlan.vlan}")
 
                         # rd
@@ -187,46 +227,97 @@ class EOSSwitch(SwitchBase):
                         commands.append(f"no vlan {bgp_vlan.vlan}")
 
             commands.append("exit")
+        return commands
 
-        # ifaces
-        for iface in config.ifaces or []:
+    def get_vlan_translations(self, iface_name: Optional[str] = None) -> Dict[str, List[agent_msg.VlanTranslation]]:
+
+        ifaces_vlan_maps = self.send_cmd(f"show interfaces {iface_name + ' ' if iface_name else ''}"
+                                         "switchport vlan mapping")['intfVlanMappings']
+
+        result = defaultdict(list)
+        for name, data in ifaces_vlan_maps.items():
+            # we're using ingressVlanMappings, but generally we expect them to be the
+            # same as egressVlanMappings
+            for o_vlan, data in data['ingressVlanMappings'].items():
+                result[name].append(agent_msg.VlanTranslation(inside=data['vlanId'], outside=o_vlan))
+        return result
+
+    def get_ifaces_config(self) -> List[agent_msg.IfaceConfig]:
+
+        iface_map = {}
+
+        def get_or_create_iface(name):
+            if name not in iface_map:
+                iface_map[name] = agent_msg.IfaceConfig(name=name)
+            return iface_map[name]
+
+        # vlans
+        ifaces_vlans = self.send_cmd("show interfaces vlans")['interfaces']
+        for name, data in ifaces_vlans.items():
+            if name == "Vxlan1":
+                continue
+            iface = get_or_create_iface(name)
+            if data.get("untaggedVlan", 1) != 1:
+                iface.native_vlan = data['untaggedVlan']
+            iface.trunk_vlans = data.get('taggedVlans', [])
+
+        # vlan translations
+        vtrans = self.get_vlan_translations()
+        for name, translations in vtrans.items():
+            iface = get_or_create_iface(name)
+            # it comes from the device so we can assume it's free of duplicates
+            iface.vlan_translations = translations
+
+        # portchannel info
+        ifaces_pcs = self.send_cmd("show port-channel dense")['portChannels']
+        for name, data in ifaces_pcs.items():
+            if not name.startswith("Port-Channel"):
+                continue
+            iface = get_or_create_iface(name)
+            iface.portchannel_id = int(name[len("Port-Channel"):])
+            iface.members = [p for p in data["ports"] if not p.startswith("Peer")]
+
+        return sorted(iface_map.values(), key=attrgetter('name'))
+
+    def _make_ifaces_config(self, ifaces: Optional[List[agent_msg.IfaceConfig]], operation: Op) -> List[str]:
+        commands = []
+        for iface in ifaces or []:
             generic_config = ["switchport mode trunk"]
 
             # native vlan
             if iface.native_vlan:
-                if config.operation in (Op.add, Op.replace):
+                if operation in (Op.add, Op.replace):
                     generic_config.append(f"switchport trunk native vlan {iface.native_vlan}")
-                elif config.operation == Op.remove:
+                elif operation == Op.remove:
                     generic_config.append("no switchport trunk native vlan")
 
             # trunk vlans
             if iface.trunk_vlans:
                 vlans = ",".join(map(str, iface.trunk_vlans))
-                if config.operation == Op.add:
+                if operation == Op.add:
                     generic_config.append(f"switchport trunk allowed vlan add {vlans}")
-                elif config.operation == Op.replace:
+                elif operation == Op.replace:
                     generic_config.append(f"switchport trunk allowed vlan {vlans}")
-                elif config.operation == Op.remove:
+                elif operation == Op.remove:
                     generic_config.append(f"switchport trunk allowed vlan remove {vlans}")
 
             # vlan translations
             def get_removable_translations_cmds(iface_name, wanted_translations):
-                vtrans = self.send_cmd(f"show interfaces {iface_name} switchport vlan mapping")['intfVlanMappings']
+                vtrans = self.get_vlan_translations(iface_name=iface_name).popitem()[1]
                 # interface name does not need to 100% match the interface we requested info for
                 # (e24/1 vs Ethernet24/1) --> see what we got and use that
                 # also we're using ingressVlanMappings, but generally we expect them to be the
                 # same as egressVlanMappings
-                vtrans = vtrans[list(vtrans.keys())[0]]['ingressVlanMappings']
                 remove_cmds = []
-                for o_vlan, data in vtrans.items():
-                    if (data['vlanId'], int(o_vlan)) not in wanted_translations:
-                        remove_cmds.append(f"no switchport vlan translation {o_vlan} {data['vlanId']}")
+                for tra in vtrans:
+                    if (tra.inside, tra.outside) not in wanted_translations:
+                        remove_cmds.append(f"no switchport vlan translation {tra.outside} {tra.inside}")
                 return remove_cmds
 
             if iface.vlan_translations:
                 wanted_translations = [(v.inside, v.outside) for v in iface.vlan_translations]
                 for vtr in iface.vlan_translations:
-                    if config.operation in (Op.add, Op.replace):
+                    if operation in (Op.add, Op.replace):
                         generic_config.append(f"switchport vlan translation {vtr.outside} {vtr.inside}")
                     else:
                         generic_config.append(f"no switchport vlan translation {vtr.outside} {vtr.inside}")
@@ -234,9 +325,9 @@ class EOSSwitch(SwitchBase):
             # lacp / member interface config
             if iface.portchannel_id is not None:
                 commands.append(f"interface {iface.name}")
-                if config.operation in (Op.add, Op.replace):
+                if operation in (Op.add, Op.replace):
                     commands.append(f"mlag {iface.portchannel_id}")
-                if iface.vlan_translations and config.operation == Op.replace:
+                if iface.vlan_translations and operation == Op.replace:
                     commands += get_removable_translations_cmds(iface.name, wanted_translations)
                 commands += generic_config
                 commands.append("exit")
@@ -246,9 +337,9 @@ class EOSSwitch(SwitchBase):
 
             for iface_name in normal_ifaces:
                 commands.append(f"interface {iface_name}")
-                if iface.portchannel_id is not None and config.operation in (Op.add, Op.replace):
+                if iface.portchannel_id is not None and operation in (Op.add, Op.replace):
                     commands.append(f"channel-group {iface.portchannel_id} mode active")
-                if iface.vlan_translations and config.operation == Op.replace:
+                if iface.vlan_translations and operation == Op.replace:
                     commands += get_removable_translations_cmds(iface_name, wanted_translations)
                 commands += generic_config
                 commands.append("exit")
@@ -256,70 +347,28 @@ class EOSSwitch(SwitchBase):
 
         return commands
 
-    def get_config(self):
+    def _make_config_from_update(self, config: agent_msg.SwitchConfigUpdate) -> List[str]:
+        # build config
+        configmap = {}
+
+        configmap['vlan'] = self._make_vlan_config(config.vlans, config.operation)
+        configmap['vxlan_mapping'] = self._make_vxlan_mapping_config(config.vxlan_maps, config.operation)
+        configmap['bgp'] = self._make_bgp_config(config.bgp, config.operation)
+        configmap['ifaces'] = self._make_ifaces_config(config.ifaces, config.operation)
+
+        commands = ['configure']
+        for k in self.CONFIGURE_ORDER:
+            commands.extend(configmap[k])
+
+        return commands
+
+    def get_config(self) -> agent_msg.SwitchConfigUpdate:
         # get infos from the device for everything that we have a model for
         config = agent_msg.SwitchConfigUpdate(switch_name=self.name, operation=Op.add)
-
-        # vlans
-        for vlan, data in self.send_cmd("show vlan")['vlans'].items():
-            config.add_vlan(int(vlan), data['name'])
-
-        # vxlan_maps
-        vxlan_maps = self.send_cmd("show interfaces Vxlan1")['interfaces']['Vxlan1']['vlanToVniMap']
-        for vlan, data in vxlan_maps.items():
-            if 'vni' in data:
-                config.add_vxlan_map(int(data['vni']), int(vlan))
-
-        # bgp
-        bgp_sum = self.send_cmd("show bgp summary")['vrfs']['default']
-        config.bgp = agent_msg.BGP(asn=bgp_sum['asn'], asn_region=self.drv_conf.global_config.asn_region, vlans=[])
-        curr_bgp_vlans = self.send_cmd("show bgp evpn instance")['bgpEvpnInstances']
-        vre = re.compile(r"VLAN (?P<vlan>\d+)")
-        for vlan_name, data in curr_bgp_vlans.items():
-            m = vre.match(vlan_name)
-            if not m:
-                LOG.warning("Could not match bgp vpn instance name '%s'", vlan_name)
-                continue
-
-            bv = agent_msg.BGPVlan(rd=data['rd'], vlan=int(m.group('vlan')),
-                                   rt_imports=data.get('importRts', []), rt_exports=data.get('exportRts', []),
-                                   rd_evpn_domain_all='remoteRd' in data,
-                                   rt_imports_evpn=data.get('importRemoteRts', []),
-                                   rt_exports_evpn=data.get('exportRemoteRts', []))
-
-            config.bgp.vlans.append(bv)
-            # FIXME: redistribute learned flag?
-
-        # ifaces - vlans
-        ifaces_vlans = self.send_cmd("show interfaces vlans")['interfaces']
-        for name, data in ifaces_vlans.items():
-            if name == "Vxlan1":
-                continue
-            iface = config.get_or_create_iface(name)
-            if data.get("untaggedVlan", 1) != 1:
-                iface.native_vlan = data['untaggedVlan']
-            iface.trunk_vlans = data.get('taggedVlans', [])
-
-        # ifaces - vlan translations
-        ifaces_vlan_maps = self.send_cmd("show interfaces switchport vlan mapping")['intfVlanMappings']
-        for name, data in ifaces_vlan_maps.items():
-            iface = config.get_or_create_iface(name)
-
-            # we're using ingressVlanMappings, but generally we expect them to be the
-            # same as egressVlanMappings
-            for o_vlan, data in data['ingressVlanMappings'].items():
-                iface.add_vlan_translation(data['vlanId'], int(o_vlan))
-
-        # ifaces - portchannel info
-        ifaces_pcs = self.send_cmd("show port-channel dense")['portChannels']
-        for name, data in ifaces_pcs.items():
-            if not name.startswith("Port-Channel"):
-                continue
-            iface = config.get_or_create_iface(name)
-            iface.portchannel_id = int(name[len("Port-Channel"):])
-            iface.members = [p for p in data["ports"] if not p.startswith("Peer")]
-
-        # FIXME: ALL THE SORTING
+        config.vlans = self.get_vlan_config()
+        config.vxlan_maps = self.get_vxlan_mapping()
+        config.bgp = self.get_bgp_config()
+        config.ifaces = self.get_ifaces_config()
         return config
 
     def apply_config_update(self, config):
