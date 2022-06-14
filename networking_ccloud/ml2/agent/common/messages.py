@@ -14,6 +14,7 @@
 
 from enum import Enum
 import ipaddress
+from operator import attrgetter
 import re
 from typing import List
 
@@ -187,6 +188,17 @@ class SwitchConfigUpdate(pydantic.BaseModel):
     @classmethod
     def make_object_from_net_data(self, vxlan_map, net_host_map):
         pass
+
+    def dict(self, *args, **kwargs):
+        # in case we want to compare this or ship it to the user we may benefit from it being sorted
+        # also test cases would fail otherwise
+        if self.vlans:
+            self.vlans.sort(key=attrgetter('vlan'))
+        if self.vxlan_maps:
+            self.vxlan_maps.sort(key=attrgetter('vlan'))
+        if self.ifaces:
+            self.ifaces.sort(key=attrgetter('name'))
+        return super().dict(*args, **kwargs)
 
     def add_vlan(self, vlan, name=None):
         if self.vlans is None:
