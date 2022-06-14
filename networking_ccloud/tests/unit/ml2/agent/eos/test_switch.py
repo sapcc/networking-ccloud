@@ -245,7 +245,7 @@ class TestEOSConfigUpdates(base.TestCase):
         def execute(cmd, format='json'):
             if cmd == "show vlan":
                 return {'result': [
-                    {'vlans': {str(v): {} for v in [1, 100, 1000, 1003, 4093, 4094]}},
+                    {'vlans': {str(v): {'name': f'vlan-{v}'} for v in [1, 100, 1000, 1003, 4093]}},
                 ]}
             return mock.DEFAULT
         self.switch._api.execute.side_effect = execute
