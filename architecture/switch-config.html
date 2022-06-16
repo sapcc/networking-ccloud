@@ -512,8 +512,10 @@ Regional networks are expected to not have an AZ hint set.</p>
 <span class="n">router</span> <span class="n">bgp</span> <span class="mf">65130.1112</span>
   <span class="n">vlan</span> <span class="mi">3150</span>
       <span class="n">rd</span> <span class="mf">65130.1112</span><span class="p">:</span><span class="mi">10394</span>
-      <span class="n">route</span><span class="o">-</span><span class="n">target</span> <span class="n">both</span> <span class="mi">65130</span><span class="p">:</span><span class="mi">10394</span>
+      <span class="n">route</span><span class="o">-</span><span class="n">target</span> <span class="n">export</span> <span class="mf">65130.1</span><span class="p">:</span><span class="mi">10394</span>
+      <span class="n">route</span><span class="o">-</span><span class="n">target</span> <span class="kn">import</span> <span class="mf">65130.1</span><span class="p">:</span><span class="mi">10394</span>
       <span class="n">redistribute</span> <span class="n">learned</span>
+      <span class="n">redistribute</span> <span class="n">static</span>
 </pre></div>
 </div>
 <p><strong>NX-OS</strong>:</p>
@@ -530,7 +532,8 @@ Regional networks are expected to not have an AZ hint set.</p>
    <span class="n">evpn</span>
       <span class="n">vni</span> <span class="mi">10394</span> <span class="n">l2</span>
          <span class="n">rd</span> <span class="mf">65130.1103</span><span class="p">:</span><span class="mi">10394</span>
-         <span class="n">route</span><span class="o">-</span><span class="n">target</span> <span class="n">both</span> <span class="mi">65130</span><span class="p">:</span><span class="mi">10394</span>
+         <span class="n">route</span><span class="o">-</span><span class="n">target</span> <span class="n">export</span> <span class="mf">65130.1</span><span class="p">:</span><span class="mi">10394</span>
+         <span class="n">route</span><span class="o">-</span><span class="n">target</span> <span class="kn">import</span> <span class="mf">65130.1</span><span class="p">:</span><span class="mi">10394</span>
 </pre></div>
 </div>
 </section>
@@ -547,7 +550,9 @@ Regional networks are expected to not have an AZ hint set.</p>
 <span class="n">router</span> <span class="n">bgp</span> <span class="mf">65130.1103</span>
    <span class="n">vlan</span> <span class="mi">2340</span>
       <span class="n">rd</span> <span class="n">evpn</span> <span class="n">domain</span> <span class="nb">all</span> <span class="mf">65130.1103</span><span class="p">:</span><span class="mi">10394</span>
-      <span class="n">route</span><span class="o">-</span><span class="n">target</span> <span class="n">both</span> <span class="mi">65130</span><span class="p">:</span><span class="mi">10394</span>
+      <span class="n">route</span><span class="o">-</span><span class="n">target</span> <span class="n">export</span> <span class="mi">65130</span><span class="p">:</span><span class="mi">999</span>
+      <span class="n">route</span><span class="o">-</span><span class="n">target</span> <span class="n">export</span> <span class="mf">65130.1</span><span class="p">:</span><span class="mi">10394</span>
+      <span class="n">route</span><span class="o">-</span><span class="n">target</span> <span class="kn">import</span> <span class="mf">65130.1</span><span class="p">:</span><span class="mi">10394</span>
       <span class="n">route</span><span class="o">-</span><span class="n">target</span> <span class="kn">import</span> <span class="nn">export</span> <span class="n">evpn</span> <span class="n">domain</span> <span class="n">remote</span> <span class="mi">65130</span><span class="p">:</span><span class="mi">10394</span>
       <span class="n">redistribute</span> <span class="n">learned</span>
 </pre></div>
@@ -560,11 +565,41 @@ Regional networks are expected to not have an AZ hint set.</p>
 <h2>Subnet<a class="headerlink" href="#subnet" title="Permalink to this heading">¶</a></h2>
 <p>There exists RT convention to describe the span of a subnet (regional vs AZ local) and
 to tag a prefix as a supernet that should be announced towards upstream routers:</p>
-<ul class="simple">
-<li><p><strong>RT REGIONAL_ASN:CCLOUD_ID:</strong> 65130:102 is representing a regional network in QA-DE-1 in vrf CC-CLOUD02</p></li>
-<li><p><strong>RT REGIONAL_ASN:AZ_CCLOUD_ID:</strong> 65130:1102 is representing a AZa network in QA-DE-1 in vrf CC-CLOUD02 (AZa=1XXX,AZb=2XXX, …)</p></li>
-<li><p><strong>RT REGIONAL_ASN:1:</strong> 65130:1 is tagging the prefix as a supernet in QA-DE-1, this is expected to be added to the above if required</p></li>
-</ul>
+<table class="docutils align-default" id="id8">
+<caption><span class="caption-text">RT and Community Schema</span><a class="headerlink" href="#id8" title="Permalink to this table">¶</a></caption>
+<thead>
+<tr class="row-odd"><th class="head"></th>
+<th class="head"><p>Type</p></th>
+<th class="head"><p>AZa</p></th>
+<th class="head"><p>AZb</p></th>
+<th class="head"><p>AZc</p></th>
+<th class="head"><p>AZd</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>CC-CLOUDXX Regional</p></td>
+<td><p>Ext RT</p></td>
+<td><p>$REGION_ASN:1XX</p></td>
+<td><p>$REGION_ASN:1XX</p></td>
+<td><p>$REGION_ASN:1XX</p></td>
+<td><p>$REGION_ASN:1XX</p></td>
+</tr>
+<tr class="row-odd"><td><p>CC-CLOUDXX perAZ</p></td>
+<td><p>Ext RT</p></td>
+<td><p>$REGION_ASN.1:1XX</p></td>
+<td><p>$REGION_ASN.2:1XX</p></td>
+<td><p>$REGION_ASN.3:1XX</p></td>
+<td><p>$REGION_ASN.4:1XX</p></td>
+</tr>
+<tr class="row-even"><td><p>Aggregates to Core</p></td>
+<td><p>Std Community</p></td>
+<td><p>$REGION_ASN.1</p></td>
+<td><p>$REGION_ASN.1</p></td>
+<td><p>$REGION_ASN.1</p></td>
+<td><p>$REGION_ASN.1</p></td>
+</tr>
+</tbody>
+</table>
 <section id="external-network">
 <h3>External Network<a class="headerlink" href="#external-network" title="Permalink to this heading">¶</a></h3>
 <section id="id2">
@@ -658,12 +693,16 @@ to tag a prefix as a supernet that should be announced towards upstream routers:
 <p><strong>EOS</strong>:</p>
 <div class="highlight-default notranslate"><div class="highlight"><pre><span></span>route-map RM-CC-CLOUD02
    set extcommunity rt 65130:102
+
 route-map RM-CC-CLOUD02-AGGREGATE
-   set extcommunity rt 65130:102 rt 65130:1
+   set extcommunity rt 65130:102
+   set community 65101:1
+
 route-map RM-CC-CLOUD02-A
-   set extcommunity rt 65130:1102
+
 route-map RM-CC-CLOUD02-A-AGGREGATE
-   set extcommunity rt 65130:1102 rt 65130:1
+   set extcommunity rt 65130:1102
+   set community 65101:1
 
 vrf instance CC-CLOUD02
 
@@ -688,13 +727,13 @@ interface vxlan1
 router bgp 65130.1103
    vrf CC-CLOUD02
       rd 65130.1103:102
+      route-target export evpn 65130:1102
       route-target import evpn 65130:102
       route-target import evpn 65130:1102
       route-target import evpn 65130:2102
       route-target import evpn 65130:4102
-      route-target export evpn 65130:1102
-      aggregate-address 10.47.8.0/24 route-map RM-CC-CLOUD02-AGGREGATE
-      aggregate-address 10.47.20.0/24 route-map RM-CC-CLOUD02-A-AGGREGATE
+      aggregate-address 10.47.8.0/24 attribute-map RM-CC-CLOUD02-AGGREGATE
+      aggregate-address 10.47.20.0/24 attribute-map RM-CC-CLOUD02-A-AGGREGATE
       network 10.47.8.192/27 route-map RM-CC-CLOUD02
       network 10.47.20.0/25 route-map RM-CC-CLOUD02-A
       network 10.47.10.0/24 route-map RM-CC-CLOUD02-AGGREGATE
@@ -703,12 +742,15 @@ router bgp 65130.1103
 <p><strong>NX-OS</strong>:</p>
 <div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">route</span><span class="o">-</span><span class="nb">map</span> <span class="n">RM</span><span class="o">-</span><span class="n">CC</span><span class="o">-</span><span class="n">CLOUD02</span>
    <span class="nb">set</span> <span class="n">extcommunity</span> <span class="n">rt</span> <span class="mi">65130</span><span class="p">:</span><span class="mi">102</span>
+
 <span class="n">route</span><span class="o">-</span><span class="nb">map</span> <span class="n">RM</span><span class="o">-</span><span class="n">CC</span><span class="o">-</span><span class="n">CLOUD02</span><span class="o">-</span><span class="n">AGGREGATE</span>
-   <span class="nb">set</span> <span class="n">extcommunity</span> <span class="n">rt</span> <span class="mi">65130</span><span class="p">:</span><span class="mi">102</span> <span class="n">rt</span> <span class="mi">65130</span><span class="p">:</span><span class="mi">1</span>
+   <span class="nb">set</span> <span class="n">community</span> <span class="mi">65130</span><span class="p">:</span><span class="mi">1</span>
+   <span class="nb">set</span> <span class="n">extcommunity</span> <span class="n">rt</span> <span class="mi">65130</span><span class="p">:</span><span class="mi">102</span>
+
 <span class="n">route</span><span class="o">-</span><span class="nb">map</span> <span class="n">RM</span><span class="o">-</span><span class="n">CC</span><span class="o">-</span><span class="n">CLOUD02</span><span class="o">-</span><span class="n">A</span>
-   <span class="nb">set</span> <span class="n">extcommunity</span> <span class="n">rt</span> <span class="mi">65130</span><span class="p">:</span><span class="mi">1102</span>
+
 <span class="n">route</span><span class="o">-</span><span class="nb">map</span> <span class="n">RM</span><span class="o">-</span><span class="n">CC</span><span class="o">-</span><span class="n">CLOUD02</span><span class="o">-</span><span class="n">A</span><span class="o">-</span><span class="n">AGGREGATE</span>
-   <span class="nb">set</span> <span class="n">extcommunity</span> <span class="n">rt</span> <span class="mi">65130</span><span class="p">:</span><span class="mi">1102</span> <span class="n">rt</span> <span class="mi">65130</span><span class="p">:</span><span class="mi">1</span>
+   <span class="nb">set</span> <span class="n">community</span> <span class="mi">65130</span><span class="p">:</span><span class="mi">1</span>
 
 <span class="n">interface</span> <span class="n">Vlan</span> <span class="mi">3150</span>
    <span class="n">description</span> <span class="n">aeec9fd4</span><span class="o">-</span><span class="mi">30</span><span class="n">f7</span><span class="o">-</span><span class="mi">4398</span><span class="o">-</span><span class="mi">8554</span><span class="o">-</span><span class="mi">34</span><span class="n">acb36b7712</span>
@@ -810,7 +852,7 @@ router must have routes set to those networks pointing to the respective tenant 
 
 <span class="n">router</span> <span class="n">bgp</span> <span class="mf">65130.1103</span>
    <span class="n">vrf</span> <span class="n">CC</span><span class="o">-</span><span class="n">CLOUD02</span>
-      <span class="n">network</span> <span class="mf">10.47.100.0</span><span class="o">/</span><span class="mi">24</span>
+      <span class="n">network</span> <span class="mf">10.47.100.0</span><span class="o">/</span><span class="mi">24</span> <span class="n">route</span><span class="o">-</span><span class="nb">map</span> <span class="n">RM</span><span class="o">-</span><span class="n">CC</span><span class="o">-</span><span class="n">CLOUD02</span><span class="o">-</span><span class="n">A</span>
 </pre></div>
 </div>
 <p><strong>NX-OS</strong>:</p>
@@ -820,7 +862,7 @@ router must have routes set to those networks pointing to the respective tenant 
 <span class="n">router</span> <span class="n">bgp</span> <span class="mf">65130.1103</span>
    <span class="n">vrf</span> <span class="n">CC</span><span class="o">-</span><span class="n">CLOUD02</span>
       <span class="n">address</span><span class="o">-</span><span class="n">family</span> <span class="n">ipv4</span> <span class="n">unicast</span>
-         <span class="n">network</span> <span class="mf">10.47.100.0</span><span class="o">/</span><span class="mi">24</span>
+         <span class="n">network</span> <span class="mf">10.47.100.0</span><span class="o">/</span><span class="mi">24</span> <span class="n">route</span><span class="o">-</span><span class="nb">map</span> <span class="n">RM</span><span class="o">-</span><span class="n">CC</span><span class="o">-</span><span class="n">CLOUD02</span><span class="o">-</span><span class="n">A</span>
 </pre></div>
 </div>
 </section>
@@ -1143,8 +1185,8 @@ interface Port-Channel201
 </section>
 <section id="scaling-limits">
 <h2>Scaling Limits<a class="headerlink" href="#scaling-limits" title="Permalink to this heading">¶</a></h2>
-<table class="docutils align-default" id="id8">
-<caption><span class="caption-text">Relevant Device Scaling Limits</span><a class="headerlink" href="#id8" title="Permalink to this table">¶</a></caption>
+<table class="docutils align-default" id="id9">
+<caption><span class="caption-text">Relevant Device Scaling Limits</span><a class="headerlink" href="#id9" title="Permalink to this table">¶</a></caption>
 <colgroup>
 <col style="width: 33%" />
 <col style="width: 33%" />
@@ -1199,7 +1241,7 @@ interface Port-Channel201
           
           </div>
           <div class="row docs-byline bottom">
-            <div class="docs-updated">this page last updated: 2022-06-01 17:08:12</div>
+            <div class="docs-updated">this page last updated: 2022-06-16 14:16:59</div>
           </div>
           <div class="row">
             <div class="col-lg-8 col-md-8 col-sm-8 docs-license">
