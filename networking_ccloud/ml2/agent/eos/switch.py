@@ -18,8 +18,10 @@ import time
 from oslo_log import log as logging
 import pyeapi
 
+from networking_ccloud.common.config import get_driver_config
 from networking_ccloud.common import constants as cc_const
 from networking_ccloud.common import exceptions as cc_exc
+from networking_ccloud.ml2.agent.common import messages as agent_msg
 from networking_ccloud.ml2.agent.common.messages import OperationEnum as Op
 from networking_ccloud.ml2.agent.common.switch import SwitchBase
 
@@ -27,6 +29,10 @@ LOG = logging.getLogger(__name__)
 
 
 class EOSSwitch(SwitchBase):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.drv_conf = get_driver_config()
+
     @classmethod
     def get_platform(self):
         return cc_const.PLATFORM_EOS
@@ -47,11 +53,11 @@ class EOSSwitch(SwitchBase):
 
             LOG.exception("Command failed in %.2fs on %s %s (even after retry), cmd: %s",
                           time.time() - start_time, self.name, self.host, cmd)
-            raise cc_exc.SwitchConnectionError(str(e))
+            raise cc_exc.SwitchConnectionError(f"{self.name} ({self.host}) {e}")
         except Exception as e:
             LOG.exception("Command failed in %.2fs on %s %s, cmd: %s",
                           time.time() - start_time, self.name, self.host, cmd)
-            raise cc_exc.SwitchConnectionError(str(e))
+            raise cc_exc.SwitchConnectionError(f"{self.name} ({self.host}) {e.__class__.__name__} {e}")
 
         LOG.debug("Command succeeded in %.2fs on %s %s, cmd: %s", time.time() - start_time, self.name, self.host, cmd)
 
@@ -107,13 +113,27 @@ class EOSSwitch(SwitchBase):
         if config.vxlan_maps is not None:
             commands.append("interface Vxlan1")
 
-            if config.operation == Op.replace:
+            # handle already existing mappings
+            if config.operation in (Op.add, Op.replace):
                 # purge mappings that are on the device but shouldn't
-                wanted_maps = [(v.vlan, v.vni) for v in config.vxlan_maps]
                 curr_maps = self.send_cmd("show interfaces Vxlan1")['interfaces']['Vxlan1']['vlanToVniMap']
-                for vlan, data in curr_maps.items():
-                    if data.get('vni') and (int(vlan), data['vni']) not in wanted_maps:
-                        commands.append(f"no vxlan vlan {vlan} vni {data['vni']}")
+                if config.operation == Op.add:
+                    # purge mappings referenced by config update, but point to something else
+                    for vlan, data in curr_maps.items():
+                        switch_vlan = int(vlan)
+                        switch_vni = data['vni']
+                        for os_map in config.vxlan_maps:
+                            if (os_map.vlan == switch_vlan and os_map.vni != switch_vni) \
+                                    or (os_map.vni == switch_vni and os_map.vlan != switch_vlan):
+                                LOG.warning("Removing stale vxlan map <vni %s vlan %s> in favor of <vni %s vlan %s> "
+                                            "on switch %s (%s)",
+                                            switch_vni, switch_vlan, os_map.vni, os_map.vlan, self.name, self.host)
+                                commands.append(f"no vxlan vlan {vlan} vni {data['vni']}")
+                else:
+                    wanted_maps = [(v.vlan, v.vni) for v in config.vxlan_maps]
+                    for vlan, data in curr_maps.items():
+                        if data['vni'] and (int(vlan), data['vni']) not in wanted_maps:
+                            commands.append(f"no vxlan vlan {vlan} vni {data['vni']}")
 
             # add / remove requested mappings
             for vmap in config.vxlan_maps:
@@ -144,20 +164,24 @@ class EOSSwitch(SwitchBase):
                 for bgp_vlan in config.bgp.vlans:
                     if config.operation in (Op.add, Op.replace):
                         commands.append(f"vlan {bgp_vlan.vlan}")
-                        if not bgp_vlan.bgw_mode:
-                            # default / vpod mode
-                            commands.append(f"rd {config.bgp.asn}:{bgp_vlan.vni}")
-                            # FIXME: do we need to replace existing import/export statement?
-                            commands.append(f"route-target import {config.bgp.asn_region}:{bgp_vlan.vni}")
-                            commands.append(f"route-target export {config.bgp.asn_region}:{bgp_vlan.vni}")
-                        else:
-                            # bgw
-                            commands.append(f"rd evpn domain all {config.bgp.asn}:{bgp_vlan.vni}")
-                            commands.append(f"route-target both {config.bgp.asn_region}:{bgp_vlan.vni}")
-                            commands.append("route-target import export evpn domain remote "
-                                            f"{config.bgp.asn_region}:{bgp_vlan.vni}")
-                        commands.append("redistribute learned")
 
+                        # rd
+                        if bgp_vlan.rd_evpn_domain_all:
+                            commands.append(f"rd evpn domain all {bgp_vlan.rd}")
+                        else:
+                            commands.append(f"rd {bgp_vlan.rd}")
+
+                        # route-targets
+                        for rt in bgp_vlan.rt_imports:
+                            commands.append(f"route-target import {rt}")
+                        for rt in bgp_vlan.rt_exports:
+                            commands.append(f"route-target export {rt}")
+                        for rt in bgp_vlan.rt_imports_evpn:
+                            commands.append(f"route-target import evpn domain remote {rt}")
+                        for rt in bgp_vlan.rt_exports_evpn:
+                            commands.append(f"route-target export evpn domain remote {rt}")
+
+                        commands.append("redistribute learned")
                         commands.append("exit")
                     else:
                         commands.append(f"no vlan {bgp_vlan.vlan}")
@@ -231,6 +255,72 @@ class EOSSwitch(SwitchBase):
         commands.append('end')
 
         return commands
+
+    def get_config(self):
+        # get infos from the device for everything that we have a model for
+        config = agent_msg.SwitchConfigUpdate(switch_name=self.name, operation=Op.add)
+
+        # vlans
+        for vlan, data in self.send_cmd("show vlan")['vlans'].items():
+            config.add_vlan(int(vlan), data['name'])
+
+        # vxlan_maps
+        vxlan_maps = self.send_cmd("show interfaces Vxlan1")['interfaces']['Vxlan1']['vlanToVniMap']
+        for vlan, data in vxlan_maps.items():
+            if 'vni' in data:
+                config.add_vxlan_map(int(data['vni']), int(vlan))
+
+        # bgp
+        bgp_sum = self.send_cmd("show bgp summary")['vrfs']['default']
+        config.bgp = agent_msg.BGP(asn=bgp_sum['asn'], asn_region=self.drv_conf.global_config.asn_region, vlans=[])
+        curr_bgp_vlans = self.send_cmd("show bgp evpn instance")['bgpEvpnInstances']
+        vre = re.compile(r"VLAN (?P<vlan>\d+)")
+        for vlan_name, data in curr_bgp_vlans.items():
+            m = vre.match(vlan_name)
+            if not m:
+                LOG.warning("Could not match bgp vpn instance name '%s'", vlan_name)
+                continue
+
+            bv = agent_msg.BGPVlan(rd=data['rd'], vlan=int(m.group('vlan')),
+                                   rt_imports=data.get('importRts', []), rt_exports=data.get('exportRts', []),
+                                   rd_evpn_domain_all='remoteRd' in data,
+                                   rt_imports_evpn=data.get('importRemoteRts', []),
+                                   rt_exports_evpn=data.get('exportRemoteRts', []))
+
+            config.bgp.vlans.append(bv)
+            # FIXME: redistribute learned flag?
+
+        # ifaces - vlans
+        ifaces_vlans = self.send_cmd("show interfaces vlans")['interfaces']
+        for name, data in ifaces_vlans.items():
+            if name == "Vxlan1":
+                continue
+            iface = config.get_or_create_iface(name)
+            if data.get("untaggedVlan", 1) != 1:
+                iface.native_vlan = data['untaggedVlan']
+            iface.trunk_vlans = data.get('taggedVlans', [])
+
+        # ifaces - vlan translations
+        ifaces_vlan_maps = self.send_cmd("show interfaces switchport vlan mapping")['intfVlanMappings']
+        for name, data in ifaces_vlan_maps.items():
+            iface = config.get_or_create_iface(name)
+
+            # we're using ingressVlanMappings, but generally we expect them to be the
+            # same as egressVlanMappings
+            for o_vlan, data in data['ingressVlanMappings'].items():
+                iface.add_vlan_translation(data['vlanId'], int(o_vlan))
+
+        # ifaces - portchannel info
+        ifaces_pcs = self.send_cmd("show port-channel dense")['portChannels']
+        for name, data in ifaces_pcs.items():
+            if not name.startswith("Port-Channel"):
+                continue
+            iface = config.get_or_create_iface(name)
+            iface.portchannel_id = int(name[len("Port-Channel"):])
+            iface.members = [p for p in data["ports"] if not p.startswith("Peer")]
+
+        # FIXME: ALL THE SORTING
+        return config
 
     def apply_config_update(self, config):
         # FIXME: threading model (does this call block or not?)

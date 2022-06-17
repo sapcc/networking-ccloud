@@ -83,9 +83,8 @@ class TestNetworkExtension(test_segment.SegmentTestCase, base.PortBindingHelper)
                                   switch_vars=dict(platform=cc_const.PLATFORM_EOS)),
         ]
         seagull_infra_nets = [
-            # FIXME: networks entry needs to be a CIDR, but bug in config doesn't allow that
-            InfraNetwork(name="infra_net_l3", vlan=23, networks=["10.23.42.1"], vni=6667),
-            InfraNetwork(name="infra_net_vlan", vlan=42),
+            InfraNetwork(name="infra_net_l3", vlan=23, networks=["10.23.42.1/24"], vrf='PRIVATE-VRF', vni=6667),
+            InfraNetwork(name="infra_net_vlan", vlan=42, vni=14),
         ]
         hg_seagull = cfix.make_metagroup("seagull", meta_kwargs={'infra_networks': seagull_infra_nets})
         hg_crow = cfix.make_metagroup("crow")
@@ -265,6 +264,22 @@ class TestNetworkExtension(test_segment.SegmentTestCase, base.PortBindingHelper)
                 for iface in swcfg.ifaces:
                     self.assertEqual({111}, set(iface.trunk_vlans))
 
+    def test_switch_get_config(self):
+        with mock.patch.object(CCFabricSwitchAgentRPCClient, 'get_switch_config') as mock_gsc:
+            mock_gsc.return_value = {
+                'switches': {
+                    'seagull-sw1': {'reachable': True, 'config': {'operation': 'add', 'switch_name': 'seagull-sw1'}},
+                },
+            }
+            resp = self.app.get("/cc-fabric/switches/seagull-sw1/config")
+            expected = {
+                'reachable': True,
+                'config': {
+                    'switch_name': 'seagull-sw1',
+                },
+            }
+            self.assertEqual(expected, resp.json)
+
     def test_switchgroups(self):
         # index
         resp = self.app.get("/cc-fabric/switchgroups")
@@ -291,7 +306,6 @@ class TestNetworkExtension(test_segment.SegmentTestCase, base.PortBindingHelper)
             resp = self.app.get("/cc-fabric/switchgroups?device_info=1")
             sgs = resp.json
             self.assertEqual(7, len(sgs))
-            print(sgs[0])
             self.assertTrue("seagull", sgs[0]['members'][0]['device_info']['reachable'])
             self.assertEqual(14, mock_gss.call_count)
             mock_gss.reset_mock()
@@ -320,5 +334,30 @@ class TestNetworkExtension(test_segment.SegmentTestCase, base.PortBindingHelper)
             expected = {
                 'seagull-sw1': {'sync_sent': True},
                 'seagull-sw2': {'sync_sent': True},
+            }
+            self.assertEqual(expected, resp.json)
+
+    def test_switchgroup_get_config(self):
+        with mock.patch.object(CCFabricSwitchAgentRPCClient, 'get_switch_config') as mock_gsc:
+            mock_gsc.return_value = {
+                'switches': {
+                    'seagull-sw1': {'reachable': True, 'config': {'operation': 'add', 'switch_name': 'seagull-sw1'}},
+                    'seagull-sw2': {'reachable': True, 'config': {'operation': 'add', 'switch_name': 'seagull-sw2'}},
+                },
+            }
+            resp = self.app.get("/cc-fabric/switchgroups/seagull/config")
+            expected = {
+                'seagull-sw1': {
+                    'reachable': True,
+                    'config': {
+                        'switch_name': 'seagull-sw1',
+                    },
+                },
+                'seagull-sw2': {
+                    'reachable': True,
+                    'config': {
+                        'switch_name': 'seagull-sw2',
+                    },
+                },
             }
             self.assertEqual(expected, resp.json)

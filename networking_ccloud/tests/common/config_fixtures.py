@@ -84,7 +84,7 @@ def make_hostgroups(switchgroup, nodes=10, ports_per_switch=2, offset=0, **kwarg
     for n in range(1, nodes + 1):
         ports = make_lacp(100 + n, switchgroup, ports_per_switch=ports_per_switch, offset=(n - 1) * ports_per_switch)
         binding_host = f"node{n:03d}-{switchgroup}"
-        hg = config_driver.Hostgroup(binding_hosts=[binding_host], members=ports)
+        hg = config_driver.Hostgroup(binding_hosts=[binding_host], members=ports, **kwargs)
         groups.append(hg)
     return groups
 
@@ -108,13 +108,49 @@ def make_interconnect(role, host, switch_base, handle_azs):
 
 def make_global_config(asn_region=65123, **kwargs):
     kwargs.setdefault("default_vlan_ranges", ["2000:3750"])
+    kwargs.setdefault("availability_zones", [])
+    kwargs.setdefault("vrfs", [])
     return config_driver.GlobalConfig(asn_region=asn_region, **kwargs)
+
+
+def make_azs(names):
+    azs = []
+    for name in names:
+        az_num = ord(name[-1]) - ord('a') + 1
+        azs.append(config_driver.AvailabilityZone(name=name, suffix=name[-1], number=az_num))
+    return azs
+
+
+def make_azs_from_switchgroups(switchgroups):
+    if switchgroups is None:
+        return []
+
+    return make_azs(az for az in set(sg.availability_zone for sg in switchgroups))
+
+
+def make_vrfs(names):
+    vrfs = []
+    for i, name in enumerate(names):
+        vrfs.append(config_driver.VRF(name=name, number=i + 1))
+    return vrfs
+
+
+def make_vrfs_from_hostgroups(hostgroups):
+    if hostgroups is None:
+        return []
+    infra_nets = list()
+    for hostgroup in hostgroups:
+        if hostgroup.infra_networks:
+            infra_nets.extend(hostgroup.infra_networks)
+
+    return make_vrfs(set(x.vrf for x in infra_nets if x.vrf))
 
 
 # whole config
 def make_config(switchgroups=None, hostgroups=None, global_config=None):
     if not global_config:
-        global_config = make_global_config()
+        global_config = make_global_config(availability_zones=make_azs_from_switchgroups(switchgroups),
+                                           vrfs=make_vrfs_from_hostgroups(hostgroups))
 
     return config_driver.DriverConfig(
         switchgroups=switchgroups or [],

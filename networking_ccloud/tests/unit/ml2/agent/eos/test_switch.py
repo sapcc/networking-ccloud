@@ -15,16 +15,19 @@
 import re
 from unittest import mock
 
-from networking_ccloud.common.config import config_driver
+from networking_ccloud.common.config import config_driver, _override_driver_config
 from networking_ccloud.common import constants as cc_const
 from networking_ccloud.ml2.agent.common import messages
 from networking_ccloud.ml2.agent.eos.switch import EOSSwitch
 from networking_ccloud.tests import base
+from networking_ccloud.tests.common import config_fixtures as cfix
 
 
 class TestEOSConfigUpdates(base.TestCase):
     def setUp(self):
         super().setUp()
+        drv_conf = cfix.make_config(global_config=cfix.make_global_config(asn_region=65130))
+        _override_driver_config(drv_conf)
         cfg_switch = config_driver.Switch(name="seagull-sw1", host="127.0.0.1", platform=cc_const.PLATFORM_EOS,
                                           user="seagulladm", password="KRAKRAKRA", bgp_source_ip="1.1.1.1")
         self.switch = EOSSwitch(cfg_switch)
@@ -40,6 +43,12 @@ class TestEOSConfigUpdates(base.TestCase):
             ['configure', 'vlan 1000', 'name nest', 'exit', 'vlan 1001', 'name basket', 'exit', 'end'], format='json')
 
     def test_add_everything(self):
+        def execute(cmd, format='json'):
+            if cmd == "show interfaces Vxlan1":
+                return {"result": [{"interfaces": {"Vxlan1": {"vlanToVniMap": {"2121": {"vni": 31337}}}}}]}
+            return {"result": None}
+        self.switch._api.execute.side_effect = execute
+
         expected_config = [
             'configure',
             'vlan 1000',
@@ -101,7 +110,7 @@ class TestEOSConfigUpdates(base.TestCase):
 
         # bgp stuff / vlans
         cu.bgp = messages.BGP(asn="65000", asn_region="65123")
-        cu.bgp.add_vlan("1.1.1.1:232323", 1000, 232323)
+        cu.bgp.add_vlan(1000, 232323)
 
         # interfaces
         iface1 = messages.IfaceConfig(name="Port-channel23", portchannel_id=23, native_vlan=1000,
@@ -169,7 +178,7 @@ class TestEOSConfigUpdates(base.TestCase):
 
         # bgp stuff / vlans
         cu.bgp = messages.BGP(asn="65000", asn_region="65123")
-        cu.bgp.add_vlan("1.1.1.1:232323", 1000, 232323)
+        cu.bgp.add_vlan(1000, 232323)
 
         # interfaces
         iface1 = messages.IfaceConfig(name="Port-channel23", portchannel_id=23, native_vlan=1000,
@@ -183,6 +192,33 @@ class TestEOSConfigUpdates(base.TestCase):
         iface2 = messages.IfaceConfig(name="Ethernet23/1")
         iface2.add_trunk_vlan(1001)
         cu.add_iface(iface2)
+
+        self.switch.apply_config_update(cu)
+        self.switch._api.execute.assert_called_with(expected_config, format='json')
+
+    def test_add_vlan_map_with_existing(self):
+        def execute(cmd, format='json'):
+            if cmd == "show interfaces Vxlan1":
+                return {"result": [
+                    {"interfaces":
+                        {"Vxlan1":
+                            {"vlanToVniMap": {"2000": {"vni": 31337}, "2500": {"vni": 232323}, "2": {"vni": 3}}}}}]}
+            return {"result": None}
+        self.switch._api.execute.side_effect = execute
+
+        expected_config = [
+            'configure',
+            'interface Vxlan1',
+            'no vxlan vlan 2000 vni 31337',
+            'no vxlan vlan 2500 vni 232323',
+            'vxlan vlan add 1000 vni 232323',
+            'vxlan vlan add 2000 vni 424242',
+            'exit',
+            'end']
+
+        cu = messages.SwitchConfigUpdate(switch_name="seagull-sw1", operation=messages.OperationEnum.add)
+        cu.add_vxlan_map(232323, 1000)
+        cu.add_vxlan_map(424242, 2000)
 
         self.switch.apply_config_update(cu)
         self.switch._api.execute.assert_called_with(expected_config, format='json')
@@ -360,7 +396,7 @@ class TestEOSConfigUpdates(base.TestCase):
         cu = messages.SwitchConfigUpdate(switch_name="seagull-sw1", operation=messages.OperationEnum.replace)
         # bgp vlans
         cu.bgp = messages.BGP(asn="65000", asn_region="65123")
-        cu.bgp.add_vlan("1.1.1.1:232323", 1000, 232323)
+        cu.bgp.add_vlan(1000, 232323)
 
         self.switch.apply_config_update(cu)
         self.switch._api.execute.assert_called_with(expected_config, format='json')
@@ -371,8 +407,10 @@ class TestEOSConfigUpdates(base.TestCase):
             'router bgp 65000',
             'vlan 1000',
             'rd evpn domain all 65000:232323',
-            'route-target both 65123:232323',
-            'route-target import export evpn domain remote 65123:232323',
+            'route-target import 65123:232323',
+            'route-target export 65123:232323',
+            'route-target import evpn domain remote 65123:232323',
+            'route-target export evpn domain remote 65123:232323',
             'redistribute learned',
             'exit',
             'exit',
@@ -382,7 +420,128 @@ class TestEOSConfigUpdates(base.TestCase):
         cu = messages.SwitchConfigUpdate(switch_name="seagull-sw1", operation=messages.OperationEnum.add)
         # bgp vlans
         cu.bgp = messages.BGP(asn="65000", asn_region="65123")
-        cu.bgp.add_vlan("1.1.1.1:232323", 1000, 232323, bgw_mode=True)
+        cu.bgp.add_vlan(1000, 232323, bgw_mode=True)
 
         self.switch.apply_config_update(cu)
         self.switch._api.execute.assert_called_with(expected_config, format='json')
+
+
+class TestEOSSwitch(base.TestCase):
+    def setUp(self):
+        super().setUp()
+        drv_conf = cfix.make_config(global_config=cfix.make_global_config(asn_region=65130))
+        _override_driver_config(drv_conf)
+        cfg_switch = config_driver.Switch(name="seagull-sw1", host="127.0.0.1", platform=cc_const.PLATFORM_EOS,
+                                          user="seagulladm", password="KRAKRAKRA", bgp_source_ip="1.1.1.1")
+        self.switch = EOSSwitch(cfg_switch)
+        self.switch._api = mock.Mock()
+        self.switch._api.execute.return_value = {'result': [{}]}
+
+    def test_get_switch_config(self):
+        def execute(cmd, format='json'):
+            cmds = {
+                'show vlan': {
+                    "vlans": {
+                        "2121": {
+                            "status": "active",
+                            "name": "b226a569-e0ed-4d24-b943-c7183288",
+                        },
+                    },
+                },
+                'show interfaces Vxlan1': {
+                    "interfaces": {
+                        "Vxlan1": {
+                            "vlanToVniMap": {
+                                "2121": {
+                                    "vni": 31337,
+                                },
+                            },
+                        },
+                    },
+                },
+                'show bgp summary': {
+                    "vrfs": {
+                        "default": {
+                            "asn": "65130.4113",
+                        },
+                    },
+                },
+                'show bgp evpn instance': {
+                    "bgpEvpnInstances": {
+                        "VLAN 2000": {
+                            "rd": "4268363793:10091",
+                            "importRts": [
+                                842681173419883,
+                            ],
+                            "exportRts": [
+                                842681173419883,
+                            ],
+                        },
+                    },
+                },
+                'show interfaces vlans': {
+                    "interfaces": {
+                        "Port-Channel109": {
+                            "taggedVlans": [
+                                2000,
+                                2001,
+                                2002,
+                            ],
+                            "untaggedVlan": 2121,
+                        },
+                    },
+                },
+                'show interfaces switchport vlan mapping': {
+                    "intfVlanMappings": {
+                        "Ethernet1/1": {
+                            "ingressVlanMappings": {
+                                "3001": {
+                                    "vlanId": 2000
+                                },
+                            },
+                            "egressVlanMappings": {
+                                "2000": {
+                                    "vlanId": 3001
+                                },
+                            },
+                        },
+                    },
+                },
+                'show port-channel dense': {
+                    "portChannels": {
+                        "Port-Channel109": {
+                            "protocol": "lacp",
+                            "fallback": {
+                                "config": "fallbackIndividual"
+                            },
+                            "lacpMode": "active",
+                            "linkState": "up",
+                            "ports": {
+                                "PeerEthernet9/1": {},
+                                "Ethernet9/1": {},
+                            },
+                        },
+                    },
+                },
+            }
+            if cmd in cmds:
+                return dict(result=[cmds[cmd]])
+            else:
+                return ValueError("unmapped command")
+        self.switch._api.execute.side_effect = execute
+
+        cu = messages.SwitchConfigUpdate(switch_name="seagull-sw1", operation=messages.OperationEnum.add)
+        cu.add_vlan(2121, "b226a569-e0ed-4d24-b943-c7183288")
+        cu.add_vxlan_map(31337, 2121)
+        cu.bgp = messages.BGP(asn=65130.4113, asn_region=65130)
+        cu.bgp.add_vlan(2000, 10091, bgw_mode=False)
+        iface = messages.IfaceConfig(name="Port-Channel109", members=["Ethernet9/1"],
+                                     trunk_vlans=[2000, 2001, 2002], native_vlan=2121, portchannel_id=109)
+        cu.add_iface(iface)
+        iface = messages.IfaceConfig(name="Ethernet1/1")
+        iface.add_vlan_translation(2000, 3001)
+        cu.add_iface(iface)
+
+        config = self.switch.get_config()
+        self.assertEqual(cu.dict(exclude_unset=True, exclude_defaults=True),
+                         config.dict(exclude_unset=True, exclude_defaults=True))

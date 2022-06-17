@@ -103,7 +103,7 @@ class FabricPlugin(CCDbPlugin):
                          device_type, device.host, network_id, az, device_segment[ml2_api.SEGMENTATION_ID])
                 new_allocation = True
 
-        if new_allocation and not scul.execute(context):
+        if new_allocation and not scul.execute(context, synchronous=False):
             LOG.warning("Scheduling network interconnects for network %s yielded no config updates", network_id)
 
         for az, host, segment_id, physnet in created_transits:

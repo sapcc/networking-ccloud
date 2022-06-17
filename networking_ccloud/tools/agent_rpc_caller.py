@@ -12,6 +12,7 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
+import json
 from pprint import pprint
 import sys
 
@@ -33,6 +34,7 @@ CLI_OPTS = [
     cfg.StrOpt("agent", help="Communicate with an agent via RPC, platform needs to be specified"),
     cfg.StrOpt("method", default="status", help="Method you want to call on the other side (default status)"),
     cfg.ListOpt("args", default=[], help="Args to pass to method"),
+    cfg.StrOpt("kwargs", default="{}", help="Keyword args as json string to pass to method"),
 ]
 
 
@@ -58,10 +60,16 @@ def main():
         topic = cc_const.SWITCH_AGENT_TOPIC_MAP[CONF.agent]
         client = CCFabricSwitchAgentRPCClient(topic)
 
-    print(f"Doing RPC call {CONF.method}(*{CONF.args}) with topic {topic}")
+    try:
+        kwargs = json.loads(CONF.kwargs)
+    except json.decoder.JSONDecodeError as e:
+        print(f"Error: Could not decode json in kwargs: {e}")
+        sys.exit(1)
+
+    print(f"Doing RPC call {CONF.method}(*{CONF.args}, **{CONF.kwargs}) with topic {topic}")
     ctx = context.get_admin_context()
     print("Result:")
-    pprint(getattr(client, CONF.method)(ctx, *CONF.args))
+    pprint(getattr(client, CONF.method)(ctx, *CONF.args, **kwargs))
 
 
 if __name__ == '__main__':

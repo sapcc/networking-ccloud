@@ -26,6 +26,7 @@ from neutron_lib import exceptions as nl_exc
 from neutron_lib.plugins import directory
 from neutron_lib.plugins.ml2 import api as ml2_api
 from oslo_log import log as logging
+from oslo_messaging import RemoteError
 from webob import exc as web_exc
 
 from networking_ccloud.common.config import get_driver_config
@@ -163,7 +164,10 @@ class FabricNetworksController(wsgi.Controller):
 
         LOG.info("Got API request for syncing network %s", network_id)
         scul = self._make_config_from_network(request.context, network_id)
-        config_generated = scul.execute(request.context)
+        try:
+            config_generated = scul.execute(request.context)
+        except RemoteError as e:
+            raise web_exc.HTTPInternalServerError(f"{e.exc_type} {e.value}")
         return {'sync_sent': config_generated}
 
     @check_cloud_admin
@@ -189,10 +193,8 @@ class FabricNetworksController(wsgi.Controller):
         vni = top_segments[network_id]['segmentation_id']
 
         net_segments = self.fabric_plugin.get_hosts_on_segments(context, network_ids=[network_id])
-        if network_id not in net_segments:
-            raise web_exc.HTTPInternalServerError(f"Network id {network_id} has segments attached to it")
 
-        for binding_host, segment_1 in net_segments[network_id].items():
+        for binding_host, segment_1 in net_segments.get(network_id, {}).items():
             vlan = segment_1['segmentation_id']
             hg_config = self.drv_conf.get_hostgroup_by_host(binding_host)
             if not hg_config:
@@ -227,7 +229,7 @@ class FabricNetworksController(wsgi.Controller):
 
 class SwitchesController(wsgi.Controller):
     """List and show Switches from config"""
-    MEMBER_ACTIONS = {'diff': 'GET', 'sync': 'PUT', 'sync_infra_networks': 'PUT'}
+    MEMBER_ACTIONS = {'diff': 'GET', 'sync': 'PUT', 'sync_infra_networks': 'PUT', 'config': 'GET'}
 
     def __init__(self, fabric_plugin):
         super().__init__()
@@ -277,7 +279,10 @@ class SwitchesController(wsgi.Controller):
 
         LOG.info("Got API request for syncing switch %s", switch.name)
         scul = self._make_switch_config(request.context, switch, sg)
-        config_generated = scul.execute(request.context)
+        try:
+            config_generated = scul.execute(request.context)
+        except RemoteError as e:
+            raise web_exc.HTTPInternalServerError(f"{e.exc_type} {e.value}")
         return {'sync_sent': config_generated}
 
     @check_cloud_admin
@@ -292,8 +297,21 @@ class SwitchesController(wsgi.Controller):
                     # FIXME: exclude hosts
                     scul.add_binding_host_to_config(hg, inet.name, inet.vni, inet.vlan)
         self._clean_switches(scul, switch)
-        config_generated = scul.execute(request.context)
+        try:
+            config_generated = scul.execute(request.context)
+        except RemoteError as e:
+            raise web_exc.HTTPInternalServerError(f"{e.exc_type} {e.value}")
         return {'sync_sent': config_generated}
+
+    @check_cloud_admin
+    def config(self, request, **kwargs):
+        switch, sg = self._get_switch(kwargs.pop('id'))
+        client = CCFabricSwitchAgentRPCClient.get_for_platform(switch.platform)
+        config = client.get_switch_config(request.context, switches=[switch.name])
+        config = config['switches'].get(switch.name)
+        if config and 'operation' in config.get('config', {}):
+            del config['config']['operation']
+        return config
 
     def _add_device_info(self, context, switches):
         for platform, switches in groupby(sorted(switches, key=itemgetter('platform')), key=itemgetter('platform')):
@@ -353,7 +371,7 @@ class SwitchesController(wsgi.Controller):
 class SwitchgroupsController(wsgi.Controller):
     """List and show SwitchGroups from config"""
 
-    MEMBER_ACTIONS = {'diff': 'GET', 'sync': 'PUT', 'sync_infra_networks': 'PUT'}
+    MEMBER_ACTIONS = {'diff': 'GET', 'sync': 'PUT', 'sync_infra_networks': 'PUT', 'config': 'GET'}
 
     def __init__(self, fabric_plugin):
         super().__init__()
@@ -396,6 +414,14 @@ class SwitchgroupsController(wsgi.Controller):
         result = {}
         for member in sg.members:
             result[member.name] = self._swctrl.sync_infra_networks(request, id=member.name)
+        return result
+
+    @check_cloud_admin
+    def config(self, request, **kwargs):
+        sg = self._get_switchgroup(kwargs.pop('id'))
+        result = {}
+        for member in sg.members:
+            result[member.name] = self._swctrl.config(request, id=member.name)
         return result
 
     def _get_switchgroup(self, sg_name):
