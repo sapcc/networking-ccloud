@@ -1061,20 +1061,20 @@ Scaling Limits
      - EOS
      - NX-OS
    * - VLANs
-     - 1800
+     - 1.800
      - 
    * - VRFs
-     - 
+     - 128
      -
    * - VLAN Translations (per Port)
-     -
-     - 4000 / 500 (FX3)
+     - n/a
+     - 4.000 / 500 (FX3)
    * - VLAN Translations (per Switch)
-     -
-     - 24000 / 6000 (FX3)
+     - 16.000
+     - 24.000 / 6.000 (FX3)
    * - Static ARP entries
      -
      - 
    * - Static IPv4 Routes
-     -
+     - 30.000
      - 
