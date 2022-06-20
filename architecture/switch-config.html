@@ -586,10 +586,10 @@ to tag a prefix as a supernet that should be announced towards upstream routers:
 </tr>
 <tr class="row-odd"><td><p>CC-CLOUDXX perAZ</p></td>
 <td><p>Ext RT</p></td>
-<td><p>$REGION_ASN.1:1XX</p></td>
-<td><p>$REGION_ASN.2:1XX</p></td>
-<td><p>$REGION_ASN.3:1XX</p></td>
-<td><p>$REGION_ASN.4:1XX</p></td>
+<td><p>$REGION_ASN:11XX</p></td>
+<td><p>$REGION_ASN:21XX</p></td>
+<td><p>$REGION_ASN:31XX</p></td>
+<td><p>$REGION_ASN:41XX</p></td>
 </tr>
 <tr class="row-even"><td><p>Aggregates to Core</p></td>
 <td><p>Std Community</p></td>
@@ -788,8 +788,8 @@ router bgp 65130.1103
 <span class="n">router</span> <span class="n">bgp</span> <span class="mf">65130.1103</span>
    <span class="n">vrf</span> <span class="n">CC</span><span class="o">-</span><span class="n">CLOUD02</span>
       <span class="n">address</span><span class="o">-</span><span class="n">family</span> <span class="n">ipv4</span> <span class="n">unicast</span>
-         <span class="n">aggregate</span><span class="o">-</span><span class="n">address</span> <span class="mf">10.47.8.0</span><span class="o">/</span><span class="mi">24</span> <span class="n">route</span><span class="o">-</span><span class="nb">map</span> <span class="n">RM</span><span class="o">-</span><span class="n">CC</span><span class="o">-</span><span class="n">CLOUD02</span><span class="o">-</span><span class="n">AGGREGATE</span>
-         <span class="n">aggregate</span><span class="o">-</span><span class="n">address</span> <span class="mf">10.47.20.0</span><span class="o">/</span><span class="mi">24</span> <span class="n">route</span><span class="o">-</span><span class="nb">map</span> <span class="n">RM</span><span class="o">-</span><span class="n">CC</span><span class="o">-</span><span class="n">CLOUD02</span><span class="o">-</span><span class="n">A</span><span class="o">-</span><span class="n">AGGREGATE</span>
+         <span class="n">aggregate</span><span class="o">-</span><span class="n">address</span> <span class="mf">10.47.8.0</span><span class="o">/</span><span class="mi">24</span> <span class="n">attribute</span><span class="o">-</span><span class="nb">map</span> <span class="n">RM</span><span class="o">-</span><span class="n">CC</span><span class="o">-</span><span class="n">CLOUD02</span><span class="o">-</span><span class="n">AGGREGATE</span>
+         <span class="n">aggregate</span><span class="o">-</span><span class="n">address</span> <span class="mf">10.47.20.0</span><span class="o">/</span><span class="mi">24</span> <span class="n">attribute</span><span class="o">-</span><span class="nb">map</span> <span class="n">RM</span><span class="o">-</span><span class="n">CC</span><span class="o">-</span><span class="n">CLOUD02</span><span class="o">-</span><span class="n">A</span><span class="o">-</span><span class="n">AGGREGATE</span>
          <span class="n">network</span> <span class="mf">10.47.8.192</span><span class="o">/</span><span class="mi">27</span> <span class="n">route</span><span class="o">-</span><span class="nb">map</span> <span class="n">RM</span><span class="o">-</span><span class="n">CC</span><span class="o">-</span><span class="n">CLOUD02</span>
          <span class="n">network</span> <span class="mf">10.47.20.0</span><span class="o">/</span><span class="mi">25</span> <span class="n">route</span><span class="o">-</span><span class="nb">map</span> <span class="n">RM</span><span class="o">-</span><span class="n">CC</span><span class="o">-</span><span class="n">CLOUD02</span><span class="o">-</span><span class="n">A</span>
          <span class="n">network</span> <span class="mf">10.47.10.0</span><span class="o">/</span><span class="mi">24</span> <span class="n">route</span><span class="o">-</span><span class="nb">map</span> <span class="n">RM</span><span class="o">-</span><span class="n">CC</span><span class="o">-</span><span class="n">CLOUD02</span><span class="o">-</span><span class="n">AGGREGATE</span>
@@ -984,18 +984,18 @@ of the driver managed configuration. For each vrf the driver will do:</p>
 <p><strong>EOS</strong>:</p>
 <div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">router</span> <span class="n">bgp</span> <span class="mf">65130.1103</span>
    <span class="n">vrf</span> <span class="n">CC</span><span class="o">-</span><span class="n">CLOUD02</span>
-      <span class="n">aggregate</span><span class="o">-</span><span class="n">address</span> <span class="mf">130.214.202.0</span><span class="o">/</span><span class="mi">24</span> <span class="n">route</span><span class="o">-</span><span class="nb">map</span> <span class="n">RM</span><span class="o">-</span><span class="n">CC</span><span class="o">-</span><span class="n">CCLOUD02</span><span class="o">-</span><span class="n">AGGREGATE</span>
-      <span class="n">aggregate</span><span class="o">-</span><span class="n">address</span> <span class="mf">130.214.215.0</span><span class="o">/</span><span class="mi">26</span> <span class="n">route</span><span class="o">-</span><span class="nb">map</span> <span class="n">RM</span><span class="o">-</span><span class="n">CC</span><span class="o">-</span><span class="n">CCLOUD02</span><span class="o">-</span><span class="n">A</span><span class="o">-</span><span class="n">AGGREGATE</span>
-      <span class="n">aggregate</span><span class="o">-</span><span class="n">address</span> <span class="mf">10.236.100.0</span><span class="o">/</span><span class="mi">22</span> <span class="n">route</span><span class="o">-</span><span class="nb">map</span> <span class="n">RM</span><span class="o">-</span><span class="n">CC</span><span class="o">-</span><span class="n">CCLOUD02</span><span class="o">-</span><span class="n">AGGREGATE</span>
+      <span class="n">aggregate</span><span class="o">-</span><span class="n">address</span> <span class="mf">130.214.202.0</span><span class="o">/</span><span class="mi">24</span> <span class="n">attribute</span><span class="o">-</span><span class="nb">map</span> <span class="n">RM</span><span class="o">-</span><span class="n">CC</span><span class="o">-</span><span class="n">CCLOUD02</span><span class="o">-</span><span class="n">AGGREGATE</span>
+      <span class="n">aggregate</span><span class="o">-</span><span class="n">address</span> <span class="mf">130.214.215.0</span><span class="o">/</span><span class="mi">26</span> <span class="n">attribute</span><span class="o">-</span><span class="nb">map</span> <span class="n">RM</span><span class="o">-</span><span class="n">CC</span><span class="o">-</span><span class="n">CCLOUD02</span><span class="o">-</span><span class="n">A</span><span class="o">-</span><span class="n">AGGREGATE</span>
+      <span class="n">aggregate</span><span class="o">-</span><span class="n">address</span> <span class="mf">10.236.100.0</span><span class="o">/</span><span class="mi">22</span> <span class="n">attribute</span><span class="o">-</span><span class="nb">map</span> <span class="n">RM</span><span class="o">-</span><span class="n">CC</span><span class="o">-</span><span class="n">CCLOUD02</span><span class="o">-</span><span class="n">AGGREGATE</span>
 </pre></div>
 </div>
 <p><strong>NX-OS</strong>:</p>
 <div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">router</span> <span class="n">bgp</span> <span class="mf">65130.1103</span>
    <span class="n">vrf</span> <span class="n">CC</span><span class="o">-</span><span class="n">CLOUD02</span>
       <span class="n">address</span><span class="o">-</span><span class="n">family</span> <span class="n">ipv4</span> <span class="n">unicast</span>
-         <span class="n">aggregate</span><span class="o">-</span><span class="n">address</span> <span class="mf">130.214.202.0</span><span class="o">/</span><span class="mi">24</span> <span class="n">route</span><span class="o">-</span><span class="nb">map</span> <span class="n">RM</span><span class="o">-</span><span class="n">CC</span><span class="o">-</span><span class="n">CCLOUD02</span><span class="o">-</span><span class="n">AGGREGATE</span>
-         <span class="n">aggregate</span><span class="o">-</span><span class="n">address</span> <span class="mf">130.214.215.0</span><span class="o">/</span><span class="mi">26</span> <span class="n">route</span><span class="o">-</span><span class="nb">map</span> <span class="n">RM</span><span class="o">-</span><span class="n">CC</span><span class="o">-</span><span class="n">CCLOUD02</span><span class="o">-</span><span class="n">A</span><span class="o">-</span><span class="n">AGGREGATE</span>
-         <span class="n">aggregate</span><span class="o">-</span><span class="n">address</span> <span class="mf">10.236.100.0</span><span class="o">/</span><span class="mi">22</span> <span class="n">route</span><span class="o">-</span><span class="nb">map</span> <span class="n">RM</span><span class="o">-</span><span class="n">CC</span><span class="o">-</span><span class="n">CCLOUD02</span><span class="o">-</span><span class="n">AGGREGATE</span>
+         <span class="n">aggregate</span><span class="o">-</span><span class="n">address</span> <span class="mf">130.214.202.0</span><span class="o">/</span><span class="mi">24</span> <span class="n">attribute</span><span class="o">-</span><span class="nb">map</span> <span class="n">RM</span><span class="o">-</span><span class="n">CC</span><span class="o">-</span><span class="n">CCLOUD02</span><span class="o">-</span><span class="n">AGGREGATE</span>
+         <span class="n">aggregate</span><span class="o">-</span><span class="n">address</span> <span class="mf">130.214.215.0</span><span class="o">/</span><span class="mi">26</span> <span class="n">attribute</span><span class="o">-</span><span class="nb">map</span> <span class="n">RM</span><span class="o">-</span><span class="n">CC</span><span class="o">-</span><span class="n">CCLOUD02</span><span class="o">-</span><span class="n">A</span><span class="o">-</span><span class="n">AGGREGATE</span>
+         <span class="n">aggregate</span><span class="o">-</span><span class="n">address</span> <span class="mf">10.236.100.0</span><span class="o">/</span><span class="mi">22</span> <span class="n">attribute</span><span class="o">-</span><span class="nb">map</span> <span class="n">RM</span><span class="o">-</span><span class="n">CC</span><span class="o">-</span><span class="n">CCLOUD02</span><span class="o">-</span><span class="n">AGGREGATE</span>
 </pre></div>
 </div>
 </section>
@@ -1241,7 +1241,7 @@ interface Port-Channel201
           
           </div>
           <div class="row docs-byline bottom">
-            <div class="docs-updated">this page last updated: 2022-06-17 11:18:58</div>
+            <div class="docs-updated">this page last updated: 2022-06-20 22:12:49</div>
           </div>
           <div class="row">
             <div class="col-lg-8 col-md-8 col-sm-8 docs-license">

@@ -436,10 +436,10 @@ to tag a prefix as a supernet that should be announced towards upstream routers:
      - $REGION_ASN:1XX
    * - CC-CLOUDXX perAZ
      - Ext RT
-     - $REGION_ASN.1:1XX
-     - $REGION_ASN.2:1XX
-     - $REGION_ASN.3:1XX
-     - $REGION_ASN.4:1XX
+     - $REGION_ASN:11XX
+     - $REGION_ASN:21XX
+     - $REGION_ASN:31XX
+     - $REGION_ASN:41XX
    * - Aggregates to Core
      - Std Community
      - $REGION_ASN.1
@@ -642,8 +642,8 @@ On Device configuration
    router bgp 65130.1103
       vrf CC-CLOUD02
          address-family ipv4 unicast
-            aggregate-address 10.47.8.0/24 route-map RM-CC-CLOUD02-AGGREGATE
-            aggregate-address 10.47.20.0/24 route-map RM-CC-CLOUD02-A-AGGREGATE
+            aggregate-address 10.47.8.0/24 attribute-map RM-CC-CLOUD02-AGGREGATE
+            aggregate-address 10.47.20.0/24 attribute-map RM-CC-CLOUD02-A-AGGREGATE
             network 10.47.8.192/27 route-map RM-CC-CLOUD02
             network 10.47.20.0/25 route-map RM-CC-CLOUD02-A
             network 10.47.10.0/24 route-map RM-CC-CLOUD02-AGGREGATE
@@ -846,9 +846,9 @@ aPOD/vPOD/stPOD/netPOD/bPOD/Transit leafs
 
    router bgp 65130.1103
       vrf CC-CLOUD02
-         aggregate-address 130.214.202.0/24 route-map RM-CC-CCLOUD02-AGGREGATE
-         aggregate-address 130.214.215.0/26 route-map RM-CC-CCLOUD02-A-AGGREGATE
-         aggregate-address 10.236.100.0/22 route-map RM-CC-CCLOUD02-AGGREGATE
+         aggregate-address 130.214.202.0/24 attribute-map RM-CC-CCLOUD02-AGGREGATE
+         aggregate-address 130.214.215.0/26 attribute-map RM-CC-CCLOUD02-A-AGGREGATE
+         aggregate-address 10.236.100.0/22 attribute-map RM-CC-CCLOUD02-AGGREGATE
 
 **NX-OS**:
 ::
@@ -856,9 +856,9 @@ aPOD/vPOD/stPOD/netPOD/bPOD/Transit leafs
    router bgp 65130.1103
       vrf CC-CLOUD02
          address-family ipv4 unicast
-            aggregate-address 130.214.202.0/24 route-map RM-CC-CCLOUD02-AGGREGATE
-            aggregate-address 130.214.215.0/26 route-map RM-CC-CCLOUD02-A-AGGREGATE
-            aggregate-address 10.236.100.0/22 route-map RM-CC-CCLOUD02-AGGREGATE
+            aggregate-address 130.214.202.0/24 attribute-map RM-CC-CCLOUD02-AGGREGATE
+            aggregate-address 130.214.215.0/26 attribute-map RM-CC-CCLOUD02-A-AGGREGATE
+            aggregate-address 10.236.100.0/22 attribute-map RM-CC-CCLOUD02-AGGREGATE
 
 ***********
 Floating IP
