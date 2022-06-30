@@ -666,3 +666,15 @@ class DriverConfig(pydantic.BaseModel):
 
     def list_availability_zones(self):
         return sorted(az.name for az in self.global_config.availability_zones)
+
+    def get_vrf(self, name):
+        for vrf in self.global_config.vrfs:
+            if vrf.name == name:
+                return vrf
+        return None
+
+    def get_availability_zone(self, name):
+        for az in self.global_config.availability_zones:
+            if az.name == name:
+                return az
+        return None
