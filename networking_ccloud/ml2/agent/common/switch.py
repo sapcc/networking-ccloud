@@ -13,8 +13,12 @@
 #    under the License.
 
 import abc
+from ipaddress import ip_network
+from typing import List
 
 from oslo_log import log as logging
+
+from networking_ccloud.ml2.agent.common.messages import BGPVRFAggregate, BGPVRFNetwork
 
 LOG = logging.getLogger(__name__)
 
@@ -45,6 +49,18 @@ class SwitchBase(abc.ABC):
     def login(self):
         """Login into the switch - should set self._api"""
         pass
+
+    def _filter_aggregates(self, potential_aggregates: List[BGPVRFAggregate],
+                           networks: List[BGPVRFNetwork]) -> List[BGPVRFAggregate]:
+
+        def is_contained_in_networks(aggregate):
+            # we maybe can even lift this to an equals check if can make sure higher
+            # in the application that there will never be a network with a shorter prefix
+            # than a matching aggregate
+            return any(ip_network(aggregate.network).subnet_of(ip_network(net.network))
+                       for net in networks)
+
+        return [x for x in potential_aggregates if not is_contained_in_networks(x)]
 
     def __str__(self):
         return f"{self.name} ({self.host})"

@@ -297,8 +297,9 @@ class SwitchesController(wsgi.Controller):
                     # FIXME: exclude hosts
                     scul.add_binding_host_to_config(hg, infra_net.name, infra_net.vni, infra_net.vlan)
                     if infra_net.vrf:
-                        scul.add_vrf(hg, infra_net.vrf, infra_net.name, infra_net.vni, infra_net.vlan,
-                                     infra_net.networks, infra_net.aggregates, az_local=True)
+                        scul.add_vrf(hg, infra_net.vrf)
+                        scul.add_l3_networks_in_vrf(hg, infra_net.vrf, infra_net.name, infra_net.vni, infra_net.vlan,
+                                                    infra_net.networks, infra_net.aggregates, az_local=True)
         self._clean_switches(scul, switch)
         try:
             config_generated = scul.execute(request.context)
