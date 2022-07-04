@@ -34,7 +34,7 @@ LOG = logging.getLogger(__name__)
 
 class EOSSwitch(SwitchBase):
 
-    CONFIGURE_ORDER = ['vlan', 'vxlan_mapping', 'bgp', 'ifaces']
+    CONFIGURE_ORDER = ['vlan', 'vxlan_mapping', 'vrfs', 'bgp', 'ifaces']
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -343,8 +343,48 @@ class EOSSwitch(SwitchBase):
                     commands += get_removable_translations_cmds(iface_name, wanted_translations)
                 commands += generic_config
                 commands.append("exit")
-        commands.append('end')
 
+        return commands
+
+    def get_vrfs_config(self) -> List[agent_msg.VRF]:
+        vrfs = list()
+        result = self.send_cmd('show vrf')['vrfs']
+        for name, data in result.items():
+            if name in ['OOB', 'default']:
+                continue
+            vrf = agent_msg.VRF(name=name)
+            protos = data['protocols']
+            if 'ipv4' in protos:
+                if protos['ipv4'].get('routingState', False) != 'up':
+                    vrf.ip_routing = False
+            vrfs.append(vrf)
+        return vrfs
+
+    def _make_vrfs_config(self, vrfs: Optional[List[agent_msg.VRF]], op: Op):
+        if not vrfs:
+            return []
+
+        commands = list()
+        to_remove = set()
+        current_vrfs = {x.name: x for x in self.get_vrfs_config()} if op == op.replace else dict()
+        for vrf in vrfs:
+            if op == op.remove:
+                to_remove.add(vrf.name)
+            elif op == op.replace and vrf.name in current_vrfs:
+                current = current_vrfs[vrf.name]
+                if current.ip_routing and not vrf.ip_routing:
+                    commands.append(f'no ip routing vrf {vrf.name}')
+                if not current.ip_routing and vrf.ip_routing:
+                    commands.append(f'ip routing vrf {vrf.name}')
+            else:
+                commands.append(f'vrf instance {vrf.name}')
+                commands.append(f'ip routing vrf {vrf.name}')
+
+        if op == op.replace:
+            to_remove.update(set(current_vrfs.keys()) - {x.name for x in vrfs})
+
+        for vrf in to_remove:
+            commands.append(f'no vrf instance {vrf}')
         return commands
 
     def _make_config_from_update(self, config: agent_msg.SwitchConfigUpdate) -> List[str]:
@@ -355,10 +395,13 @@ class EOSSwitch(SwitchBase):
         configmap['vxlan_mapping'] = self._make_vxlan_mapping_config(config.vxlan_maps, config.operation)
         configmap['bgp'] = self._make_bgp_config(config.bgp, config.operation)
         configmap['ifaces'] = self._make_ifaces_config(config.ifaces, config.operation)
-
+        configmap['vrfs'] = self._make_vrfs_config(config.vrfs, config.operation)
         commands = ['configure']
         for k in self.CONFIGURE_ORDER:
             commands.extend(configmap[k])
+
+        if commands:
+            commands.append('end')
 
         return commands
 
