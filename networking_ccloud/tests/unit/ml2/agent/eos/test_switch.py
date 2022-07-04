@@ -541,7 +541,9 @@ class TestEOSSwitch(base.TestCase):
         iface = messages.IfaceConfig(name="Ethernet1/1")
         iface.add_vlan_translation(2000, 3001)
         cu.add_iface(iface)
+        cu.sort()
 
         config = self.switch.get_config()
+        config.sort()
         self.assertEqual(cu.dict(exclude_unset=True, exclude_defaults=True),
                          config.dict(exclude_unset=True, exclude_defaults=True))
