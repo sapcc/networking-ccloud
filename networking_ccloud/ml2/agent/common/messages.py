@@ -84,10 +84,16 @@ class Vlan(pydantic.BaseModel):
     vlan: pydantic.conint(gt=0, lt=4094)
     name: str = None
 
+    def __lt__(self, other):
+        return self.vlan < other.vlan
+
 
 class VXLANMapping(pydantic.BaseModel):
     vni: pydantic.conint(gt=0, lt=2**24)
     vlan: pydantic.conint(gt=0, lt=4094)
+
+    def __lt__(self, other):
+        return self.vlan < other.vlan
 
 
 class BGPVlan(pydantic.BaseModel):
@@ -108,6 +114,9 @@ class BGPVlan(pydantic.BaseModel):
     _norm_rt_exports_evpn = pydantic.validator('rt_exports_evpn',
                                                each_item=True, allow_reuse=True)(validate_route_target)
 
+    def __lt__(self, other):
+        return self.vlan < other.vlan
+
 
 class BGP(pydantic.BaseModel):
     asn: str
@@ -117,6 +126,9 @@ class BGP(pydantic.BaseModel):
 
     _normalize_asn = pydantic.validator('asn', allow_reuse=True)(validate_asn)
     _normalize_asn_region = pydantic.validator('asn_region', allow_reuse=True)(validate_asn)
+
+    def sort(self):
+        self.vlans.sort()
 
     def add_vlan(self, vlan, vni, bgw_mode=False):
         # FIXME: raise if vni > 2byte (can't encode it in RT otherwise, write snarky commit message for that)
@@ -151,6 +163,9 @@ class IfaceConfig(pydantic.BaseModel):
     vlan_translations: List[VlanTranslation] = None
     portchannel_id: pydantic.conint(gt=0) = None
     members: List[str] = None
+
+    def __lt__(self, other):
+        return self.name < other.name
 
     @classmethod
     def from_switchport(cls, switchport):
@@ -187,6 +202,18 @@ class SwitchConfigUpdate(pydantic.BaseModel):
     @classmethod
     def make_object_from_net_data(self, vxlan_map, net_host_map):
         pass
+
+    def sort(self):
+        # in case we want to compare this or ship it to the user we may benefit from it being sorted
+        # also test cases would fail otherwise
+        if self.vlans:
+            self.vlans.sort()
+        if self.vxlan_maps:
+            self.vxlan_maps.sort()
+        if self.ifaces:
+            self.ifaces.sort()
+        if self.bgp:
+            self.bgp.sort()
 
     def add_vlan(self, vlan, name=None):
         if self.vlans is None:
