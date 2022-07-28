@@ -12,14 +12,13 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
-from collections import defaultdict
+import json
 from operator import attrgetter
-import re
 import time
-from typing import Dict, List, Optional
+from typing import List, Optional
 
 from oslo_log import log as logging
-import pyeapi
+from pygnmi.client import gNMIclient, gNMIException
 
 from networking_ccloud.common.config import get_driver_config
 from networking_ccloud.common import constants as cc_const
@@ -30,6 +29,133 @@ from networking_ccloud.ml2.agent.common.switch import SwitchBase
 
 
 LOG = logging.getLogger(__name__)
+
+
+class EOSGNMIClient:
+
+    class PATHS:
+        VLANS = "network-instances/network-instance[name=default]/vlans"
+        VLAN = "network-instances/network-instance[name=default]/vlans/vlan[vlan-id={vlan}]"
+
+        VXMAP = "interfaces/interface[name=Vxlan1]/arista-exp-eos-vxlan:arista-vxlan/config/vlan-to-vnis"
+        VXMAP_VLAN = ("interfaces/interface[name=Vxlan1]/arista-exp-eos-vxlan:arista-vxlan/config/vlan-to-vnis"
+                      "/vlan-to-vni[vlan={vlan}]")
+
+        EVPN_INSTANCES = "arista/eos/arista-exp-eos-evpn:evpn/evpn-instances"
+        EVPN_INSTANCE = "arista/eos/arista-exp-eos-evpn:evpn/evpn-instances/evpn-instance[name={vlan}]"
+        PROTO_BGP = "network-instances/network-instance[name=default]/protocols/protocol[name=BGP]"
+
+        IFACES = "interfaces"
+        IFACE = "interfaces/interface[name={iface}]"
+        IFACE_ETH = "interfaces/interface[name={iface}]/ethernet"
+        IFACE_VLANS = "interfaces/interface[name={iface}]/ethernet/switched-vlan"
+        IFACE_NATIVE_VLAN = "interfaces/interface[name={iface}]/ethernet/switched-vlan/config/native-vlan"
+        IFACE_VTRANS = "interfaces/interface[name={iface}]/ethernet/switched-vlan/vlan-translation"
+        IFACE_VTRANS_EGRESS = ("interfaces/interface[name={iface}]/ethernet/switched-vlan/vlan-translation/"
+                               "egress[translation-key={vlan}]")
+        IFACE_VTRANS_INGRESS = ("interfaces/interface[name={iface}]/ethernet/switched-vlan/vlan-translation/"
+                                "ingress[translation-key={vlan}]")
+        IFACE_PC = "interfaces/interface[name={iface}]/aggregation"
+        IFACE_PC_VLANS = "interfaces/interface[name={iface}]/aggregation/switched-vlan"
+        IFACE_PC_NATIVE_VLAN = "interfaces/interface[name={iface}]/aggregation/switched-vlan/config/native-vlan"
+        IFACE_PC_VTRANS = "interfaces/interface[name={iface}]/aggregation/switched-vlan/vlan-translation"
+        IFACE_PC_VTRANS_EGRESS = ("interfaces/interface[name={iface}]/aggregation/switched-vlan/vlan-translation/"
+                                  "egress[translation-key={vlan}]")
+        IFACE_PC_VTRANS_INGRESS = ("interfaces/interface[name={iface}]/aggregation/switched-vlan/vlan-translation/"
+                                   "ingress[translation-key={vlan}]")
+
+    def __init__(self, switch_name, *args, **kwargs):
+        self._gnmi = gNMIclient(*args, **kwargs)
+        self._switch_name = switch_name
+
+    def __repr__(self):
+        return f"<{self.__class__.__name__} to {self._switch_name}>"
+
+    def connect(self, *args, **kwargs):
+        try:
+            self._gnmi.close()  # doesn't raise on already closed connection
+        except AttributeError:
+            # probably never connected (no channel present)
+            pass
+        # FIXME: currently this throws Except (not retriable)
+        #   would possibly raise a ConnectionRefusedError
+        #   ConnectionRefusedError: [Errno 111] Connection refused
+        LOG.debug("Connecting to switch %s", self._switch_name)
+        try:
+            self._gnmi.connect(*args, **kwargs)
+        except Exception as e:
+            raise cc_exc.SwitchConnectionError(f"{self._switch_name} connect() {e.__class__.__name__} {e}")
+
+    def _run_method(self, method, *args, retries=3, **kwargs):
+        try:
+            start_time = time.time()
+            data = getattr(self._gnmi, method)(*args, **kwargs)
+            LOG.debug("Command %s() succeeded in %.2fs", method, time.time() - start_time)
+            return data
+        except gNMIException as e:
+            LOG.exception("Command %s() failed on %s in %.2fs (retries left: %s): %s %s",
+                          method, self._switch_name, time.time() - start_time, retries, e.__class__.__name__, str(e))
+
+            cmd = [f"{method}("]
+            if args:
+                cmd.append(", ".join(map(json.dumps, args)))
+            if kwargs:
+                if args:
+                    cmd.append(", ")
+                cmd.append(", ".join(f"{k}={json.dumps(v)}" for k, v in kwargs.items()))
+            cmd.append(")")
+            cmd = "".join(cmd)
+            LOG.debug("Failed command on %s was %s", self._switch_name, cmd)
+
+            if isinstance(e, AttributeError):
+                # module 'grpc' has no attribute '_channel', sometimes a first-connect problem
+                LOG.info("Reconnecting %s because of %s %s", self._switch_name, e.__class__.__name__, str(e))
+                self.connect()
+            if retries > 0:
+                time.sleep(0.5)
+                return self._run_method(method, *args, retries=retries - 1, **kwargs)
+            raise cc_exc.SwitchConnectionError(f"{self._switch_name} {method}() {e.__class__.__name__} {e}")
+
+    def get(self, prefix="", path=None, *args, unpack=True, single=True, **kwargs):
+        data = self._run_method("get", prefix, path, *args, **kwargs)
+        if data and unpack:
+            data = data['notification']
+            if path and len(path) > 1:
+                data = [x['update'] for x in data]
+            else:
+                data = [data[0]['update']]
+
+            def _unpack(entry):
+                if single:
+                    return entry[0]['val']
+                else:
+                    return [x['val'] for x in entry]
+
+            data = [_unpack(e) for e in data]
+
+            if not (path and len(path) > 1):
+                data = data[0]
+
+        return data
+
+    def set(self, *args, retries=3, **kwargs):
+        return self._run_method("set", *args, **kwargs)
+
+
+class EOSSetConfig:
+    def __init__(self):
+        self.delete = []
+        self.replace = []
+        self.update = []
+        self.update_cli = []
+
+    def get_list(self, op):
+        if op == Op.add:
+            return self.update
+        elif op == Op.replace:
+            return self.replace
+        else:
+            raise ValueError("Only available for add/replace")
 
 
 class EOSSwitch(SwitchBase):
@@ -45,41 +171,19 @@ class EOSSwitch(SwitchBase):
         return cc_const.PLATFORM_EOS
 
     def login(self):
-        self._api = pyeapi.connect(
-            transport="https", host=self.host, username=self.user, password=self._password,
-            timeout=self.timeout)
-
-    def send_cmd(self, cmd, fmt='json', raw=False, raise_on_error=True, _is_retry=False):
-        """Send a command to the switch"""
-        start_time = time.time()
-        try:
-            result = self.api.execute(cmd, format=fmt)
-        except ConnectionError as e:
-            if not _is_retry:
-                return self.send_cmd(cmd, format=fmt, raw=raw, raise_on_error=raise_on_error, _is_retry=True)
-
-            LOG.exception("Command failed in %.2fs on %s %s (even after retry), cmd: %s",
-                          time.time() - start_time, self.name, self.host, cmd)
-            raise cc_exc.SwitchConnectionError(f"{self.name} ({self.host}) {e}")
-        except Exception as e:
-            LOG.exception("Command failed in %.2fs on %s %s, cmd: %s",
-                          time.time() - start_time, self.name, self.host, cmd)
-            raise cc_exc.SwitchConnectionError(f"{self.name} ({self.host}) {e.__class__.__name__} {e}")
-
-        LOG.debug("Command succeeded in %.2fs on %s %s, cmd: %s", time.time() - start_time, self.name, self.host, cmd)
-
-        if not raw:
-            # unpack the response a bit for easier handling
-            # FIXME: will there always be a result? I think so, cause error cases are raised by pyeapi
-            result = result['result']
-            # unpack the response if user only specified a string as cmd
-            if isinstance(cmd, str):
-                result = result[0]
-
-        return result
+        self._api = EOSGNMIClient(f"{self.name} ({self.host})",
+                                  target=(self.host, 6030), username=self.user, password=self._password,
+                                  insecure=False, skip_verify=True)
+        self._api.connect()
 
     def get_switch_status(self):
-        ver = self.send_cmd("show version")
+        # FIXME: we can get this without cli, but sometimes the chassis/model seems to be empty
+        #        once we figure out when this is the case we can use the code below instead of cli:/show version
+        # ver, model, uptime_ns = self.api.get(path=['system/config/hostname',
+        #                                            'components/component[name=Chassis]/state/part-no',
+        #                                            'system/state/boot-time'])
+        # uptime = time.time() - uptime_ns / 10 ** 9
+        ver = self.api.get(path=["cli:/show version"])
 
         return {
             'name': self.name,
@@ -91,282 +195,398 @@ class EOSSwitch(SwitchBase):
         }
 
     def get_vlan_config(self) -> List[agent_msg.Vlan]:
-        vlans = [agent_msg.Vlan(vlan=int(vlan), name=data['name'])
-                 for vlan, data in self.send_cmd("show vlan")['vlans'].items()]
-        return sorted(vlans, key=attrgetter('vlan'))
+        swdata = self.api.get(EOSGNMIClient.PATHS.VLANS)["openconfig-network-instance:vlan"]
+        vlans = [agent_msg.Vlan(vlan=v['vlan-id'], name=v['config']['name'])
+                 for v in swdata]
+        vlans.sort()
+        return vlans
 
-    def _make_vlan_config(self, vlans: Optional[List[agent_msg.Vlan]], operation: Op) -> List[str]:
-        commands = []
-        if vlans:
-            if operation == Op.replace:
-                wanted_vlans = [v.vlan for v in vlans]
-                device_vlans = self.get_vlan_config()
-                for device_vlan in (v.vlan for v in device_vlans):
-                    # FIXME: either move this into constants or get this from config
-                    # ignore default and peering vlans
-                    if device_vlan <= 1 or device_vlan >= 4093:
-                        continue
-                    if device_vlan not in wanted_vlans:
-                        commands.append(f"no vlan {device_vlan}")
+    def _make_vlan_config(self, config_req: EOSSetConfig, vlans: Optional[List[agent_msg.Vlan]], operation: Op) -> None:
+        if vlans is None:
+            return
 
+        if operation in (Op.add, Op.replace):
+            wanted_vlans = []
             for vlan in vlans:
-                if operation in (Op.add, Op.replace):
-                    commands.append(f"vlan {vlan.vlan}")
-                    if vlan.name:
-                        name = vlan.name.replace(" ", "_")
-                        commands.append(f"name {name}")
-                    commands.append("exit")
-                else:
-                    commands.append(f"no vlan {vlan.vlan}")
-        return commands
+                vcfg = {'vlan-id': vlan.vlan, 'config': {'name': vlan.name, 'vlan-id': vlan.vlan}}
+                wanted_vlans.append(vcfg)
+            vlan_cfg = (EOSGNMIClient.PATHS.VLANS, {'vlan': wanted_vlans})
+            config_req.get_list(operation).append(vlan_cfg)
+        else:
+            for vlan in vlans:
+                vpath = EOSGNMIClient.PATHS.VLAN.format(vlan=vlan.vlan)
+                config_req.delete.append(vpath)
 
-    def get_vxlan_mapping(self) -> List[agent_msg.VXLANMapping]:
-        result = self.send_cmd("show interfaces Vxlan1")['interfaces']['Vxlan1']['vlanToVniMap']
-        vxlan_maps = [agent_msg.VXLANMapping(vni=int(data['vni']), vlan=int(vlan))
-                      for vlan, data in result.items() if 'vni' in data]
-        return sorted(vxlan_maps, key=attrgetter('vlan'))
+    def get_vxlan_mappings(self) -> List[agent_msg.VXLANMapping]:
+        swdata = self.api.get(EOSGNMIClient.PATHS.VXMAP)['arista-exp-eos-vxlan:vlan-to-vni']
+        vxlan_maps = [agent_msg.VXLANMapping(vni=v['vni'], vlan=v['vlan']) for v in swdata]
+        vxlan_maps.sort()
+        return vxlan_maps
 
-    def _make_vxlan_mapping_config(self, vxlan_maps: Optional[List[agent_msg.VXLANMapping]],
-                                   operation: Op) -> List[str]:
-        commands = []
-        if vxlan_maps is not None:
-            commands.append("interface Vxlan1")
+    def _make_vxlan_mapping_config(self, config_req: EOSSetConfig, vxlan_maps: Optional[List[agent_msg.VXLANMapping]],
+                                   operation: Op) -> None:
+        if vxlan_maps is None:
+            return
 
-            # handle already existing mappings
-            if operation in (Op.add, Op.replace):
-                # purge mappings that are on the device but shouldn't
-                curr_maps = self.get_vxlan_mapping()
-                if operation == Op.add:
-                    # purge mappings referenced by config update, but point to something else
-                    for curr_map in curr_maps:
-                        for os_map in vxlan_maps:
-                            if (os_map.vlan == curr_map.vlan and os_map.vni != curr_map.vni) \
-                                    or (os_map.vni == curr_map.vni and os_map.vlan != curr_map.vlan):
-                                LOG.warning("Removing stale vxlan map <vni %s vlan %s> in favor of <vni %s vlan %s> "
-                                            "on switch %s (%s)",
-                                            curr_map.vni, curr_map.vlan, os_map.vni, os_map.vlan, self.name, self.host)
-                                commands.append(f"no vxlan vlan {curr_map.vlan} vni {curr_map.vni}")
-                else:
-                    wanted_maps = [(v.vlan, v.vni) for v in vxlan_maps]
-                    for curr_map in curr_maps:
-                        if (curr_map.vlan, curr_map.vni) not in wanted_maps:
-                            commands.append(f"no vxlan vlan {curr_map.vlan} vni {curr_map.vni}")
+        curr_maps = self.get_vxlan_mappings()
+        if operation in (Op.add, Op.replace):
+            if operation == Op.add:
+                # delete all mappings for VNIs we want to repurpose, but are used by a different vlan
+                for curr_map in curr_maps:
+                    for os_map in vxlan_maps:
+                        if os_map.vni == curr_map.vni and os_map.vlan != curr_map.vlan:
+                            LOG.warning("Removing stale vxlan map <vlan %s vni %s> in favor of <vlan %s vni %s> "
+                                        "on switch %s (%s)",
+                                        curr_map.vlan, curr_map.vni, os_map.vlan, os_map.vni, self.name, self.host)
+                            del_map = EOSGNMIClient.PATHS.VXMAP_VLAN.format(vlan=curr_map.vlan)
+                            config_req.delete.append(del_map)
 
-            # add / remove requested mappings
             for vmap in vxlan_maps:
-                if operation in (Op.add, Op.replace):
-                    commands.append(f"vxlan vlan add {vmap.vlan} vni {vmap.vni}")
-                elif operation == Op.remove:
-                    commands.append(f"no vxlan vlan {vmap.vlan} vni {vmap.vni}")
-            commands.append("exit")
-        return commands
+                mapcfg = (EOSGNMIClient.PATHS.VXMAP, {'vlan-to-vni': [{'vlan': vmap.vlan, 'vni': vmap.vni}]})
+                config_req.get_list(operation).append(mapcfg)
+        else:
+            # delete vlan mapping only if it has the right vni
+            for curr_map in curr_maps:
+                for os_map in vxlan_maps:
+                    if curr_map.vlan == os_map.vlan:
+                        if curr_map.vni == os_map.vni:
+                            config_req.delete.append(EOSGNMIClient.PATHS.VXMAP_VLAN.format(vlan=curr_map.vlan))
+                        else:
+                            LOG.warning("Not deleting vlan %s from switch %s (%s), as it points to vni %s "
+                                        "(delete requested vni %s)",
+                                        curr_map.vlan, self.name, self.host, curr_map.vni, os_map.vni)
+                        break
+                else:
+                    LOG.warning("VLAN %s not found on switch %s (%s), not deleting it",
+                                curr_map.vlan, self.name, self.host)
 
     def get_bgp_vlan_config(self) -> List[agent_msg.BGPVlan]:
-        curr_bgp_vlans = self.send_cmd("show bgp evpn instance")['bgpEvpnInstances']
-        vre = re.compile(r"VLAN (?P<vlan>\d+)")
+        # FIXME: get potential bgw info per device from sysdb (not properly implemented)
         bgp_vlans = []
-        for vlan_name, data in curr_bgp_vlans.items():
-            m = vre.match(vlan_name)
-            if not m:
-                LOG.warning("Could not match bgp vpn instance name '%s'", vlan_name)
+        curr_bgp_vlans = self.api.get(EOSGNMIClient.PATHS.EVPN_INSTANCES)["arista-exp-eos-evpn:evpn-instance"]
+        for entry in curr_bgp_vlans:
+            if not entry['name'].isdecimal():
+                LOG.warning("Could not match bgp vpn instance name '%s' to a vlan", entry['name'])
                 continue
 
-            bv = agent_msg.BGPVlan(rd=data['rd'], vlan=int(m.group('vlan')),
-                                   rt_imports=data.get('importRts', []), rt_exports=data.get('exportRts', []),
-                                   rd_evpn_domain_all='remoteRd' in data,
-                                   rt_imports_evpn=data.get('importRemoteRts', []),
-                                   rt_exports_evpn=data.get('exportRemoteRts', []))
-            # FIXME: redistribute learned flag?
+            # FIXME: what happens if rd is None?
+            rtdata = entry.get('route-target', {'config': {}})['config']
+            rd = entry['config'].get('route-distinguisher')  # FIXME: this is bad. need to distinguish
+            if not rd:
+                LOG.debug("BGP Vlan %s on switch %s has no rd, skipping it", entry['name'], self.name)
+                continue
+            bv = agent_msg.BGPVlan(rd=rd, vlan=int(entry['name']),
+                                   rt_imports=rtdata.get('import', []), rt_exports=rtdata.get('export', []),
+                                   # eos_native:Sysdb/routing/bgp/macvrf/config/vlan.2323
+                                   rd_evpn_domain_all=False,  # FIXME: get from somewhere
+                                   rt_imports_evpn=[],       # FIXME: get from somewhere
+                                   rt_exports_evpn=[])       # FIXME: get from somewhere
+            # FIXME: redistribute learned flag? does not fit in our internal data structure
             bgp_vlans.append(bv)
         return bgp_vlans
 
     def get_bgp_config(self) -> agent_msg.BGP:
-        bgp_sum = self.send_cmd("show bgp summary")['vrfs']['default']
-        bgp = agent_msg.BGP(asn=bgp_sum['asn'], asn_region=self.drv_conf.global_config.asn_region, vlans=[])
-        bgp.vlans = self.get_bgp_vlan_config()
+        bgp_asn = self.api.get(f"{EOSGNMIClient.PATHS.PROTO_BGP}/bgp/global/config/as")
+        bgp = agent_msg.BGP(asn=bgp_asn, asn_region=self.drv_conf.global_config.asn_region,
+                            vlans=self.get_bgp_vlan_config())
         return bgp
 
-    def _make_bgp_config(self, bgp: Optional[agent_msg.BGP], operation: Op) -> List[str]:
-        commands = []
-        if bgp and bgp.vlans:
-            commands.append(f"router bgp {bgp.asn}")
+    def _make_bgp_config(self, config_req: EOSSetConfig, bgp: Optional[agent_msg.BGP], operation: Op) -> None:
+        if not (bgp and bgp.vlans):
+            return
 
-            # bgp vlan sections
-            if bgp.vlans:
-                if operation == Op.replace:
-                    wanted_bgp_vlans = [bv.vlan for bv in bgp.vlans]
-                    curr_bgp_vlans = self.get_bgp_vlan_config()
-                    for entry in curr_bgp_vlans:
-                        # FIXME: guard vlan range, same as above
-                        if entry.vlan > 1 and entry.vlan < 4093 and entry.vlan not in wanted_bgp_vlans:
-                            commands.append(f"no vlan {entry.vlan}")
+        if operation in (Op.add, Op.replace):
+            evpn_instances = []
+            for bgp_vlan in bgp.vlans:
+                inst = {
+                    "name": str(bgp_vlan.vlan),
+                    "config": {
+                        "name": str(bgp_vlan.vlan),
+                        "redistribute": ["LEARNED"],
+                    },
+                    "vlans": {
+                        "vlan": [{"vlan-id": bgp_vlan.vlan, "config": {"vlan-id": bgp_vlan.vlan}}],
+                    }
+                }
 
-                for bgp_vlan in bgp.vlans:
-                    if operation in (Op.add, Op.replace):
-                        commands.append(f"vlan {bgp_vlan.vlan}")
+                cli = [
+                    ("cli:", f"router bgp {bgp.asn}"),
+                    ("cli:", f"vlan {bgp_vlan.vlan}"),
+                ]
 
-                        # rd
-                        if bgp_vlan.rd_evpn_domain_all:
-                            commands.append(f"rd evpn domain all {bgp_vlan.rd}")
-                        else:
-                            commands.append(f"rd {bgp_vlan.rd}")
+                # rd
+                if bgp_vlan.rd_evpn_domain_all:
+                    # FIXME: this should be done via model, once we have it
+                    cli.append(("cli:", f"rd evpn domain all {bgp_vlan.rd}"))
+                else:
+                    inst['config']['route-distinguisher'] = bgp_vlan.rd
 
-                        # route-targets
-                        for rt in bgp_vlan.rt_imports:
-                            commands.append(f"route-target import {rt}")
-                        for rt in bgp_vlan.rt_exports:
-                            commands.append(f"route-target export {rt}")
-                        for rt in bgp_vlan.rt_imports_evpn:
-                            commands.append(f"route-target import evpn domain remote {rt}")
-                        for rt in bgp_vlan.rt_exports_evpn:
-                            commands.append(f"route-target export evpn domain remote {rt}")
+                # route-targets
+                if bgp_vlan.rt_imports or bgp_vlan.rt_exports:
+                    rts = {}
+                    if bgp_vlan.rt_imports:
+                        rts["import"] = list(bgp_vlan.rt_imports)
+                    if bgp_vlan.rt_exports:
+                        rts["export"] = list(bgp_vlan.rt_exports)
+                    inst["route-target"] = {"config": rts}
 
-                        commands.append("redistribute learned")
-                        commands.append("exit")
-                    else:
-                        commands.append(f"no vlan {bgp_vlan.vlan}")
+                # FIXME: this should be done via model, once we have it
+                # FIXME: what do we do if different route targets exist? they need to go / be removed
+                for rt in bgp_vlan.rt_imports_evpn:
+                    cli.append(("cli:", f"route-target import evpn domain remote {rt}"))
+                for rt in bgp_vlan.rt_exports_evpn:
+                    cli.append(("cli:", f"route-target export evpn domain remote {rt}"))
+                cli.extend([("cli:", "exit"), ("cli:", "exit")])
 
-            commands.append("exit")
-        return commands
+                if bgp_vlan.rd_evpn_domain_all or bgp_vlan.rt_imports_evpn or bgp_vlan.rt_exports_evpn:
+                    # FIXME: I think I checked that this works with replace, but we should make sure
+                    config_req.update_cli.extend(cli)
+                evpn_instances.append(inst)
+            config_req.get_list(operation).append((EOSGNMIClient.PATHS.EVPN_INSTANCES,
+                                                   {"evpn-instance": evpn_instances}))
+        else:
+            for bgp_vlan in bgp.vlans:
+                delete_req = EOSGNMIClient.PATHS.EVPN_INSTANCE.format(vlan=bgp_vlan.vlan)
+                config_req.delete.append(delete_req)
 
-    def get_vlan_translations(self, iface_name: Optional[str] = None) -> Dict[str, List[agent_msg.VlanTranslation]]:
+    def get_ifaces_config(self, as_dict=False):
+        ifaces = []
 
-        ifaces_vlan_maps = self.send_cmd(f"show interfaces {iface_name + ' ' if iface_name else ''}"
-                                         "switchport vlan mapping")['intfVlanMappings']
+        # get port-channel details
+        pc_details = {}
+        for pc in self.api.get("lacp")['openconfig-lacp:interfaces']['interface']:
+            pc_details[pc['name']] = pc
 
-        result = defaultdict(list)
-        for name, data in ifaces_vlan_maps.items():
-            # we're using ingressVlanMappings, but generally we expect them to be the
-            # same as egressVlanMappings
-            for o_vlan, data in data['ingressVlanMappings'].items():
-                result[name].append(agent_msg.VlanTranslation(inside=data['vlanId'], outside=o_vlan))
-        return result
+        # iterate over all ifaces on switch
+        for data in self.api.get(EOSGNMIClient.PATHS.IFACES)['openconfig-interfaces:interface']:
+            iface = agent_msg.IfaceConfig(name=data['name'])
 
-    def get_ifaces_config(self) -> List[agent_msg.IfaceConfig]:
-
-        iface_map = {}
-
-        def get_or_create_iface(name):
-            if name not in iface_map:
-                iface_map[name] = agent_msg.IfaceConfig(name=name)
-            return iface_map[name]
-
-        # vlans
-        ifaces_vlans = self.send_cmd("show interfaces vlans")['interfaces']
-        for name, data in ifaces_vlans.items():
-            if name == "Vxlan1":
-                continue
-            iface = get_or_create_iface(name)
-            if data.get("untaggedVlan", 1) != 1:
-                iface.native_vlan = data['untaggedVlan']
-            iface.trunk_vlans = data.get('taggedVlans', [])
-
-        # vlan translations
-        vtrans = self.get_vlan_translations()
-        for name, translations in vtrans.items():
-            iface = get_or_create_iface(name)
-            # it comes from the device so we can assume it's free of duplicates
-            iface.vlan_translations = translations
-
-        # portchannel info
-        ifaces_pcs = self.send_cmd("show port-channel dense")['portChannels']
-        for name, data in ifaces_pcs.items():
-            if not name.startswith("Port-Channel"):
-                continue
-            iface = get_or_create_iface(name)
-            iface.portchannel_id = int(name[len("Port-Channel"):])
-            iface.members = [p for p in data["ports"] if not p.startswith("Peer")]
-
-        return sorted(iface_map.values(), key=attrgetter('name'))
-
-    def _make_ifaces_config(self, ifaces: Optional[List[agent_msg.IfaceConfig]], operation: Op) -> List[str]:
-        commands = []
-        for iface in ifaces or []:
-            generic_config = ["switchport mode trunk"]
-
-            # native vlan
-            if iface.native_vlan:
-                if operation in (Op.add, Op.replace):
-                    generic_config.append(f"switchport trunk native vlan {iface.native_vlan}")
-                elif operation == Op.remove:
-                    generic_config.append("no switchport trunk native vlan")
-
-            # trunk vlans
-            if iface.trunk_vlans:
-                vlans = ",".join(map(str, iface.trunk_vlans))
-                if operation == Op.add:
-                    generic_config.append(f"switchport trunk allowed vlan add {vlans}")
-                elif operation == Op.replace:
-                    generic_config.append(f"switchport trunk allowed vlan {vlans}")
-                elif operation == Op.remove:
-                    generic_config.append(f"switchport trunk allowed vlan remove {vlans}")
-
-            # vlan translations
-            def get_removable_translations_cmds(iface_name, wanted_translations):
-                vtrans = self.get_vlan_translations(iface_name=iface_name).popitem()[1]
-                # interface name does not need to 100% match the interface we requested info for
-                # (e24/1 vs Ethernet24/1) --> see what we got and use that
-                # also we're using ingressVlanMappings, but generally we expect them to be the
-                # same as egressVlanMappings
-                remove_cmds = []
-                for tra in vtrans:
-                    if (tra.inside, tra.outside) not in wanted_translations:
-                        remove_cmds.append(f"no switchport vlan translation {tra.outside} {tra.inside}")
-                return remove_cmds
-
-            if iface.vlan_translations:
-                wanted_translations = [(v.inside, v.outside) for v in iface.vlan_translations]
-                for vtr in iface.vlan_translations:
-                    if operation in (Op.add, Op.replace):
-                        generic_config.append(f"switchport vlan translation {vtr.outside} {vtr.inside}")
-                    else:
-                        generic_config.append(f"no switchport vlan translation {vtr.outside} {vtr.inside}")
-
-            # lacp / member interface config
-            if iface.portchannel_id is not None:
-                commands.append(f"interface {iface.name}")
-                if operation in (Op.add, Op.replace):
-                    commands.append(f"mlag {iface.portchannel_id}")
-                if iface.vlan_translations and operation == Op.replace:
-                    commands += get_removable_translations_cmds(iface.name, wanted_translations)
-                commands += generic_config
-                commands.append("exit")
-                normal_ifaces = iface.members or []
+            # port-channel or not?
+            if 'openconfig-if-aggregate:aggregation' in data:
+                data_pc = data['openconfig-if-aggregate:aggregation']
+                data_pc_cfg = data_pc.get('config', {})
+                if not data_pc_cfg.get('arista-intf-augments:mlag') and not data['name'].startswith("Port-Channel"):
+                    LOG.debug("Switch %s LACP iface %s has no mlag id and doesn't start with "
+                              "'Port-Channel', skipping it",
+                              self.name, data['name'])
+                    continue
+                iface.portchannel_id = data_pc_cfg.get('arista-intf-augments:mlag', data['name'][len("Port-Channel"):])
+                if iface.portchannel_id:
+                    iface.portchannel_id = int(iface.portchannel_id)
+                if data['name'] in pc_details:
+                    pc = pc_details[data['name']]
+                    iface.members = [p['interface'] for p in pc['members']['member']]
+                data_vlans = data_pc.get('openconfig-vlan:switched-vlan')
+            elif 'openconfig-if-ethernet:ethernet' in data:
+                data_if = data['openconfig-if-ethernet:ethernet']
+                data_vlans = data_if.get('openconfig-vlan:switched-vlan')
             else:
-                normal_ifaces = [iface.name]
+                LOG.debug("Switch %s ignoring iface %s of type %s", self.name, data['name'], data['config'].get('type'))
+                continue
 
-            for iface_name in normal_ifaces:
-                commands.append(f"interface {iface_name}")
-                if iface.portchannel_id is not None and operation in (Op.add, Op.replace):
-                    commands.append(f"channel-group {iface.portchannel_id} mode active")
-                if iface.vlan_translations and operation == Op.replace:
-                    commands += get_removable_translations_cmds(iface_name, wanted_translations)
-                commands += generic_config
-                commands.append("exit")
-        commands.append('end')
+            # vlans + translations
+            if data_vlans and 'config' in data_vlans:
+                # vlans
+                if data_vlans['config'].get('native-vlan', 1) != 1:
+                    iface.native_vlan = data_vlans['config']['native-vlan']
+                if data_vlans['config'].get('trunk-vlans'):
+                    vlans = []
+                    for vlan in data_vlans['config']['trunk-vlans']:
+                        if isinstance(vlan, str):
+                            # range vlan: 2000..2004
+                            vlan_from, vlan_to = map(int, vlan.split(".."))
+                            vlans.extend(range(vlan_from, vlan_to + 1))
+                        else:
+                            vlans.append(vlan)
+                    iface.trunk_vlans = vlans
 
-        return commands
+                # vlan translations
+                if 'vlan-translation:vlan-translation' in data_vlans:
+                    ingress_maps = set()
+                    for vtrans in data_vlans['vlan-translation:vlan-translation']['ingress']:
+                        ingress_maps.add((vtrans['config']['translation-key'], vtrans['config']['bridging-vlan']))
+                    egress_maps = set()
+                    for vtrans in data_vlans['vlan-translation:vlan-translation']['egress']:
+                        egress_maps.add((vtrans['config']['bridging-vlan'], vtrans['config']['translation-key']))
 
-    def _make_config_from_update(self, config: agent_msg.SwitchConfigUpdate) -> List[str]:
+                    for inside, outside in ingress_maps & egress_maps:
+                        iface.add_vlan_translation(inside=inside, outside=outside)
+            ifaces.append(iface)
+        if as_dict:
+            iface_dict = {}
+            for iface in ifaces:
+                iface_dict[iface.name] = iface
+            return iface_dict
+
+        return sorted(ifaces, key=attrgetter('name'))
+
+    def get_vlan_translations(self):
+        """Get egress/ingress vlan translations from the device as a interface/bridging-vlan dict"""
+        iface_map = {}
+        for iface in self.api.get(EOSGNMIClient.PATHS.IFACES)['openconfig-interfaces:interface']:
+            ifname = iface['name']
+            if 'openconfig-if-aggregate:aggregation' in iface:
+                iface = iface['openconfig-if-aggregate:aggregation']
+            elif 'openconfig-if-ethernet:ethernet' in iface:
+                iface = iface['openconfig-if-ethernet:ethernet']
+            else:
+                continue
+
+            vtranslations = iface.get('openconfig-vlan:switched-vlan', {}).get('vlan-translation:vlan-translation')
+            if not vtranslations:
+                continue
+
+            vtransdict = {'egress': {}, 'ingress': {}}
+            for vtrans in vtranslations['ingress']:
+                vtransdict['ingress'][vtrans['config']['bridging-vlan']] = vtrans['config']['translation-key']
+            for vtrans in vtranslations['egress']:
+                vtransdict['egress'][vtrans['config']['bridging-vlan']] = vtrans['config']['translation-key']
+            iface_map[ifname] = vtransdict
+        return iface_map
+
+    def _make_ifaces_config(self, config_req: EOSSetConfig, ifaces: Optional[List[agent_msg.IfaceConfig]],
+                            operation: Op) -> List[str]:
+        if operation in (Op.add, Op.replace):
+            existing_vtrans = None  # only needed in add case and when vlan translations exist in config_req
+            for iface in ifaces or []:
+                # vlan stuff (native vlan, trunk vlans, translations)
+                data_vlan = {}
+
+                # native vlan
+                if iface.native_vlan:
+                    data_vlan['native-vlan'] = iface.native_vlan
+
+                # trunk vlans
+                if iface.trunk_vlans:
+                    data_vlan['interface-mode'] = 'TRUNK'
+                    data_vlan['trunk-vlans'] = iface.trunk_vlans
+
+                # vlan translations
+                def remove_stale_vlan_translations(ifname, iface_cfg, is_pc):
+                    # we need to delete an existing vlan mapping on "add" if the bridging-vlan is set
+                    # on another vlan aka translation-key, else we'd get vlans mapped to multiple
+                    # other vlans if something weird is already configured on the device
+                    if existing_vtrans is None or ifname not in existing_vtrans:
+                        return
+                    for vtrans in iface_cfg.vlan_translations:
+                        if existing_vtrans[ifname]['ingress'].get(vtrans.inside) not in (vtrans.outside, None):
+                            vpath = (EOSGNMIClient.PATHS.IFACE_PC_VTRANS_INGRESS if is_pc
+                                     else EOSGNMIClient.PATHS.IFACE_VTRANS_INGRESS)
+                            tkey = existing_vtrans[ifname]['ingress'][vtrans.inside]
+                            config_req.delete.append(vpath.format(iface=ifname, vlan=tkey))
+                        if existing_vtrans[ifname]['egress'].get(vtrans.outside) not in (vtrans.inside, None):
+                            vpath = (EOSGNMIClient.PATHS.IFACE_PC_VTRANS_EGRESS if is_pc
+                                     else EOSGNMIClient.PATHS.IFACE_VTRANS_EGRESS)
+                            tkey = existing_vtrans[ifname]['egress'][vtrans.outside]
+                            config_req.delete.append(vpath.format(iface=ifname, vlan=tkey))
+
+                if iface.vlan_translations:
+                    if operation == Op.add and existing_vtrans is None:
+                        existing_vtrans = self.get_vlan_translations()
+
+                    data_vlan['vlan-translation'] = {"ingress": [], "egress": []}
+                    for vtrans in iface.vlan_translations:
+                        data_vlan['vlan-translation']['ingress'].append(
+                            {"translation-key": vtrans.outside,
+                             "config": {"translation-key": vtrans.outside, "bridging-vlan": vtrans.inside}})
+                        data_vlan['vlan-translation']['egress'].append(
+                            {"translation-key": vtrans.inside,
+                             "config": {"translation-key": vtrans.inside, "bridging-vlan": vtrans.outside}})
+
+                # port-channel configuration
+                normal_ifaces = []
+                if iface.portchannel_id is not None:
+                    data = {
+                        'config': {
+                            'arista-intf-augments:mlag': iface.portchannel_id,
+                            'lag-type': 'LACP',
+                            'arista-intf-augments:fallback': 'individual',
+                        },
+                    }
+                    if data_vlan:
+                        data['switched-vlan'] = {'config': data_vlan}
+
+                    if iface.vlan_translations:
+                        remove_stale_vlan_translations(iface.name, iface, is_pc=True)
+
+                    pc_cfg = (EOSGNMIClient.PATHS.IFACE_PC.format(iface=iface.name), data)
+                    config_req.get_list(operation).append(pc_cfg)
+                    normal_ifaces = iface.members or []
+                else:
+                    normal_ifaces = [iface.name]
+
+                for iface_name in normal_ifaces:
+                    data = {}
+                    if iface.portchannel_id:
+                        data['config'] = {'aggregate-id': f'Port-Channel{iface.portchannel_id}'}
+                    if data_vlan:
+                        data['switched-vlan'] = {'config': data_vlan}
+                    if iface.vlan_translations:
+                        remove_stale_vlan_translations(iface_name, iface, is_pc=False)
+                    iface_cfg = (EOSGNMIClient.PATHS.IFACE_ETH.format(iface=iface_name), data)
+                    config_req.get_list(operation).append(iface_cfg)
+        else:
+            # delete everything (that is requested)
+            def calc_delete_range(all_ifaces, iface_name, iface_cfg):
+                if iface_name not in all_ifaces:
+                    return []
+                # FIXME: could this list get too big? (for sending the request of unpacked vlans)
+                return sorted(list(set(all_ifaces[iface_name].trunk_vlans) - set(iface_cfg.trunk_vlans)))
+
+            all_ifaces_cfg = self.get_ifaces_config(as_dict=True)
+            for iface in ifaces or []:
+                normal_ifaces = []
+                if iface.portchannel_id is not None:
+                    if iface.native_vlan:
+                        config_req.delete.append(EOSGNMIClient.PATHS.IFACE_PC_NATIVE_VLAN.format(iface=iface.name))
+                    if iface.trunk_vlans:
+                        config_req.replace.append((EOSGNMIClient.PATHS.IFACE_PC_VLANS.format(iface=iface.name),
+                                                   calc_delete_range(all_ifaces_cfg, iface.name, iface)))
+
+                    # NOTE: we only delete the translations based on one part of the translation
+                    #       this means we could delete different translation. checking would require us
+                    #       to do a replace on the existing translations by looking through the transaltion
+                    #       dict in all_interfaces. If this happens we can change the implementation
+                    for vtrans in iface.vlan_translations or []:
+                        config_req.delete.append(EOSGNMIClient.PATHS.IFACE_PC_VTRANS_EGRESS
+                                                 .format(iface=iface.name, vlan=vtrans.inside))
+                        config_req.delete.append(EOSGNMIClient.PATHS.IFACE_PC_VTRANS_INGRESS
+                                                 .format(iface=iface.name, vlan=vtrans.outside))
+                    normal_ifaces = iface.members or []
+                else:
+                    normal_ifaces = [iface.name]
+
+                for iface_name in normal_ifaces:
+                    if iface.native_vlan:
+                        config_req.delete.append(EOSGNMIClient.PATHS.IFACE_NATIVE_VLAN.format(iface=iface_name))
+
+                    # delete trunk vlans
+                    if iface.trunk_vlans:
+                        config_req.replace.append((EOSGNMIClient.PATHS.IFACE_VLANS.format(iface=iface_name),
+                                                   calc_delete_range(all_ifaces_cfg, iface_name, iface)))
+                    # delete translations
+                    # NOTE: see note above for PC translations
+                    for vtrans in iface.vlan_translations or []:
+                        config_req.delete.append(EOSGNMIClient.PATHS.IFACE_VTRANS_EGRESS
+                                                 .format(iface=iface_name, vlan=vtrans.inside))
+                        config_req.delete.append(EOSGNMIClient.PATHS.IFACE_VTRANS_INGRESS
+                                                 .format(iface=iface_name, vlan=vtrans.outside))
+
+    def _make_config_from_update(self, config: agent_msg.SwitchConfigUpdate) -> EOSSetConfig:
         # build config
-        configmap = {}
+        config_req = EOSSetConfig()
+        self._make_vlan_config(config_req, config.vlans, config.operation)
+        self._make_vxlan_mapping_config(config_req, config.vxlan_maps, config.operation)
+        self._make_bgp_config(config_req, config.bgp, config.operation)
+        self._make_ifaces_config(config_req, config.ifaces, config.operation)
 
-        configmap['vlan'] = self._make_vlan_config(config.vlans, config.operation)
-        configmap['vxlan_mapping'] = self._make_vxlan_mapping_config(config.vxlan_maps, config.operation)
-        configmap['bgp'] = self._make_bgp_config(config.bgp, config.operation)
-        configmap['ifaces'] = self._make_ifaces_config(config.ifaces, config.operation)
-
-        commands = ['configure']
-        for k in self.CONFIGURE_ORDER:
-            commands.extend(configmap[k])
-
-        return commands
+        return config_req
 
     def get_config(self) -> agent_msg.SwitchConfigUpdate:
         # get infos from the device for everything that we have a model for
         config = agent_msg.SwitchConfigUpdate(switch_name=self.name, operation=Op.add)
         config.vlans = self.get_vlan_config()
-        config.vxlan_maps = self.get_vxlan_mapping()
+        config.vxlan_maps = self.get_vxlan_mappings()
         config.bgp = self.get_bgp_config()
         config.ifaces = self.get_ifaces_config()
         return config
@@ -379,9 +599,12 @@ class EOSSwitch(SwitchBase):
         LOG.info("Device %s %s got new config: vxlans %s interfaces %s",
                  self.name, self.host, config.vxlan_maps, config.ifaces)
 
-        commands = self._make_config_from_update(config)
+        config_req = self._make_config_from_update(config)
         try:
-            self.send_cmd(commands)
+            if config_req.update_cli:
+                # FIXME: this is not part of a transaction, it will not be reverted when the subsequent set() fails
+                self.api.set(update=config_req.update_cli, encoding="ascii")
+            self.api.set(delete=config_req.delete, replace=config_req.replace, update=config_req.update)
         except Exception as e:
             LOG.error("Could not send config update to switch %s: %s %s",
                       self.name, e.__class__.__name__, e)

@@ -69,7 +69,10 @@ def validate_asn(asn):
     if not (0 < asn < (2 ** 32)):
         raise ValueError(f"asn value '{asn}' is out of range")
 
-    return asn
+    if asn >= 2 ** 16:
+        return f"{asn >> 16}.{asn & 0xFFFF}"
+    else:
+        return str(asn)
 
 
 class Switch(pydantic.BaseModel):
