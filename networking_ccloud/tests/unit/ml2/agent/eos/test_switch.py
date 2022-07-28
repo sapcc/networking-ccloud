@@ -12,7 +12,6 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
-import re
 from unittest import mock
 
 from networking_ccloud.common.config import config_driver, _override_driver_config
@@ -32,72 +31,106 @@ class TestEOSConfigUpdates(base.TestCase):
                                           user="seagulladm", password="KRAKRAKRA", bgp_source_ip="1.1.1.1")
         self.switch = EOSSwitch(cfg_switch)
         self.switch._api = mock.Mock()
-        self.switch._api.execute.return_value = {'result': [{}]}
 
     def test_add_vlans(self):
+        expected_update = [
+            ('network-instances/network-instance[name=default]/vlans',
+             {'vlan': [
+                 {'vlan-id': 1000, 'config': {'name': 'nest', 'vlan-id': 1000}},
+                 {'vlan-id': 1001, 'config': {'name': 'basket', 'vlan-id': 1001}}]})]
+
         cu = messages.SwitchConfigUpdate(switch_name="seagull-sw1", operation=messages.OperationEnum.add)
         cu.add_vlan(1000, "nest")
         cu.add_vlan(1001, "basket")
         self.switch.apply_config_update(cu)
-        self.switch._api.execute.assert_called_with(
-            ['configure', 'vlan 1000', 'name nest', 'exit', 'vlan 1001', 'name basket', 'exit', 'end'], format='json')
+        self.switch._api.set.assert_called_with(update=expected_update, delete=[], replace=[])
 
     def test_add_everything(self):
-        def execute(cmd, format='json'):
-            if cmd == "show interfaces Vxlan1":
-                return {"result": [{"interfaces": {"Vxlan1": {"vlanToVniMap": {"2121": {"vni": 31337}}}}}]}
-            return {"result": None}
-        self.switch._api.execute.side_effect = execute
+        def _get(prefix):
+            if prefix == 'interfaces/interface[name=Vxlan1]/arista-exp-eos-vxlan:arista-vxlan/config/vlan-to-vnis':
+                return {'arista-exp-eos-vxlan:vlan-to-vni': [{'vlan': 1337, 'vni': 232323}]}
+            elif prefix == 'interfaces':
+                return {
+                    'openconfig-interfaces:interface': []}
+        self.switch._api.get.side_effect = _get
 
-        expected_config = [
-            'configure',
-            'vlan 1000',
-            'name nest',
-            'exit',
-            'vlan 1001',
-            'name basket',
-            'exit',
-            'interface Vxlan1',
-            'vxlan vlan add 1000 vni 232323',
-            'vxlan vlan add 1001 vni 424242',
-            'exit',
-            'router bgp 65000',
-            'vlan 1000',
-            'rd 65000:232323',
-            'route-target import 65123:232323',
-            'route-target export 65123:232323',
-            'redistribute learned',
-            'exit',
-            'exit',
-            'interface Port-channel23',
-            'mlag 23',
-            'switchport mode trunk',
-            'switchport trunk native vlan 1000',
-            'switchport trunk allowed vlan add 1000,1001',
-            'switchport vlan translation 2323 1000',
-            'switchport vlan translation 1337 1001',
-            'exit',
-            'interface Ethernet4/1',
-            'channel-group 23 mode active',
-            'switchport mode trunk',
-            'switchport trunk native vlan 1000',
-            'switchport trunk allowed vlan add 1000,1001',
-            'switchport vlan translation 2323 1000',
-            'switchport vlan translation 1337 1001',
-            'exit',
-            'interface Ethernet4/2',
-            'channel-group 23 mode active',
-            'switchport mode trunk',
-            'switchport trunk native vlan 1000',
-            'switchport trunk allowed vlan add 1000,1001',
-            'switchport vlan translation 2323 1000',
-            'switchport vlan translation 1337 1001',
-            'exit',
-            'interface Ethernet23/1',
-            'switchport mode trunk',
-            'switchport trunk allowed vlan add 1001',
-            'exit',
-            'end']
+        expected_update_config = [
+            ('network-instances/network-instance[name=default]/vlans',
+             {'vlan': [{'config': {'name': 'nest', 'vlan-id': 1000}, 'vlan-id': 1000},
+                       {'config': {'name': 'basket', 'vlan-id': 1001}, 'vlan-id': 1001}]}),
+            ('interfaces/interface[name=Vxlan1]/arista-exp-eos-vxlan:arista-vxlan/config/vlan-to-vnis',
+             {'vlan-to-vni': [{'vlan': 1000, 'vni': 232323}]}),
+            ('interfaces/interface[name=Vxlan1]/arista-exp-eos-vxlan:arista-vxlan/config/vlan-to-vnis',
+             {'vlan-to-vni': [{'vlan': 1001, 'vni': 424242}]}),
+            ('arista/eos/arista-exp-eos-evpn:evpn/evpn-instances',
+             {'evpn-instance': [{'config': {'name': '1000',
+                                            'route-distinguisher': '65000:232323',
+                                            'redistribute': ['LEARNED']},
+                                 'name': '1000',
+                                 'route-target': {'config': {'export': ['65123:232323'],
+                                                             'import': ['65123:232323']}},
+                                 'vlans': {'vlan': [{'config': {'vlan-id': 1000},
+                                                     'vlan-id': 1000}]}}]}),
+            ('interfaces/interface[name=Port-Channel23]/aggregation',
+             {'config': {'arista-intf-augments:fallback': 'individual',
+                         'arista-intf-augments:mlag': 23,
+                         'lag-type': 'LACP'},
+              'switched-vlan': {'config': {'interface-mode': 'TRUNK',
+                                           'native-vlan': 1000,
+                                           'trunk-vlans': [1000, 1001],
+                                           'vlan-translation': {'egress': [{'config': {'bridging-vlan': 2323,
+                                                                                       'translation-key': 1000},
+                                                                            'translation-key': 1000},
+                                                                           {'config': {'bridging-vlan': 1337,
+                                                                                       'translation-key': 1001},
+                                                                            'translation-key': 1001}],
+                                                                'ingress': [{'config': {'bridging-vlan': 1000,
+                                                                                        'translation-key': 2323},
+                                                                             'translation-key': 2323},
+                                                                            {'config': {'bridging-vlan': 1001,
+                                                                                        'translation-key': 1337},
+                                                                             'translation-key': 1337}]}}}}),
+            ('interfaces/interface[name=Ethernet4/1]/ethernet',
+             {'config': {'aggregate-id': 'Port-Channel23'},
+              'switched-vlan': {'config': {'interface-mode': 'TRUNK',
+                                           'native-vlan': 1000,
+                                           'trunk-vlans': [1000, 1001],
+                                           'vlan-translation': {'egress': [{'config': {'bridging-vlan': 2323,
+                                                                                       'translation-key': 1000},
+                                                                            'translation-key': 1000},
+                                                                           {'config': {'bridging-vlan': 1337,
+                                                                                       'translation-key': 1001},
+                                                                            'translation-key': 1001}],
+                                                                'ingress': [{'config': {'bridging-vlan': 1000,
+                                                                                        'translation-key': 2323},
+                                                                             'translation-key': 2323},
+                                                                            {'config': {'bridging-vlan': 1001,
+                                                                                        'translation-key': 1337},
+                                                                             'translation-key': 1337}]}}}}),
+            ('interfaces/interface[name=Ethernet4/2]/ethernet',
+             {'config': {'aggregate-id': 'Port-Channel23'},
+              'switched-vlan': {'config': {'interface-mode': 'TRUNK',
+                                           'native-vlan': 1000,
+                                           'trunk-vlans': [1000, 1001],
+                                           'vlan-translation': {'egress': [{'config': {'bridging-vlan': 2323,
+                                                                                       'translation-key': 1000},
+                                                                            'translation-key': 1000},
+                                                                           {'config': {'bridging-vlan': 1337,
+                                                                                       'translation-key': 1001},
+                                                                            'translation-key': 1001}],
+                                                                'ingress': [{'config': {'bridging-vlan': 1000,
+                                                                                        'translation-key': 2323},
+                                                                             'translation-key': 2323},
+                                                                            {'config': {'bridging-vlan': 1001,
+                                                                                        'translation-key': 1337},
+                                                                             'translation-key': 1337}]}}}}),
+            ('interfaces/interface[name=Ethernet23/1]/ethernet',
+             {'switched-vlan': {'config': {'interface-mode': 'TRUNK',
+                                           'trunk-vlans': [1001]}}})]
+        expected_delete_config = [
+            "interfaces/interface[name=Vxlan1]/arista-exp-eos-vxlan:arista-vxlan/config/vlan-to-vnis/"
+            "vlan-to-vni[vlan=1337]"
+        ]
 
         cu = messages.SwitchConfigUpdate(switch_name="seagull-sw1", operation=messages.OperationEnum.add)
         # vlans
@@ -113,7 +146,7 @@ class TestEOSConfigUpdates(base.TestCase):
         cu.bgp.add_vlan(1000, 232323)
 
         # interfaces
-        iface1 = messages.IfaceConfig(name="Port-channel23", portchannel_id=23, native_vlan=1000,
+        iface1 = messages.IfaceConfig(name="Port-Channel23", portchannel_id=23, native_vlan=1000,
                                       members=["Ethernet4/1", "Ethernet4/2"])
         iface1.add_trunk_vlan(1000)
         iface1.add_trunk_vlan(1001)
@@ -126,46 +159,81 @@ class TestEOSConfigUpdates(base.TestCase):
         cu.add_iface(iface2)
 
         self.switch.apply_config_update(cu)
-        self.switch._api.execute.assert_called_with(expected_config, format='json')
+        self.switch._api.set.assert_called_with(update=expected_update_config, replace=[],
+                                                delete=expected_delete_config)
 
     def test_remove_everything(self):
-        expected_config = [
-            'configure',
-            'no vlan 1000',
-            'no vlan 1001',
-            'interface Vxlan1',
-            'no vxlan vlan 1000 vni 232323',
-            'no vxlan vlan 1001 vni 424242',
-            'exit',
-            'router bgp 65000',
-            'no vlan 1000',
-            'exit',
-            'interface Port-channel23',
-            'switchport mode trunk',
-            'no switchport trunk native vlan',
-            'switchport trunk allowed vlan remove 1000,1001',
-            'no switchport vlan translation 2323 1000',
-            'no switchport vlan translation 1337 1001',
-            'exit',
-            'interface Ethernet4/1',
-            'switchport mode trunk',
-            'no switchport trunk native vlan',
-            'switchport trunk allowed vlan remove 1000,1001',
-            'no switchport vlan translation 2323 1000',
-            'no switchport vlan translation 1337 1001',
-            'exit',
-            'interface Ethernet4/2',
-            'switchport mode trunk',
-            'no switchport trunk native vlan',
-            'switchport trunk allowed vlan remove 1000,1001',
-            'no switchport vlan translation 2323 1000',
-            'no switchport vlan translation 1337 1001',
-            'exit',
-            'interface Ethernet23/1',
-            'switchport mode trunk',
-            'switchport trunk allowed vlan remove 1001',
-            'exit',
-            'end']
+        def _get(prefix):
+            if prefix == 'interfaces/interface[name=Vxlan1]/arista-exp-eos-vxlan:arista-vxlan/config/vlan-to-vnis':
+                return {'arista-exp-eos-vxlan:vlan-to-vni': [
+                        {'vlan': 1000, 'vni': 232323},
+                        {'vlan': 1001, 'vni': 424242}]}
+            elif prefix == 'lacp':
+                return {'openconfig-lacp:interfaces': {'interface': []}}
+            elif prefix == 'interfaces':
+                return {
+                    'openconfig-interfaces:interface': [
+                        {'name': 'Port-Channel23', 'config': {'name': 'Port-Channel23'},
+                         'openconfig-if-aggregate:aggregation': {
+                            'openconfig-vlan:switched-vlan': {'config': {
+                                'interface-mode': 'TRUNK', 'native-vlan': 1,
+                                'trunk-vlans': [1000, 2002, 2005, '2323..2327']}}}},
+                        {'name': 'Ethernet4/1', 'config': {'name': 'Ethernet4/1'},
+                         'openconfig-if-ethernet:ethernet': {
+                            'openconfig-vlan:switched-vlan': {'config': {
+                                'interface-mode': 'TRUNK', 'native-vlan': 1,
+                                'trunk-vlans': [1000, 1003]}}}},
+                        {'name': 'Ethernet23/1', 'config': {'name': 'Ethernet23/1'},
+                         'openconfig-if-ethernet:ethernet': {
+                            'openconfig-vlan:switched-vlan': {'config': {
+                                'interface-mode': 'TRUNK', 'native-vlan': 1,
+                                'trunk-vlans': ['999..1002']}}}},
+                    ]}
+        self.switch._api.get.side_effect = _get
+
+        expected_config = {
+            'delete': [
+                'network-instances/network-instance[name=default]/vlans/vlan[vlan-id=1000]',
+                'network-instances/network-instance[name=default]/vlans/vlan[vlan-id=1001]',
+                'interfaces/interface[name=Vxlan1]/arista-exp-eos-vxlan:arista-vxlan/config/vlan-to-vnis/'
+                'vlan-to-vni[vlan=1000]',
+                'interfaces/interface[name=Vxlan1]/arista-exp-eos-vxlan:arista-vxlan/config/vlan-to-vnis/'
+                'vlan-to-vni[vlan=1001]',
+                'arista/eos/arista-exp-eos-evpn:evpn/evpn-instances/evpn-instance[name=1000]',
+                'interfaces/interface[name=Port-Channel23]/aggregation/switched-vlan/config/native-vlan',
+                'interfaces/interface[name=Port-Channel23]/aggregation/switched-vlan/vlan-translation/'
+                'egress[translation-key=1000]',
+                'interfaces/interface[name=Port-Channel23]/aggregation/switched-vlan/vlan-translation/'
+                'ingress[translation-key=2323]',
+                'interfaces/interface[name=Port-Channel23]/aggregation/switched-vlan/vlan-translation/'
+                'egress[translation-key=1001]',
+                'interfaces/interface[name=Port-Channel23]/aggregation/switched-vlan/vlan-translation/'
+                'ingress[translation-key=1337]',
+                'interfaces/interface[name=Ethernet4/1]/ethernet/switched-vlan/config/native-vlan',
+                'interfaces/interface[name=Ethernet4/1]/ethernet/switched-vlan/vlan-translation/'
+                'egress[translation-key=1000]',
+                'interfaces/interface[name=Ethernet4/1]/ethernet/switched-vlan/vlan-translation/'
+                'ingress[translation-key=2323]',
+                'interfaces/interface[name=Ethernet4/1]/ethernet/switched-vlan/vlan-translation/'
+                'egress[translation-key=1001]',
+                'interfaces/interface[name=Ethernet4/1]/ethernet/switched-vlan/vlan-translation/'
+                'ingress[translation-key=1337]',
+                'interfaces/interface[name=Ethernet4/2]/ethernet/switched-vlan/config/native-vlan',
+                'interfaces/interface[name=Ethernet4/2]/ethernet/switched-vlan/vlan-translation/'
+                'egress[translation-key=1000]',
+                'interfaces/interface[name=Ethernet4/2]/ethernet/switched-vlan/vlan-translation/'
+                'ingress[translation-key=2323]',
+                'interfaces/interface[name=Ethernet4/2]/ethernet/switched-vlan/vlan-translation/'
+                'egress[translation-key=1001]',
+                'interfaces/interface[name=Ethernet4/2]/ethernet/switched-vlan/vlan-translation/'
+                'ingress[translation-key=1337]'],
+            'replace': [
+                ('interfaces/interface[name=Port-Channel23]/aggregation/switched-vlan',
+                 [2002, 2005, 2323, 2324, 2325, 2326, 2327]),
+                ('interfaces/interface[name=Ethernet4/1]/ethernet/switched-vlan', [1003]),
+                ('interfaces/interface[name=Ethernet4/2]/ethernet/switched-vlan', []),
+                ('interfaces/interface[name=Ethernet23/1]/ethernet/switched-vlan', [999, 1000, 1002])],
+            'update': []}
 
         cu = messages.SwitchConfigUpdate(switch_name="seagull-sw1", operation=messages.OperationEnum.remove)
         # vlans
@@ -175,13 +243,14 @@ class TestEOSConfigUpdates(base.TestCase):
         # vxlan maps
         cu.add_vxlan_map(232323, 1000)
         cu.add_vxlan_map(424242, 1001)
+        cu.add_vxlan_map(343434, 1337)
 
         # bgp stuff / vlans
         cu.bgp = messages.BGP(asn="65000", asn_region="65123")
         cu.bgp.add_vlan(1000, 232323)
 
         # interfaces
-        iface1 = messages.IfaceConfig(name="Port-channel23", portchannel_id=23, native_vlan=1000,
+        iface1 = messages.IfaceConfig(name="Port-Channel23", portchannel_id=23, native_vlan=1000,
                                       members=["Ethernet4/1", "Ethernet4/2"])
         iface1.add_trunk_vlan(1000)
         iface1.add_trunk_vlan(1001)
@@ -194,34 +263,32 @@ class TestEOSConfigUpdates(base.TestCase):
         cu.add_iface(iface2)
 
         self.switch.apply_config_update(cu)
-        self.switch._api.execute.assert_called_with(expected_config, format='json')
+        self.switch._api.set.assert_called_with(**expected_config)
 
     def test_add_vlan_map_with_existing(self):
-        def execute(cmd, format='json'):
-            if cmd == "show interfaces Vxlan1":
-                return {"result": [
-                    {"interfaces":
-                        {"Vxlan1":
-                            {"vlanToVniMap": {"2000": {"vni": 31337}, "2500": {"vni": 232323}, "2": {"vni": 3}}}}}]}
-            return {"result": None}
-        self.switch._api.execute.side_effect = execute
+        def _get(prefix):
+            if prefix == 'interfaces/interface[name=Vxlan1]/arista-exp-eos-vxlan:arista-vxlan/config/vlan-to-vnis':
+                return {'arista-exp-eos-vxlan:vlan-to-vni': [
+                        {'vlan': 2000, 'vni': 31337},
+                        {'vlan': 2500, 'vni': 232323},
+                        {'vlan': 2, 'vni': 3}]}
+        self.switch._api.get.side_effect = _get
 
-        expected_config = [
-            'configure',
-            'interface Vxlan1',
-            'no vxlan vlan 2000 vni 31337',
-            'no vxlan vlan 2500 vni 232323',
-            'vxlan vlan add 1000 vni 232323',
-            'vxlan vlan add 2000 vni 424242',
-            'exit',
-            'end']
+        expected_config = {
+            'delete': ['interfaces/interface[name=Vxlan1]/arista-exp-eos-vxlan:arista-vxlan/config/vlan-to-vnis/'
+                       'vlan-to-vni[vlan=2500]'],
+            'replace': [],
+            'update': [('interfaces/interface[name=Vxlan1]/arista-exp-eos-vxlan:arista-vxlan/config/vlan-to-vnis',
+                        {'vlan-to-vni': [{'vlan': 1000, 'vni': 232323}]}),
+                       ('interfaces/interface[name=Vxlan1]/arista-exp-eos-vxlan:arista-vxlan/config/vlan-to-vnis',
+                        {'vlan-to-vni': [{'vlan': 2000, 'vni': 424242}]})]}
 
         cu = messages.SwitchConfigUpdate(switch_name="seagull-sw1", operation=messages.OperationEnum.add)
         cu.add_vxlan_map(232323, 1000)
         cu.add_vxlan_map(424242, 2000)
 
         self.switch.apply_config_update(cu)
-        self.switch._api.execute.assert_called_with(expected_config, format='json')
+        self.switch._api.set.assert_called_with(**expected_config)
 
     def test_replace_trunk_vlans(self):
         expected_config = [
@@ -232,6 +299,12 @@ class TestEOSConfigUpdates(base.TestCase):
             'exit',
             'end'
         ]
+        expected_config = {
+            'delete': [],
+            'replace': [('interfaces/interface[name=Ethernet23/1]/ethernet',
+                         {'switched-vlan': {'config': {'interface-mode': 'TRUNK',
+                                                       'trunk-vlans': [1001]}}})],
+            'update': []}
 
         cu = messages.SwitchConfigUpdate(switch_name="seagull-sw1", operation=messages.OperationEnum.replace)
         iface = messages.IfaceConfig(name="Ethernet23/1")
@@ -239,29 +312,19 @@ class TestEOSConfigUpdates(base.TestCase):
         cu.add_iface(iface)
 
         self.switch.apply_config_update(cu)
-        self.switch._api.execute.assert_called_with(expected_config, format='json')
+        self.switch._api.set.assert_called_with(**expected_config)
 
     def test_replace_vlans(self):
-        def execute(cmd, format='json'):
-            if cmd == "show vlan":
-                return {'result': [
-                    {'vlans': {str(v): {'name': f'vlan-{v}'} for v in [1, 100, 1000, 1003, 4093]}},
-                ]}
-            return mock.DEFAULT
-        self.switch._api.execute.side_effect = execute
+        expected_config = {
+            'replace': [('network-instances/network-instance[name=default]/vlans',
+                         {'vlan': [{'config': {'name': 'nest', 'vlan-id': 1000},
+                                    'vlan-id': 1000},
+                                   {'config': {'name': 'basket', 'vlan-id': 1001},
+                                    'vlan-id': 1001}]})],
+            'update': [],
+            'delete': [],
 
-        expected_config = [
-            'configure',
-            'no vlan 100',
-            'no vlan 1003',
-            'vlan 1000',
-            'name nest',
-            'exit',
-            'vlan 1001',
-            'name basket',
-            'exit',
-            'end'
-        ]
+        }
 
         cu = messages.SwitchConfigUpdate(switch_name="seagull-sw1", operation=messages.OperationEnum.replace)
         # vlans
@@ -269,129 +332,134 @@ class TestEOSConfigUpdates(base.TestCase):
         cu.add_vlan(1001, "basket")
 
         self.switch.apply_config_update(cu)
-        self.switch._api.execute.assert_called_with(expected_config, format='json')
+        self.switch._api.set.assert_called_with(**expected_config)
 
-    def test_replace_vxlan_maps(self):
-        def execute(cmd, format='json'):
-            if cmd == "show interfaces Vxlan1":
-                return {'result': [
-                    {'interfaces': {'Vxlan1': {
-                        'vlanToVniMap': {vlan: {'vni': vni} for vni, vlan in
-                                         [(23, 42), (2000, 444), (424242, 2000)]}
-                    }}}]}
-            return mock.DEFAULT
-        self.switch._api.execute.side_effect = execute
+    def test_update_vxlan_maps(self):
+        def _get(prefix):
+            if prefix == 'interfaces/interface[name=Vxlan1]/arista-exp-eos-vxlan:arista-vxlan/config/vlan-to-vnis':
+                return {'arista-exp-eos-vxlan:vlan-to-vni': [
+                        {'vlan': 42, 'vni': 23},
+                        {'vlan': 444, 'vni': 2000},
+                        {'vlan': 2000, 'vni': 232323}]}
+        self.switch._api.get.side_effect = _get
 
-        expected_config = [
-            'configure',
-            'interface Vxlan1',
-            'no vxlan vlan 444 vni 2000',
-            'no vxlan vlan 2000 vni 424242',
-            'vxlan vlan add 42 vni 23',
-            'vxlan vlan add 1337 vni 232323',
-            'exit',
-            'end'
-        ]
+        expected_config = {
+            'delete': [
+                'interfaces/interface[name=Vxlan1]/arista-exp-eos-vxlan:arista-vxlan/config/vlan-to-vnis/'
+                'vlan-to-vni[vlan=2000]'
+            ],
+            'update': [('interfaces/interface[name=Vxlan1]/arista-exp-eos-vxlan:arista-vxlan/config/vlan-to-vnis',
+                        {'vlan-to-vni': [{'vlan': 42, 'vni': 23}]}),
+                       ('interfaces/interface[name=Vxlan1]/arista-exp-eos-vxlan:arista-vxlan/config/vlan-to-vnis',
+                        {'vlan-to-vni': [{'vlan': 1337, 'vni': 232323}]})],
+            'replace': [],
+        }
 
-        cu = messages.SwitchConfigUpdate(switch_name="seagull-sw1", operation=messages.OperationEnum.replace)
+        cu = messages.SwitchConfigUpdate(switch_name="seagull-sw1", operation=messages.OperationEnum.add)
         # vlans
         cu.add_vxlan_map(23, 42)
         cu.add_vxlan_map(232323, 1337)
 
         self.switch.apply_config_update(cu)
-        self.switch._api.execute.assert_called_with(expected_config, format='json')
+        self.switch._api.set.assert_called_with(**expected_config)
 
-    def test_replace_vlan_translations(self):
-        def execute(cmd, format='json'):
-            if isinstance(cmd, str):
-                m = re.match("show interfaces (?P<iface>[^ ]+) switchport vlan mapping", cmd)
-                if m:
-                    iface = m.group('iface')
-                    if iface == 'Eth23/1':
-                        iface = 'Ethernet23/1'
-                    avail_trans = {
-                        'Ethernet23/1': [(23, 42), (2000, 3000)],
-                        'Port-channel23': [(23, 42), (3000, 4000)],
-                    }
-                    maps = {outside: {'vlanId': inside} for inside, outside in avail_trans[iface]}
+    def test_update_vlan_translations(self):
+        def _get(prefix):
+            if prefix == 'interfaces':
+                return {
+                    'openconfig-interfaces:interface': [
+                        {'name': 'Port-Channel23', 'config': {'name': 'Port-Channel23'},
+                         'openconfig-if-aggregate:aggregation': {
+                            'openconfig-vlan:switched-vlan': {
+                                'vlan-translation:vlan-translation': {
+                                    'egress': [{'translation-key': 888,
+                                                'config': {'translation-key': 888, 'bridging-vlan': 42}},
+                                               {'translation-key': 1000,
+                                                'config': {'translation-key': 1000, 'bridging-vlan': 2000}}],
+                                    'ingress': [{'translation-key': 777,
+                                                 'config': {'translation-key': 777, 'bridging-vlan': 23}},
+                                                {'translation-key': 2000,
+                                                 'config': {'translation-key': 2000, 'bridging-vlan': 1000}}],
+                                }}}},
+                        {'name': 'Ethernet23/1', 'config': {'name': 'Ethernet23/1'},
+                         'openconfig-if-ethernet:ethernet': {
+                            'openconfig-vlan:switched-vlan': {
+                                'vlan-translation:vlan-translation': {
+                                    'egress': [{'translation-key': 889,
+                                                'config': {'translation-key': 889, 'bridging-vlan': 42}}],
+                                    'ingress': [{'translation-key': 778,
+                                                 'config': {'translation-key': 778, 'bridging-vlan': 23}}],
+                                }}}}]}
+        self.switch._api.get.side_effect = _get
 
-                    return {'result': [
-                        {'intfVlanMappings': {iface: {'ingressVlanMappings': maps, 'egressVlanMappings': maps}}}]}
-            return mock.DEFAULT
-        self.switch._api.execute.side_effect = execute
+        expected_config = {
+            'delete': [
+                'interfaces/interface[name=Port-Channel23]/aggregation/switched-vlan/vlan-translation/'
+                'ingress[translation-key=777]',
+                'interfaces/interface[name=Port-Channel23]/aggregation/switched-vlan/vlan-translation/'
+                'egress[translation-key=888]',
+                'interfaces/interface[name=Ethernet23/1]/ethernet/switched-vlan/vlan-translation/'
+                'ingress[translation-key=778]',
+                'interfaces/interface[name=Ethernet23/1]/ethernet/switched-vlan/vlan-translation/'
+                'egress[translation-key=889]',
+            ],
+            'replace': [],
+            'update': [
+                ('interfaces/interface[name=Port-Channel23]/aggregation',
+                 {'config': {'arista-intf-augments:fallback': 'individual',
+                             'arista-intf-augments:mlag': 23,
+                             'lag-type': 'LACP'},
+                  'switched-vlan': {'config': {'vlan-translation': {'egress': [{'config': {'bridging-vlan': 42,
+                                                                                           'translation-key': 23},
+                                                                                'translation-key': 23},
+                                                                               {'config': {'bridging-vlan': 2000,
+                                                                                           'translation-key': 1000},
+                                                                                'translation-key': 1000}],
+                                                                    'ingress': [{'config': {'bridging-vlan': 23,
+                                                                                            'translation-key': 42},
+                                                                                 'translation-key': 42},
+                                                                                {'config': {'bridging-vlan': 1000,
+                                                                                            'translation-key': 2000},
+                                                                                 'translation-key': 2000}]}}}}),
+                ('interfaces/interface[name=Ethernet23/1]/ethernet',
+                 {'config': {'aggregate-id': 'Port-Channel23'},
+                  'switched-vlan': {'config': {'vlan-translation': {'egress': [{'config': {'bridging-vlan': 42,
+                                                                                           'translation-key': 23},
+                                                                                'translation-key': 23},
+                                                                               {'config': {'bridging-vlan': 2000,
+                                                                                           'translation-key': 1000},
+                                                                                'translation-key': 1000}],
+                                                                    'ingress': [{'config': {'bridging-vlan': 23,
+                                                                                            'translation-key': 42},
+                                                                                 'translation-key': 42},
+                                                                                {'config': {'bridging-vlan': 1000,
+                                                                                            'translation-key': 2000},
+                                                                                 'translation-key': 2000}]}}}})]}
 
-        # single interface
-        expected_config = [
-            'configure',
-            'interface Eth23/1',
-            'no switchport vlan translation 3000 2000',
-            'switchport mode trunk',
-            'switchport vlan translation 42 23',
-            'switchport vlan translation 2000 1000',
-            'exit',
-            'end'
-        ]
-        cu = messages.SwitchConfigUpdate(switch_name="seagull-sw1", operation=messages.OperationEnum.replace)
-        iface = messages.IfaceConfig(name="Eth23/1")  # deliberate use of shorthand for interface name
+        cu = messages.SwitchConfigUpdate(switch_name="seagull-sw1", operation=messages.OperationEnum.add)
+        iface = messages.IfaceConfig(name="Port-Channel23", portchannel_id=23, members=["Ethernet23/1"])
         iface.add_vlan_translation(23, 42)
         iface.add_vlan_translation(1000, 2000)
         cu.add_iface(iface)
 
         self.switch.apply_config_update(cu)
-        self.switch._api.execute.assert_called_with(expected_config, format='json')
-        self.switch._api.execute.reset_mock()
-
-        # port-channel with one member interface
-        expected_config = [
-            'configure',
-            'interface Port-channel23',
-            'mlag 23',
-            'no switchport vlan translation 4000 3000',
-            'switchport mode trunk',
-            'switchport vlan translation 42 23',
-            'switchport vlan translation 2000 1000',
-            'exit',
-            'interface Ethernet23/1',
-            'channel-group 23 mode active',
-            'no switchport vlan translation 3000 2000',
-            'switchport mode trunk',
-            'switchport vlan translation 42 23',
-            'switchport vlan translation 2000 1000',
-            'exit',
-            'end'
-        ]
-
-        cu = messages.SwitchConfigUpdate(switch_name="seagull-sw1", operation=messages.OperationEnum.replace)
-        iface = messages.IfaceConfig(name="Port-channel23", portchannel_id=23,
-                                     members=["Ethernet23/1"])
-        iface.add_vlan_translation(23, 42)
-        iface.add_vlan_translation(1000, 2000)
-        cu.add_iface(iface)
-
-        self.switch.apply_config_update(cu)
-        self.switch._api.execute.assert_called_with(expected_config, format='json')
+        self.switch._api.set.assert_called_with(**expected_config)
+        self.switch._api.set.reset_mock()
 
     def test_replace_bgp_vlans(self):
-        def execute(cmd, format='json'):
-            if cmd == "show bgp evpn instance":
-                return {'result': [{'bgpEvpnInstances': {
-                                    'VLAN 2323': {'rd': '1.1.11.0:44444', 'encapType': 'vxlan'}}}]}
-            return mock.DEFAULT
-        self.switch._api.execute.side_effect = execute
-
-        expected_config = [
-            'configure',
-            'router bgp 65000',
-            'no vlan 2323',
-            'vlan 1000',
-            'rd 65000:232323',
-            'route-target import 65123:232323',
-            'route-target export 65123:232323',
-            'redistribute learned',
-            'exit',
-            'exit',
-            'end'
-        ]
+        expected_config = {
+            'replace': [('arista/eos/arista-exp-eos-evpn:evpn/evpn-instances',
+                         {'evpn-instance': [{'config': {'name': '1000',
+                                                        'route-distinguisher': '65000:232323',
+                                                        'redistribute': ['LEARNED']},
+                                             'name': '1000',
+                                             'route-target': {'config': {'export': ['65123:232323'],
+                                                                         'import': ['65123:232323']}},
+                                             'vlans': {'vlan': [{'config': {'vlan-id': 1000},
+                                                                 'vlan-id': 1000}]}}]})],
+            'update': [],
+            'delete': [],
+        }
 
         cu = messages.SwitchConfigUpdate(switch_name="seagull-sw1", operation=messages.OperationEnum.replace)
         # bgp vlans
@@ -399,23 +467,31 @@ class TestEOSConfigUpdates(base.TestCase):
         cu.bgp.add_vlan(1000, 232323)
 
         self.switch.apply_config_update(cu)
-        self.switch._api.execute.assert_called_with(expected_config, format='json')
+        self.switch._api.set.assert_called_with(**expected_config)
 
     def test_bgp_vlans_bgw_mode(self):
-        expected_config = [
-            'configure',
-            'router bgp 65000',
-            'vlan 1000',
-            'rd evpn domain all 65000:232323',
-            'route-target import 65123:232323',
-            'route-target export 65123:232323',
-            'route-target import evpn domain remote 65123:232323',
-            'route-target export evpn domain remote 65123:232323',
-            'redistribute learned',
-            'exit',
-            'exit',
-            'end'
-        ]
+        expected_cli_config = {
+            'update': [
+                ('cli:', 'router bgp 65000'),
+                ('cli:', 'vlan 1000'),
+                ('cli:', 'rd evpn domain all 65000:232323'),
+                ('cli:', 'route-target import evpn domain remote 65123:232323'),
+                ('cli:', 'route-target export evpn domain remote 65123:232323'),
+                ('cli:', 'exit'),
+                ('cli:', 'exit'),
+            ],
+            'encoding': 'ascii'
+        }
+        expected_config = {
+            'delete': [],
+            'replace': [],
+            'update': [('arista/eos/arista-exp-eos-evpn:evpn/evpn-instances',
+                        {'evpn-instance': [{'config': {'name': '1000', 'redistribute': ['LEARNED']},
+                                            'name': '1000',
+                                            'route-target': {'config': {'export': ['65123:232323'],
+                                                                        'import': ['65123:232323']}},
+                                            'vlans': {'vlan': [{'config': {'vlan-id': 1000},
+                                                                'vlan-id': 1000}]}}]})]}
 
         cu = messages.SwitchConfigUpdate(switch_name="seagull-sw1", operation=messages.OperationEnum.add)
         # bgp vlans
@@ -423,7 +499,7 @@ class TestEOSConfigUpdates(base.TestCase):
         cu.bgp.add_vlan(1000, 232323, bgw_mode=True)
 
         self.switch.apply_config_update(cu)
-        self.switch._api.execute.assert_called_with(expected_config, format='json')
+        self.switch._api.set.assert_has_calls([mock.call(**expected_cli_config), mock.call(**expected_config)])
 
 
 class TestEOSSwitch(base.TestCase):
@@ -438,102 +514,59 @@ class TestEOSSwitch(base.TestCase):
         self.switch._api.execute.return_value = {'result': [{}]}
 
     def test_get_switch_config(self):
-        def execute(cmd, format='json'):
-            cmds = {
-                'show vlan': {
-                    "vlans": {
-                        "2121": {
-                            "status": "active",
-                            "name": "b226a569-e0ed-4d24-b943-c7183288",
-                        },
-                    },
-                },
-                'show interfaces Vxlan1': {
-                    "interfaces": {
-                        "Vxlan1": {
-                            "vlanToVniMap": {
-                                "2121": {
-                                    "vni": 31337,
-                                },
-                            },
-                        },
-                    },
-                },
-                'show bgp summary': {
-                    "vrfs": {
-                        "default": {
-                            "asn": "65130.4113",
-                        },
-                    },
-                },
-                'show bgp evpn instance': {
-                    "bgpEvpnInstances": {
-                        "VLAN 2000": {
-                            "rd": "4268363793:10091",
-                            "importRts": [
-                                842681173419883,
-                            ],
-                            "exportRts": [
-                                842681173419883,
-                            ],
-                        },
-                    },
-                },
-                'show interfaces vlans': {
-                    "interfaces": {
-                        "Port-Channel109": {
-                            "taggedVlans": [
-                                2000,
-                                2001,
-                                2002,
-                            ],
-                            "untaggedVlan": 2121,
-                        },
-                    },
-                },
-                'show interfaces switchport vlan mapping': {
-                    "intfVlanMappings": {
-                        "Ethernet1/1": {
-                            "ingressVlanMappings": {
-                                "3001": {
-                                    "vlanId": 2000
-                                },
-                            },
-                            "egressVlanMappings": {
-                                "2000": {
-                                    "vlanId": 3001
-                                },
-                            },
-                        },
-                    },
-                },
-                'show port-channel dense': {
-                    "portChannels": {
-                        "Port-Channel109": {
-                            "protocol": "lacp",
-                            "fallback": {
-                                "config": "fallbackIndividual"
-                            },
-                            "lacpMode": "active",
-                            "linkState": "up",
-                            "ports": {
-                                "PeerEthernet9/1": {},
-                                "Ethernet9/1": {},
-                            },
-                        },
-                    },
-                },
-            }
-            if cmd in cmds:
-                return dict(result=[cmds[cmd]])
-            else:
-                return ValueError("unmapped command")
-        self.switch._api.execute.side_effect = execute
+        def _get(prefix):
+            if prefix == 'network-instances/network-instance[name=default]/vlans':
+                return {
+                    'openconfig-network-instance:vlan': [
+                        {'config': {'vlan-id': 2121, 'name': 'b226a569-e0ed-4d24-b943-c7183288'},
+                         'vlan-id': 2121}]}
+            elif prefix == 'interfaces/interface[name=Vxlan1]/arista-exp-eos-vxlan:arista-vxlan/config/vlan-to-vnis':
+                return {'arista-exp-eos-vxlan:vlan-to-vni': [{'vlan': 2121, 'vni': 31337}]}
+            elif prefix == ('network-instances/network-instance[name=default]/protocols/protocol[name=BGP]/'
+                            'bgp/global/config/as'):
+                return 4268363793
+            elif prefix == 'arista/eos/arista-exp-eos-evpn:evpn/evpn-instances':
+                return {
+                    'arista-exp-eos-evpn:evpn-instance': [
+                        {'config': {'name': '2000',
+                                    'route-distinguisher': '65130.4113:10091'},
+                         'route-target': {'config': {'export': ['65130:10091'], 'import': ['65130:10091']}},
+                         'name': "2000"}
+                    ]}
+            elif prefix == 'lacp':
+                return {
+                    'openconfig-lacp:interfaces': {'interface': [
+                        {'config': {'name': 'Port-Channel109'},
+                         'name': 'Port-Channel109',
+                         'members': {'member': [{'interface': 'Ethernet9/1'}]}},
+                    ]}}
+            elif prefix == 'interfaces':
+                return {
+                    'openconfig-interfaces:interface': [
+                        {'name': 'Port-Channel109', 'config': {'name': 'Port-Channel109'},
+                         'openconfig-if-aggregate:aggregation': {
+                            'openconfig-vlan:switched-vlan': {'config': {
+                                'interface-mode': 'TRUNK', 'native-vlan': 2121,
+                                'trunk-vlans': ['2000..2002']}}}},
+                        {'name': 'Ethernet1/1', 'config': {'name': 'Ethernet1/1'},
+                         'openconfig-if-ethernet:ethernet': {
+                            'openconfig-vlan:switched-vlan': {
+                                'config': {
+                                    'interface-mode': 'TRUNK', 'native-vlan': 1,
+                                    'trunk-vlans': []},
+                                'vlan-translation:vlan-translation': {
+                                    'egress': [{'translation-key': 3001,
+                                                'config': {'translation-key': 3001, 'bridging-vlan': 2000}}],
+                                    'ingress': [{'translation-key': 2000,
+                                                 'config': {'translation-key': 2000, 'bridging-vlan': 3001}}],
+                                }}}}]}
+            raise ValueError(f"unmapped command: {prefix}")
+        self.switch._api.get.side_effect = _get
 
         cu = messages.SwitchConfigUpdate(switch_name="seagull-sw1", operation=messages.OperationEnum.add)
         cu.add_vlan(2121, "b226a569-e0ed-4d24-b943-c7183288")
         cu.add_vxlan_map(31337, 2121)
-        cu.bgp = messages.BGP(asn=65130.4113, asn_region=65130)
+        cu.bgp = messages.BGP(asn="65130.4113", asn_region=65130)
         cu.bgp.add_vlan(2000, 10091, bgw_mode=False)
         iface = messages.IfaceConfig(name="Port-Channel109", members=["Ethernet9/1"],
                                      trunk_vlans=[2000, 2001, 2002], native_vlan=2121, portchannel_id=109)
