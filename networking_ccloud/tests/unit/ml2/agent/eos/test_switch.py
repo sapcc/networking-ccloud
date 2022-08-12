@@ -141,6 +141,9 @@ class TestEOSConfigUpdates(base.TestCase):
         cu.add_vxlan_map(232323, 1000)
         cu.add_vxlan_map(424242, 1001)
 
+        cu.add_vrf_vxlan_map("VRF-LAUGHING-GULL", 232323)
+        cu.add_vrf_vxlan_map("VRF-CASPIAN-TERN", 31337)
+
         # bgp stuff / vlans
         cu.bgp = messages.BGP(asn="65000", asn_region="65123", switchgroup_id=4223)
         cu.bgp.add_vlan(1000, 232323)
@@ -553,6 +556,54 @@ class TestEOSSwitch(base.TestCase):
                                     'ingress': [{'translation-key': 2000,
                                                  'config': {'translation-key': 2000, 'bridging-vlan': 3001}}],
                                 }}}}]}
+            elif prefix == 'network-instances':
+                return {'openconfig-network-instance:network-instance': [
+                    {'config': {'type': 'scratchingpost'}},
+                    {'config': {'enabled': True,
+                                'enabled-address-families': ['openconfig-types:IPV4'],
+                                'name': 'VRF-CASPIAN-TERN',
+                                'route-distinguisher': '65130:666',
+                                'type': 'openconfig-network-instance-types:L3VRF'},
+                     'interfaces': {'interface': [{'config': {'id': 'Vlan2666',
+                                                              'interface': 'Vlan2666'},
+                                                   'id': 'Vlan2666',
+                                                   'state': {'id': 'Vlan2666',
+                                                             'interface': 'Vlan2666'}}]},
+                     'name': 'VRF-CASPIAN-TERN',
+                     'protocols': {'protocol': [
+                         {'config': {'identifier': 'openconfig-policy-types:DIRECTLY_CONNECTED',
+                                     'name': 'DIRECTLY_CONNECTED'},
+                          'identifier': 'openconfig-policy-types:DIRECTLY_CONNECTED',
+                          'name': 'DIRECTLY_CONNECTED'},
+                         {'bgp': {'global': {'afi-safis': {'afi-safi': [
+                             {'afi-safi-name': 'openconfig-bgp-types:IPV6_UNICAST',
+                              'config': {'afi-safi-name': 'openconfig-bgp-types:IPV6_UNICAST'},
+                              'state': {'afi-safi-name': 'openconfig-bgp-types:IPV6_UNICAST'}},
+                             {'afi-safi-name': 'openconfig-bgp-types:IPV4_UNICAST',
+                              'arista-bgp-augments:aggregate-addresses': {'aggregate-address': [
+                                  {'aggregate-address': '10.100.1.0/24',
+                                   'config': {'aggregate-address': '10.100.1.0/24',
+                                              'attribute-map': 'RM-CC-LOL'}}]},
+                              'config': {'afi-safi-name': 'openconfig-bgp-types:IPV4_UNICAST'},
+                              'state': {'afi-safi-name': 'openconfig-bgp-types:IPV4_UNICAST'}}]},
+                             'arista-bgp-augments:evpn': {'export-target': ['333:444'],
+                                                          'import-target': ['111:222']},
+                             'state': {'router-id': '4.1.13.1'}}},
+                          'config': {'identifier': 'openconfig-policy-types:BGP',
+                                     'name': 'BGP'},
+                          'identifier': 'openconfig-policy-types:BGP',
+                          'name': 'BGP'}]}}
+
+
+
+                ]}
+            elif prefix == 'interfaces/interface[name=Vxlan1]/arista-exp-eos-vxlan:arista-vxlan/config/vrf-to-vnis':
+                return {'arista-exp-eos-vxlan:vrf-to-vni': [
+                    {'vni': 232323, 'vrf': 'VRF-LAUGHING-GULL'},
+                    {'vni': 31337, 'vrf': 'VRF-CASPIAN-TERN'},
+                ]}
+            elif prefix == 'routing-policy/policy-definitions':
+                return {'openconfig-routing-policy:policy-definition': []}
             raise ValueError(f"unmapped command: {prefix}")
         self.switch._api.get.side_effect = _get
 
@@ -562,6 +613,13 @@ class TestEOSSwitch(base.TestCase):
         cu.bgp = messages.BGP(asn="65130.4113", asn_region=65130, switchgroup_id=4223)
         cu.bgp.add_vlan(2000, 10091, bgw_mode=False)
         cu.bgp.switchgroup_id = None  # not needed for comparison (not fetched from switch)
+        bgpvrf = messages.BGPVRF(name="VRF-CASPIAN-TERN", rd="65130:666",
+                                 rt_imports_evpn=["111:222"], rt_exports_evpn=["333:444"],
+                                 aggregates=[messages.BGPVRFAggregate(network="10.100.1.0/24", route_map="RM-CC-LOL")],
+                                 networks=[])
+        cu.bgp.vrfs = [bgpvrf]
+        cu.add_vrf_vxlan_map("VRF-LAUGHING-GULL", 232323)
+        cu.add_vrf_vxlan_map("VRF-CASPIAN-TERN", 31337)
         iface = messages.IfaceConfig(name="Port-Channel109", members=["Ethernet9/1"],
                                      trunk_vlans=[2000, 2001, 2002], native_vlan=2121, portchannel_id=109)
         cu.add_iface(iface)

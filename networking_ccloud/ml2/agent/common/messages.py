@@ -128,7 +128,7 @@ class BGPVRFAggregate(pydantic.BaseModel):
     network: str
     route_map: str
 
-    _ensure_network = pydantic.validator('network', each_item=True, allow_reuse=True)(ensure_network)
+    _ensure_network = pydantic.validator('network', allow_reuse=True)(ensure_network)
 
     def __hash__(self) -> int:
         return hash(self.network)
@@ -154,26 +154,26 @@ class BGPVRF(pydantic.BaseModel):
     # FIXME: validator
     rd: str
     name: str
-    rt_imports: Optional[List[str]] = None
-    rt_exports: Optional[List[str]] = None
+    rt_imports_evpn: Optional[List[str]] = None
+    rt_exports_evpn: Optional[List[str]] = None
 
     # FIXME: set?
-    aggregates: Optional[Set[BGPVRFAggregate]] = None
-    networks: Optional[Set[BGPVRFNetwork]] = None
+    aggregates: Optional[List[BGPVRFAggregate]] = None
+    networks: Optional[List[BGPVRFNetwork]] = None
 
-    _norm_rt_imports = pydantic.validator('rt_imports', each_item=True, allow_reuse=True)(validate_route_target)
-    _norm_rt_exports = pydantic.validator('rt_exports', each_item=True, allow_reuse=True)(validate_route_target)
+    _norm_rt_imports = pydantic.validator('rt_imports_evpn', each_item=True, allow_reuse=True)(validate_route_target)
+    _norm_rt_exports = pydantic.validator('rt_exports_evpn', each_item=True, allow_reuse=True)(validate_route_target)
 
     def add_default_rts(self, asn_region: str, vrf_number: int,
                         local_az: dcfg.AvailabilityZone, all_azs: List[dcfg.AvailabilityZone]):
-        if not self.rt_imports:
-            self.rt_imports = list()
+        if not self.rt_imports_evpn:
+            self.rt_imports_evpn = []
         for az in all_azs:
-            self.rt_imports.append(f"{asn_region}:{az.number}{vrf_number}")
+            self.rt_imports_evpn.append(f"{asn_region}:{az.number}{vrf_number}")
 
-        if not self.rt_exports:
-            self.rt_exports = list()
-        self.rt_exports.append(f"{asn_region}:{local_az.number}{vrf_number}")
+        if not self.rt_exports_evpn:
+            self.rt_exports_evpn = []
+        self.rt_exports_evpn.append(f"{asn_region}:{local_az.number}{vrf_number}")
 
 
 class BGP(pydantic.BaseModel):
@@ -302,7 +302,7 @@ class SwitchConfigUpdate(pydantic.BaseModel):
     vrfs: List[VRF] = None
     route_maps: List[RouteMap] = None
     vxlan_maps: List[VXLANMapping] = None
-    vrf_vxlan_maps: List[VXLANMapping] = None
+    vrf_vxlan_maps: List[VRFVXLANMapping] = None
     bgp: BGP = None
     ifaces: List[IfaceConfig] = None  # noqa: E701 (pyflakes bug)
 
@@ -598,16 +598,18 @@ class SwitchConfigUpdateList:
                 bgpvrf_aggregate = BGPVRFAggregate(network=str(ipaddress.ip_network(aggr, strict=False)),
                                                    route_map=RouteMap.gen_name(aggregate=True, **rm_args))
                 if not bgpvrf.aggregates:
-                    bgpvrf.aggregates = set()
-                bgpvrf.aggregates.add(bgpvrf_aggregate)
+                    bgpvrf.aggregates = []
+                # FIXME: uniqueness check missing?
+                bgpvrf.aggregates.append(bgpvrf_aggregate)
 
             for net in networks:
                 aggregate = any(ipaddress.ip_network(aggr, strict=False) == ipaddress.ip_network(net, strict=False)
                                 for aggr in aggregates)
                 bgpvrf_net = BGPVRFNetwork(network=net, route_map=RouteMap.gen_name(aggregate=aggregate, **rm_args))
                 if not bgpvrf.networks:
-                    bgpvrf.networks = set()
-                bgpvrf.networks.add(bgpvrf_net)
+                    bgpvrf.networks = []
+                # FIXME: uniqueness check missing?
+                bgpvrf.networks.append(bgpvrf_net)
 
             # associate VRF
             scu.add_vrf_vxlan_map(vrf.name, vni)

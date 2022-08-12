@@ -29,8 +29,8 @@ class TestBGPVRF(base.TestCase):
         vrf1.add_default_rts(asn_region, vrf_number, azs[0], azs)
         import_rts = ['9:1188', '9:2188', '9:3188', '9:4188']
         export_rts = ['9:1188']
-        self.assertEqual(import_rts, vrf1.rt_imports)
-        self.assertEqual(export_rts, vrf1.rt_exports)
+        self.assertEqual(import_rts, vrf1.rt_imports_evpn)
+        self.assertEqual(export_rts, vrf1.rt_exports_evpn)
 
 
 class TestBGPVRFAggregate(base.TestCase):
@@ -159,8 +159,8 @@ class TestSwitchConfigUpdateList(base.TestCase):
         bgpvrf = [x for x in swcfg.bgp.vrfs if x.name == 'SEAEAGLE-123']
         self.assertEqual(1, len(bgpvrf), 'To few or too many BGPVRFs found')
         bgpvrf = bgpvrf[0]
-        self.assertEqual(sorted([f'{asn_region}:1123', f'{asn_region}:2123']), sorted(bgpvrf.rt_imports))
-        self.assertEqual([f'{asn_region}:1123'], bgpvrf.rt_exports)
+        self.assertEqual(sorted([f'{asn_region}:1123', f'{asn_region}:2123']), sorted(bgpvrf.rt_imports_evpn))
+        self.assertEqual([f'{asn_region}:1123'], bgpvrf.rt_exports_evpn)
 
     def test_add_l3_networks_in_vrf(self):
         scul = agent_msg.SwitchConfigUpdateList(agent_msg.OperationEnum.add, self.drv_conf)

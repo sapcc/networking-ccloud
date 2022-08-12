@@ -37,12 +37,16 @@ class EOSGNMIClient:
         VLANS = "network-instances/network-instance[name=default]/vlans"
         VLAN = "network-instances/network-instance[name=default]/vlans/vlan[vlan-id={vlan}]"
 
-        VXMAP = "interfaces/interface[name=Vxlan1]/arista-exp-eos-vxlan:arista-vxlan/config/vlan-to-vnis"
+        VXMAPS = "interfaces/interface[name=Vxlan1]/arista-exp-eos-vxlan:arista-vxlan/config/vlan-to-vnis"
         VXMAP_VLAN = ("interfaces/interface[name=Vxlan1]/arista-exp-eos-vxlan:arista-vxlan/config/vlan-to-vnis"
                       "/vlan-to-vni[vlan={vlan}]")
+        VRF_VXMAPS = "interfaces/interface[name=Vxlan1]/arista-exp-eos-vxlan:arista-vxlan/config/vrf-to-vnis"
+        VRF_VXMAP_VRF = ("interfaces/interface[name=Vxlan1]/arista-exp-eos-vxlan:arista-vxlan/config/vrf-to-vnis/"
+                         "vrf-to-vni[vrf={vrf}]")
 
         EVPN_INSTANCES = "arista/eos/arista-exp-eos-evpn:evpn/evpn-instances"
         EVPN_INSTANCE = "arista/eos/arista-exp-eos-evpn:evpn/evpn-instances/evpn-instance[name={vlan}]"
+        NETWORK_INSTANCES = "network-instances"
         PROTO_BGP = "network-instances/network-instance[name=default]/protocols/protocol[name=BGP]"
 
         IFACES = "interfaces"
@@ -63,6 +67,8 @@ class EOSGNMIClient:
                                   "egress[translation-key={vlan}]")
         IFACE_PC_VTRANS_INGRESS = ("interfaces/interface[name={iface}]/aggregation/switched-vlan/vlan-translation/"
                                    "ingress[translation-key={vlan}]")
+
+        ROUTING_POLICY_DEF = "routing-policy/policy-definitions"
 
     def __init__(self, switch_name, *args, **kwargs):
         self._gnmi = gNMIclient(*args, **kwargs)
@@ -227,7 +233,7 @@ class EOSSwitch(SwitchBase):
         vlans.sort()
         return vlans
 
-    def _make_vlan_config(self, config_req: EOSSetConfig, vlans: Optional[List[agent_msg.Vlan]], operation: Op) -> None:
+    def _make_vlan_config(self, config_req: EOSSetConfig, vlans: Optional[List[agent_msg.Vlan]], operation: Op):
         if vlans is None:
             return
 
@@ -244,13 +250,13 @@ class EOSSwitch(SwitchBase):
                 config_req.delete.append(vpath)
 
     def get_vxlan_mappings(self) -> List[agent_msg.VXLANMapping]:
-        swdata = self.api.get(EOSGNMIClient.PATHS.VXMAP)['arista-exp-eos-vxlan:vlan-to-vni']
+        swdata = self.api.get(EOSGNMIClient.PATHS.VXMAPS)['arista-exp-eos-vxlan:vlan-to-vni']
         vxlan_maps = [agent_msg.VXLANMapping(vni=v['vni'], vlan=v['vlan']) for v in swdata]
         vxlan_maps.sort()
         return vxlan_maps
 
     def _make_vxlan_mapping_config(self, config_req: EOSSetConfig, vxlan_maps: Optional[List[agent_msg.VXLANMapping]],
-                                   operation: Op) -> None:
+                                   operation: Op):
         if vxlan_maps is None:
             return
 
@@ -268,7 +274,7 @@ class EOSSwitch(SwitchBase):
                             config_req.delete.append(del_map)
 
             for vmap in vxlan_maps:
-                mapcfg = (EOSGNMIClient.PATHS.VXMAP, {'vlan-to-vni': [{'vlan': vmap.vlan, 'vni': vmap.vni}]})
+                mapcfg = (EOSGNMIClient.PATHS.VXMAPS, {'vlan-to-vni': [{'vlan': vmap.vlan, 'vni': vmap.vni}]})
                 config_req.get_list(operation).append(mapcfg)
         else:
             # delete vlan mapping only if it has the right vni
@@ -311,13 +317,45 @@ class EOSSwitch(SwitchBase):
             bgp_vlans.append(bv)
         return bgp_vlans
 
+    def get_bgp_vrf_config(self) -> List[agent_msg.BGPVRF]:
+        bgp_vrfs = []
+        for inst in self.api.get(EOSGNMIClient.PATHS.NETWORK_INSTANCES)['openconfig-network-instance:network-instance']:
+            if inst['config']['type'] != 'openconfig-network-instance-types:L3VRF':
+                continue
+            for inst_bgp in inst['protocols']['protocol']:
+                if inst_bgp['name'] == 'BGP':
+                    break
+            else:
+                # VRFs without BGP do not interest us
+                continue
+
+            aggregates = []
+            for afi_safi in inst_bgp['bgp']['global']['afi-safis']['afi-safi']:
+                if afi_safi['afi-safi-name'] == 'openconfig-bgp-types:IPV4_UNICAST':
+                    if 'arista-bgp-augments:aggregate-addresses' in afi_safi:
+                        for agg in afi_safi['arista-bgp-augments:aggregate-addresses']['aggregate-address']:
+                            bgpvrfagg = agent_msg.BGPVRFAggregate(network=agg['aggregate-address'],
+                                                                  route_map=agg['config']['attribute-map'])
+                            aggregates.append(bgpvrfagg)
+
+            # FIXME: networks are missing from API output
+            # FIXME: might break if rd is None
+            inst_evpn = inst_bgp['bgp']['global']['arista-bgp-augments:evpn']
+            rd = inst['config'].get('route-distinguisher')
+            bgpvrf = agent_msg.BGPVRF(rd=rd, name=inst['name'],
+                                      rt_imports_evpn=inst_evpn.get('import-target', []),
+                                      rt_exports_evpn=inst_evpn.get('export-target', []),
+                                      aggregates=aggregates, networks=[])
+            bgp_vrfs.append(bgpvrf)
+        return bgp_vrfs
+
     def get_bgp_config(self) -> agent_msg.BGP:
         bgp_asn = self.api.get(f"{EOSGNMIClient.PATHS.PROTO_BGP}/bgp/global/config/as")
         bgp = agent_msg.BGP(asn=bgp_asn, asn_region=self.drv_conf.global_config.asn_region,
-                            vlans=self.get_bgp_vlan_config())
+                            vlans=self.get_bgp_vlan_config(), vrfs=self.get_bgp_vrf_config())
         return bgp
 
-    def _make_bgp_config(self, config_req: EOSSetConfig, bgp: Optional[agent_msg.BGP], operation: Op) -> None:
+    def _make_bgp_vlan_config(self, config_req: EOSSetConfig, bgp: Optional[agent_msg.BGP], operation: Op):
         if not (bgp and bgp.vlans):
             return
 
@@ -374,6 +412,15 @@ class EOSSwitch(SwitchBase):
             for bgp_vlan in bgp.vlans:
                 delete_req = EOSGNMIClient.PATHS.EVPN_INSTANCE.format(vlan=bgp_vlan.vlan)
                 config_req.delete.append(delete_req)
+
+    def _make_bgp_vrf_config(self, config_req: EOSSetConfig, bgp: Optional[agent_msg.BGP], operation: Op):
+        if not (bgp and bgp.vrfs):
+            return
+
+        if operation in (Op.add, Op.replace):
+            pass
+        else:
+            pass
 
     def get_ifaces_config(self, as_dict=False):
         ifaces = []
@@ -471,7 +518,7 @@ class EOSSwitch(SwitchBase):
         return iface_map
 
     def _make_ifaces_config(self, config_req: EOSSetConfig, ifaces: Optional[List[agent_msg.IfaceConfig]],
-                            operation: Op) -> List[str]:
+                            operation: Op):
         if operation in (Op.add, Op.replace):
             existing_vtrans = None  # only needed in add case and when vlan translations exist in config_req
             for iface in ifaces or []:
@@ -598,15 +645,53 @@ class EOSSwitch(SwitchBase):
                         config_req.delete.append(EOSGNMIClient.PATHS.IFACE_VTRANS_INGRESS
                                                  .format(iface=iface_name, vlan=vtrans.outside))
 
+    def get_vrf_vxlan_mappings(self) -> List[agent_msg.VRFVXLANMapping]:
+        return [agent_msg.VRFVXLANMapping(vrf=entry['vrf'], vni=entry['vni'])
+                for entry in self.api.get(EOSGNMIClient.PATHS.VRF_VXMAPS)['arista-exp-eos-vxlan:vrf-to-vni']]
+
+    def _make_vrf_vxlan_config(self, config_req: EOSSetConfig, vrf_vxlan_maps: List[agent_msg.VRFVXLANMapping],
+                               operation: Op):
+        if not vrf_vxlan_maps:
+            return
+
+        if operation in (Op.add, Op.replace):
+            if operation == Op.add:
+                curr_vni_maps = {evv.vni: evv.vrf for evv in self.get_vrf_vxlan_mappings()}
+                for vv in self.vrf_vxlan_maps:
+                    if vv.vni in curr_vni_maps:
+                        config_req.delete.append(EOSGNMIClient.PATHS.VRF_VXMAP_VRF.format(vrf=vv.vrf))
+
+            vrf_to_vni = [{'vrf': vv.vrf, 'vni': vv.vni} for vv in vrf_vxlan_maps]
+            config_req.get_list.append((EOSGNMIClient.PATHS.VRF_VXMAPS, {'vrf-to-vni': vrf_to_vni}))
+        else:
+            curr_vrf_maps = {evv.vrf: evv.vni for evv in self.get_vrf_vxlan_mappings()}
+            for vv in vrf_to_vni:
+                # only delete a mapping if it exists on the switch (and is not mapped to anything else)
+                if curr_vrf_maps.get(vv.vrf) == vv.vni:
+                    config_req.delete.append(EOSGNMIClient.PATHS.VRF_VXMAP_VRF.format(vrf=vv.vrf))
+
     def _make_config_from_update(self, config: agent_msg.SwitchConfigUpdate) -> EOSSetConfig:
         # build config
         config_req = EOSSetConfig()
         self._make_vlan_config(config_req, config.vlans, config.operation)
         self._make_vxlan_mapping_config(config_req, config.vxlan_maps, config.operation)
-        self._make_bgp_config(config_req, config.bgp, config.operation)
+        self._make_bgp_vlan_config(config_req, config.bgp, config.operation)
+        self._make_bgp_vrf_config(config_req, config.bgp, config.operation)
         self._make_ifaces_config(config_req, config.ifaces, config.operation)
+        self._make_vrf_vxlan_config(config_req, config.vrf_vxlan_maps, config.operation)
+        # self._make_vrfs_config(config_req)
 
         return config_req
+
+    def get_route_maps(self) -> List[agent_msg.RouteMap]:
+        # FIXME: it is not clear yet if we actually want to set route-maps
+        route_maps = []
+        policy_defs = self.api.get(
+            EOSGNMIClient.PATHS.ROUTING_POLICY_DEF)['openconfig-routing-policy:policy-definition']
+        for policy_def in policy_defs:
+            rm = agent_msg.RouteMap(name=policy_def['name'])
+            route_maps.append(rm)
+        return route_maps
 
     def get_config(self) -> agent_msg.SwitchConfigUpdate:
         # get infos from the device for everything that we have a model for
@@ -615,6 +700,8 @@ class EOSSwitch(SwitchBase):
         config.vxlan_maps = self.get_vxlan_mappings()
         config.bgp = self.get_bgp_config()
         config.ifaces = self.get_ifaces_config()
+        config.vrf_vxlan_maps = self.get_vrf_vxlan_mappings()
+        config.route_maps = self.get_route_maps()
         return config
 
     def apply_config_update(self, config):
