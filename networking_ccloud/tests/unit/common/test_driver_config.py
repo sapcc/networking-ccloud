@@ -28,11 +28,19 @@ class TestDriverConfigValidation(base.TestCase):
         sw1 = self.make_switch("sw1")
         sw2 = self.make_switch("sw2")
         sw3 = self.make_switch("sw3")
-        sg_args = dict(name="foo", availability_zone="qa-de-1a", role="vpod", vtep_ip="1.1.1.1", asn=65001)
+        sg_args = dict(name="foo", availability_zone="qa-de-1a", role="vpod", vtep_ip="1.1.1.1", asn=65001, group_id=1)
 
         self.assertRaises(ValueError, config.SwitchGroup, members=[sw1], **sg_args)
         self.assertRaises(ValueError, config.SwitchGroup, members=[sw1, sw2, sw3], **sg_args)
         config.SwitchGroup(members=[sw1, sw2], **sg_args)
+
+    def test_switchgroup_group_ids_uniq(self):
+        gc = cfix.make_global_config()
+        sg1 = cfix.make_switchgroup("seagull", group_id=1000)
+        sg2 = cfix.make_switchgroup("tern", group_id=1000)
+
+        self.assertRaisesRegex(ValueError, ".*already in use",
+                               config.DriverConfig, global_config=gc, switchgroups=[sg1, sg2], hostgroups=[])
 
     def test_switchport_lacp_attr_validation(self):
         defargs = {'switch': 'sw-seagull', 'name': 'e1/1/1/1'}

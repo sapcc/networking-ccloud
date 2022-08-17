@@ -18,6 +18,7 @@ hostgroups:
     switch: qa-de-3-sw1111b-bb206
 switchgroups:
 - asn: '65132.1111'
+  group_id: 1111
   availability_zone: qa-de-2a
   members:
   - bgp_source_ip: 1.1.11.1

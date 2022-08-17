@@ -123,6 +123,7 @@ class SwitchGroup(pydantic.BaseModel):
     # calculated from member-hostnames
     vtep_ip: str
     asn: str
+    group_id: pydantic.conint(ge=0, lt=2 ** 16)
 
     override_vlan_pool: str = None
     vlan_ranges: List[str] = None
@@ -544,6 +545,17 @@ class DriverConfig(pydantic.BaseModel):
                     raise ValueError(f"Iface {sp.switch}/{sp.name} is bound two times, "
                                      f"once by {hg_name} and once by {ifaces[iface]}")
                 ifaces[iface] = hg_name
+
+        return v
+
+    @pydantic.validator('switchgroups')
+    def ensure_switchgroup_id_unique(cls, v):
+        group_ids = {}
+        for sg in v:
+            if sg.group_id in group_ids:
+                raise ValueError(f"SwitchGroup {sg.name} has group id {sg.group_id}, which is already in use "
+                                 f"by SwitchGroup {group_ids[sg.group_id]}")
+            group_ids[sg.group_id] = sg.name
 
         return v
 
