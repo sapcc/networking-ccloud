@@ -35,12 +35,20 @@ def make_switch(name, platform="test", **kwargs):
     return config_driver.Switch(**switch_vars)
 
 
+_LAST_AUTO_GROUP_ID = 0
+
+
 def make_switchgroup(name, members=None, switch_vars=None, availability_zone=DEFAULT_AZ, **kwargs):
     switchgroup_vars = dict(
         name=name, asn=65100, availability_zone=availability_zone, role="vpod",
         vtep_ip="1.1.1.3",  # FIXME: derive IPs from somewhere
     )
     switchgroup_vars.update(kwargs)
+
+    if 'group_id' not in kwargs:
+        global _LAST_AUTO_GROUP_ID
+        _LAST_AUTO_GROUP_ID += 1
+        switchgroup_vars['group_id'] = _LAST_AUTO_GROUP_ID
 
     if switch_vars is None:
         switch_vars = None

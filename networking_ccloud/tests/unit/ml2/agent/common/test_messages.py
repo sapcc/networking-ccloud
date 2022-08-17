@@ -50,7 +50,7 @@ class TestSwitchConfigUpdate(base.TestCase):
         self.assertEqual(2, len(iface.vlan_translations))
 
         # bgp
-        bgp = agent_msg.BGP(asn=65000, asn_region=65123)
+        bgp = agent_msg.BGP(asn=65000, asn_region=65123, switchgroup_id=1000)
         bgp.add_vlan(23, 42)
         bgp.add_vlan(23, 42)
         self.assertEqual(1, len(bgp.vlans))

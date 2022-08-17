@@ -122,6 +122,10 @@ class BGP(pydantic.BaseModel):
     asn: str
     asn_region: str
 
+    # the switchgroup id is only used for putting together RDs
+    # it will not be filled when config is pulled from the device
+    switchgroup_id: int = None
+
     vlans: List[BGPVlan] = None
 
     _normalize_asn = pydantic.validator('asn', allow_reuse=True)(validate_asn)
@@ -135,7 +139,10 @@ class BGP(pydantic.BaseModel):
         if not self.vlans:
             self.vlans = []
 
-        rd = f"{self.asn}:{vni}"
+        if self.switchgroup_id is None:
+            raise Exception("add_vlan() is only available when switchgroup_id is set (programming error)")
+
+        rd = f"{self.switchgroup_id}:{vni}"
         for bv in self.vlans:
             if bv.rd == rd and bv.vlan == vlan:
                 return
@@ -309,7 +316,8 @@ class SwitchConfigUpdateList:
             if seg_vni and (add or not keep_mapping):
                 if not scu.bgp:
                     sg = self.drv_conf.get_switchgroup_by_switch_name(switch.name)
-                    scu.bgp = BGP(asn=sg.asn, asn_region=self.drv_conf.global_config.asn_region)
+                    scu.bgp = BGP(asn=sg.asn, asn_region=self.drv_conf.global_config.asn_region,
+                                  switchgroup_id=sg.group_id)
                 scu.bgp.add_vlan(seg_vlan, seg_vni, bgw_mode=is_bgw)
 
             # vlan-vxlan mapping

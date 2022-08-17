@@ -350,7 +350,7 @@ class ConfigGenerator:
             sg_name = self.get_switchgroup_name(sg_attributes['pod_role'], numbered_resources['switchgroup_id'],
                                                 numbered_resources['seq_no'])
             switchgroup = conf.SwitchGroup(name=sg_name, members=members, availability_zone=sg_attributes['az'],
-                                           vtep_ip=l3_data['loopback1'], asn=l3_data['asn'])
+                                           vtep_ip=l3_data['loopback1'], asn=l3_data['asn'], group_id=switchgroup_id)
             switchgroups.append(switchgroup)
         return switchgroups
 
