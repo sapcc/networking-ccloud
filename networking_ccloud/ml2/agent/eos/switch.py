@@ -176,6 +176,34 @@ class EOSSwitch(SwitchBase):
                                   insecure=False, skip_verify=True)
         self._api.connect()
 
+    @staticmethod
+    def _compress_vlan_list(vlan_ints: List[int]) -> List[str]:
+        """Merge all subsequent vlans to a range seperated by ".."
+
+        E.g. [1,3,4,5,6,8] --> ["1", "3..6", "8"]
+        """
+        vlan_ints.sort()
+        first_vlan = last_vlan = None
+        result = []
+
+        def add_elem():
+            if first_vlan is None:
+                return
+            if first_vlan < last_vlan:
+                result.append(f"{first_vlan}..{last_vlan}")
+            else:
+                result.append(f"{first_vlan}")
+
+        for vlan in vlan_ints:
+            if last_vlan is None or last_vlan + 1 < vlan:
+                add_elem()
+                first_vlan = last_vlan = vlan
+            else:
+                last_vlan = vlan
+        add_elem()
+
+        return result
+
     def get_switch_status(self):
         # FIXME: we can get this without cli, but sometimes the chassis/model seems to be empty
         #        once we figure out when this is the case we can use the code below instead of cli:/show version
@@ -459,7 +487,7 @@ class EOSSwitch(SwitchBase):
                 # trunk vlans
                 if iface.trunk_vlans:
                     data_vlan['interface-mode'] = 'TRUNK'
-                    data_vlan['trunk-vlans'] = iface.trunk_vlans
+                    data_vlan['trunk-vlans'] = self._compress_vlan_list(iface.trunk_vlans)
 
                 # vlan translations
                 def remove_stale_vlan_translations(ifname, iface_cfg, is_pc):
@@ -530,8 +558,8 @@ class EOSSwitch(SwitchBase):
             def calc_delete_range(all_ifaces, iface_name, iface_cfg):
                 if iface_name not in all_ifaces:
                     return []
-                # FIXME: could this list get too big? (for sending the request of unpacked vlans)
-                return sorted(list(set(all_ifaces[iface_name].trunk_vlans) - set(iface_cfg.trunk_vlans)))
+                vlan_ints = list(set(all_ifaces[iface_name].trunk_vlans) - set(iface_cfg.trunk_vlans))
+                return self._compress_vlan_list(vlan_ints)
 
             all_ifaces_cfg = self.get_ifaces_config(as_dict=True)
             for iface in ifaces or []:
