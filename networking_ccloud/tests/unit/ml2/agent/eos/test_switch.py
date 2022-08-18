@@ -77,7 +77,7 @@ class TestEOSConfigUpdates(base.TestCase):
                          'lag-type': 'LACP'},
               'switched-vlan': {'config': {'interface-mode': 'TRUNK',
                                            'native-vlan': 1000,
-                                           'trunk-vlans': [1000, 1001],
+                                           'trunk-vlans': ['1000..1001'],
                                            'vlan-translation': {'egress': [{'config': {'bridging-vlan': 2323,
                                                                                        'translation-key': 1000},
                                                                             'translation-key': 1000},
@@ -94,7 +94,7 @@ class TestEOSConfigUpdates(base.TestCase):
              {'config': {'aggregate-id': 'Port-Channel23'},
               'switched-vlan': {'config': {'interface-mode': 'TRUNK',
                                            'native-vlan': 1000,
-                                           'trunk-vlans': [1000, 1001],
+                                           'trunk-vlans': ['1000..1001'],
                                            'vlan-translation': {'egress': [{'config': {'bridging-vlan': 2323,
                                                                                        'translation-key': 1000},
                                                                             'translation-key': 1000},
@@ -111,7 +111,7 @@ class TestEOSConfigUpdates(base.TestCase):
              {'config': {'aggregate-id': 'Port-Channel23'},
               'switched-vlan': {'config': {'interface-mode': 'TRUNK',
                                            'native-vlan': 1000,
-                                           'trunk-vlans': [1000, 1001],
+                                           'trunk-vlans': ['1000..1001'],
                                            'vlan-translation': {'egress': [{'config': {'bridging-vlan': 2323,
                                                                                        'translation-key': 1000},
                                                                             'translation-key': 1000},
@@ -126,7 +126,7 @@ class TestEOSConfigUpdates(base.TestCase):
                                                                              'translation-key': 1337}]}}}}),
             ('interfaces/interface[name=Ethernet23/1]/ethernet',
              {'switched-vlan': {'config': {'interface-mode': 'TRUNK',
-                                           'trunk-vlans': [1001]}}})]
+                                           'trunk-vlans': ['1001']}}})]
         expected_delete_config = [
             "interfaces/interface[name=Vxlan1]/arista-exp-eos-vxlan:arista-vxlan/config/vlan-to-vnis/"
             "vlan-to-vni[vlan=1337]"
@@ -229,10 +229,10 @@ class TestEOSConfigUpdates(base.TestCase):
                 'ingress[translation-key=1337]'],
             'replace': [
                 ('interfaces/interface[name=Port-Channel23]/aggregation/switched-vlan',
-                 [2002, 2005, 2323, 2324, 2325, 2326, 2327]),
-                ('interfaces/interface[name=Ethernet4/1]/ethernet/switched-vlan', [1003]),
+                 ['2002', '2005', '2323..2327']),
+                ('interfaces/interface[name=Ethernet4/1]/ethernet/switched-vlan', ['1003']),
                 ('interfaces/interface[name=Ethernet4/2]/ethernet/switched-vlan', []),
-                ('interfaces/interface[name=Ethernet23/1]/ethernet/switched-vlan', [999, 1000, 1002])],
+                ('interfaces/interface[name=Ethernet23/1]/ethernet/switched-vlan', ['999..1000', '1002'])],
             'update': []}
 
         cu = messages.SwitchConfigUpdate(switch_name="seagull-sw1", operation=messages.OperationEnum.remove)
@@ -291,19 +291,11 @@ class TestEOSConfigUpdates(base.TestCase):
         self.switch._api.set.assert_called_with(**expected_config)
 
     def test_replace_trunk_vlans(self):
-        expected_config = [
-            'configure',
-            'interface Ethernet23/1',
-            'switchport mode trunk',
-            'switchport trunk allowed vlan 1001',
-            'exit',
-            'end'
-        ]
         expected_config = {
             'delete': [],
             'replace': [('interfaces/interface[name=Ethernet23/1]/ethernet',
                          {'switched-vlan': {'config': {'interface-mode': 'TRUNK',
-                                                       'trunk-vlans': [1001]}}})],
+                                                       'trunk-vlans': ['1001']}}})],
             'update': []}
 
         cu = messages.SwitchConfigUpdate(switch_name="seagull-sw1", operation=messages.OperationEnum.replace)
@@ -581,3 +573,16 @@ class TestEOSSwitch(base.TestCase):
         config.sort()
         self.assertEqual(cu.dict(exclude_unset=True, exclude_defaults=True),
                          config.dict(exclude_unset=True, exclude_defaults=True))
+
+    def test_compress_vlan_list(self):
+        self.assertEqual([], self.switch._compress_vlan_list([]))
+        self.assertEqual(["1..4"], self.switch._compress_vlan_list([1, 2, 3, 4]))
+        self.assertEqual(["1", "3", "5", "7"], self.switch._compress_vlan_list([1, 3, 5, 7]))
+        self.assertEqual(["1..3", "5..7"], self.switch._compress_vlan_list([1, 2, 3, 5, 6, 7]))
+        self.assertEqual(["1", "3..5", "7..8", "10"], self.switch._compress_vlan_list([1, 3, 4, 5, 7, 8, 10]))
+        self.assertEqual(["1..1000"], self.switch._compress_vlan_list(list(range(1, 1001))))
+        self.assertEqual(["1000..1002"], self.switch._compress_vlan_list([1002, 1001, 1000]))
+
+        # input vlan list is expected to be uniq, but this method will do deduplication anyway, so let's test it
+        self.assertEqual(["1000..1002", "1007"],
+                         self.switch._compress_vlan_list([1002, 1001, 1000, 1001, 1000, 1002, 1007, 1007]))
