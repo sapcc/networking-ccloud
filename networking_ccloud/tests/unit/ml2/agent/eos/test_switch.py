@@ -228,11 +228,12 @@ class TestEOSConfigUpdates(base.TestCase):
                 'interfaces/interface[name=Ethernet4/2]/ethernet/switched-vlan/vlan-translation/'
                 'ingress[translation-key=1337]'],
             'replace': [
-                ('interfaces/interface[name=Port-Channel23]/aggregation/switched-vlan',
+                ('interfaces/interface[name=Port-Channel23]/aggregation/switched-vlan/config/trunk-vlans',
                  ['2002', '2005', '2323..2327']),
-                ('interfaces/interface[name=Ethernet4/1]/ethernet/switched-vlan', ['1003']),
-                ('interfaces/interface[name=Ethernet4/2]/ethernet/switched-vlan', []),
-                ('interfaces/interface[name=Ethernet23/1]/ethernet/switched-vlan', ['999..1000', '1002'])],
+                ('interfaces/interface[name=Ethernet4/1]/ethernet/switched-vlan/config/trunk-vlans', ['1003']),
+                ('interfaces/interface[name=Ethernet4/2]/ethernet/switched-vlan/config/trunk-vlans', []),
+                ('interfaces/interface[name=Ethernet23/1]/ethernet/switched-vlan/config/trunk-vlans',
+                 ['999..1000', '1002'])],
             'update': []}
 
         cu = messages.SwitchConfigUpdate(switch_name="seagull-sw1", operation=messages.OperationEnum.remove)
