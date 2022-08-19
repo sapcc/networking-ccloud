@@ -15,7 +15,7 @@
 from enum import Enum
 import ipaddress
 import re
-from typing import List, Optional, Set, Union
+from typing import List, Optional, Union
 
 from neutron_lib.plugins.ml2 import api as ml2_api
 from oslo_log import log as logging
@@ -151,29 +151,9 @@ class BGPVRFNetwork(pydantic.BaseModel):
 
 
 class BGPVRF(pydantic.BaseModel):
-    # FIXME: validator
-    rd: str
     name: str
-    rt_imports_evpn: Optional[List[str]] = None
-    rt_exports_evpn: Optional[List[str]] = None
-
-    # FIXME: set?
     aggregates: Optional[List[BGPVRFAggregate]] = None
     networks: Optional[List[BGPVRFNetwork]] = None
-
-    _norm_rt_imports = pydantic.validator('rt_imports_evpn', each_item=True, allow_reuse=True)(validate_route_target)
-    _norm_rt_exports = pydantic.validator('rt_exports_evpn', each_item=True, allow_reuse=True)(validate_route_target)
-
-    def add_default_rts(self, asn_region: str, vrf_number: int,
-                        local_az: dcfg.AvailabilityZone, all_azs: List[dcfg.AvailabilityZone]):
-        if not self.rt_imports_evpn:
-            self.rt_imports_evpn = []
-        for az in all_azs:
-            self.rt_imports_evpn.append(f"{asn_region}:{az.number}{vrf_number}")
-
-        if not self.rt_exports_evpn:
-            self.rt_exports_evpn = []
-        self.rt_exports_evpn.append(f"{asn_region}:{local_az.number}{vrf_number}")
 
 
 class BGP(pydantic.BaseModel):
@@ -289,17 +269,11 @@ class RouteMap(pydantic.BaseModel):
         return "-".join(rm)
 
 
-class VRF(pydantic.BaseModel):
-    name: str
-    ip_routing: bool = True
-
-
 class SwitchConfigUpdate(pydantic.BaseModel):
     switch_name: str
     operation: OperationEnum
 
     vlans: List[Vlan] = None
-    vrfs: List[VRF] = None
     route_maps: List[RouteMap] = None
     vxlan_maps: List[VXLANMapping] = None
     vrf_vxlan_maps: List[VRFVXLANMapping] = None
@@ -379,15 +353,6 @@ class SwitchConfigUpdate(pydantic.BaseModel):
         iface = IfaceConfig.from_switchport(switchport)
         self.ifaces.append(iface)
         return iface
-
-    def add_vrf(self, name, ip_routing):
-        if not self.vrfs:
-            self.vrfs = []
-
-        for vrf in self.vrfs:
-            if vrf.name == name:
-                return
-        self.vrfs.append(VRF(name=name, ip_routing=ip_routing))
 
     def add_route_map(self, name, **kwargs):
         if not self.route_maps:

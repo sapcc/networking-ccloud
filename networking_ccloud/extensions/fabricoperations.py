@@ -229,7 +229,7 @@ class FabricNetworksController(wsgi.Controller):
 
 class SwitchesController(wsgi.Controller):
     """List and show Switches from config"""
-    MEMBER_ACTIONS = {'diff': 'GET', 'sync': 'PUT', 'sync_infra_networks': 'PUT', 'config': 'GET'}
+    MEMBER_ACTIONS = {'diff': 'GET', 'sync': 'PUT', 'sync_infra_networks': 'PUT', 'config': 'GET', 'os_config': 'GET'}
 
     def __init__(self, fabric_plugin):
         super().__init__()
@@ -316,6 +316,18 @@ class SwitchesController(wsgi.Controller):
         if config and 'operation' in config.get('config', {}):
             del config['config']['operation']
         return config
+
+    @check_cloud_admin
+    def os_config(self, request, **kwargs):
+        switch, sg = self._get_switch(kwargs.pop('id'))
+        config = self._make_switch_config(request.context, switch, sg)
+        config = config.switch_config_updates.get(switch.name)
+        if not config:
+            return None
+        config = config.dict(exclude_unset=True, exclude_defaults=True)
+        if config and 'operation' in config:
+            del config['operation']
+        return dict(config=config)
 
     def _add_device_info(self, context, switches):
         for platform, switches in groupby(sorted(switches, key=itemgetter('platform')), key=itemgetter('platform')):

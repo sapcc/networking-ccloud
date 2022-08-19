@@ -497,6 +497,90 @@ class TestEOSConfigUpdates(base.TestCase):
         self.switch.apply_config_update(cu)
         self.switch._api.set.assert_has_calls([mock.call(**expected_cli_config), mock.call(**expected_config)])
 
+    def test_add_vrf(self):
+        expected_config = [
+            'configure',
+            'vrf instance TEST-VRF',
+            'ip routing vrf TEST-VRF',
+            'end']
+
+        cu = messages.SwitchConfigUpdate(switch_name="seagull-sw1", operation=messages.OperationEnum.add)
+        cu.add_vrf('TEST-VRF', ip_routing=True)
+
+        self.switch.apply_config_update(cu)
+        self.switch._api.execute.assert_called_with(expected_config, format='json')
+
+    def test_replace_vrf(self):
+
+        cu = messages.SwitchConfigUpdate(switch_name="seagull-sw1", operation=messages.OperationEnum.replace)
+        cu.add_vrf('TEST-VRF', ip_routing=True)
+
+        def execute(cmd, format='json'):
+            if cmd == "show vrf":
+                return {'result': [{
+                        "vrfs": {
+                            "TEST-VRF": {
+                                "protocols": {"ipv4": {"routingState": "down"}}},
+                            "TO-DELETE-VRF": {
+                                "protocols": {"ipv4": {"routingState": "up"}}}}}]}
+            return mock.DEFAULT
+
+        self.switch._api.execute.side_effect = execute
+        expected_config = [
+            'configure',
+            'ip routing vrf TEST-VRF',
+            'no vrf instance TO-DELETE-VRF',
+            'end']
+        self.switch.apply_config_update(cu)
+        self.switch._api.execute.assert_called_with(expected_config, format='json')
+
+        def execute(cmd, format='json'):
+            if cmd == "show vrf":
+                return {'result': [{
+                        "vrfs": {
+                            "SOME-VRF": {
+                                "protocols": {"ipv4": {"routingState": "down"}}}}}]}
+            return mock.DEFAULT
+
+        self.switch._api.execute.side_effect = execute
+        expected_config = [
+            'configure',
+            'vrf instance TEST-VRF',
+            'ip routing vrf TEST-VRF',
+            'no vrf instance SOME-VRF',
+            'end']
+
+        self.switch.apply_config_update(cu)
+        self.switch._api.execute.assert_called_with(expected_config, format='json')
+
+    def test_remove_vrf(self):
+
+        cu = messages.SwitchConfigUpdate(switch_name="seagull-sw1", operation=messages.OperationEnum.remove)
+        cu.add_vrf('TEST-VRF', ip_routing=True)
+
+        expected_config = [
+            'configure',
+            'no vrf instance TEST-VRF',
+            'end']
+        self.switch.apply_config_update(cu)
+        self.switch._api.execute.assert_called_with(expected_config, format='json')
+
+        def execute(cmd, format='json'):
+            if cmd == "show vrf":
+                return {'result': {
+                        "vrfs": {
+                            "TEST-VRF": {
+                                "protocols": {"ipv4": {"routingState": "down"}}}}}}
+            return mock.DEFAULT
+
+        self.switch._api.execute.side_effect = execute
+        expected_config = [
+            'configure',
+            'no vrf instance TEST-VRF',
+            'end']
+        self.switch.apply_config_update(cu)
+        self.switch._api.execute.assert_called_with(expected_config, format='json')
+
 
 class TestEOSSwitch(base.TestCase):
     def setUp(self):
