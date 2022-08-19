@@ -48,7 +48,7 @@ class EOSGNMIClient:
         IFACES = "interfaces"
         IFACE = "interfaces/interface[name={iface}]"
         IFACE_ETH = "interfaces/interface[name={iface}]/ethernet"
-        IFACE_VLANS = "interfaces/interface[name={iface}]/ethernet/switched-vlan"
+        IFACE_VTRUNKS = "interfaces/interface[name={iface}]/ethernet/switched-vlan/config/trunk-vlans"
         IFACE_NATIVE_VLAN = "interfaces/interface[name={iface}]/ethernet/switched-vlan/config/native-vlan"
         IFACE_VTRANS = "interfaces/interface[name={iface}]/ethernet/switched-vlan/vlan-translation"
         IFACE_VTRANS_EGRESS = ("interfaces/interface[name={iface}]/ethernet/switched-vlan/vlan-translation/"
@@ -56,7 +56,7 @@ class EOSGNMIClient:
         IFACE_VTRANS_INGRESS = ("interfaces/interface[name={iface}]/ethernet/switched-vlan/vlan-translation/"
                                 "ingress[translation-key={vlan}]")
         IFACE_PC = "interfaces/interface[name={iface}]/aggregation"
-        IFACE_PC_VLANS = "interfaces/interface[name={iface}]/aggregation/switched-vlan"
+        IFACE_PC_VTRUNKS = "interfaces/interface[name={iface}]/aggregation/switched-vlan/config/trunk-vlans"
         IFACE_PC_NATIVE_VLAN = "interfaces/interface[name={iface}]/aggregation/switched-vlan/config/native-vlan"
         IFACE_PC_VTRANS = "interfaces/interface[name={iface}]/aggregation/switched-vlan/vlan-translation"
         IFACE_PC_VTRANS_EGRESS = ("interfaces/interface[name={iface}]/aggregation/switched-vlan/vlan-translation/"
@@ -568,7 +568,7 @@ class EOSSwitch(SwitchBase):
                     if iface.native_vlan:
                         config_req.delete.append(EOSGNMIClient.PATHS.IFACE_PC_NATIVE_VLAN.format(iface=iface.name))
                     if iface.trunk_vlans:
-                        config_req.replace.append((EOSGNMIClient.PATHS.IFACE_PC_VLANS.format(iface=iface.name),
+                        config_req.replace.append((EOSGNMIClient.PATHS.IFACE_PC_VTRUNKS.format(iface=iface.name),
                                                    calc_delete_range(all_ifaces_cfg, iface.name, iface)))
 
                     # NOTE: we only delete the translations based on one part of the translation
@@ -590,7 +590,7 @@ class EOSSwitch(SwitchBase):
 
                     # delete trunk vlans
                     if iface.trunk_vlans:
-                        config_req.replace.append((EOSGNMIClient.PATHS.IFACE_VLANS.format(iface=iface_name),
+                        config_req.replace.append((EOSGNMIClient.PATHS.IFACE_VTRUNKS.format(iface=iface_name),
                                                    calc_delete_range(all_ifaces_cfg, iface_name, iface)))
                     # delete translations
                     # NOTE: see note above for PC translations
