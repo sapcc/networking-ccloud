@@ -107,7 +107,7 @@ class EOSGNMIClient:
             cmd = "".join(cmd)
             LOG.debug("Failed command on %s was %s", self._switch_name, cmd)
 
-            if isinstance(e, AttributeError):
+            if isinstance(e.orig_exc, AttributeError):
                 # module 'grpc' has no attribute '_channel', sometimes a first-connect problem
                 LOG.info("Reconnecting %s because of %s %s", self._switch_name, e.__class__.__name__, str(e))
                 self.connect()
