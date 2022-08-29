@@ -409,7 +409,7 @@ class EOSSwitch(SwitchBase):
                 data_if = data['openconfig-if-ethernet:ethernet']
                 data_vlans = data_if.get('openconfig-vlan:switched-vlan')
             else:
-                LOG.debug("Switch %s ignoring iface %s of type %s", self.name, data['name'], data['config'].get('type'))
+                LOG.trace("Switch %s ignoring iface %s of type %s", self.name, data['name'], data['config'].get('type'))
                 continue
 
             # vlans + translations
