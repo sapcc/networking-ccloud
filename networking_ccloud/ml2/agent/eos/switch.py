@@ -274,8 +274,8 @@ class EOSSwitch(SwitchBase):
                 config_req.get_list(operation).append(mapcfg)
         else:
             # delete vlan mapping only if it has the right vni
-            for curr_map in curr_maps:
-                for os_map in vxlan_maps:
+            for os_map in vxlan_maps:
+                for curr_map in curr_maps:
                     if curr_map.vlan == os_map.vlan:
                         if curr_map.vni == os_map.vni:
                             config_req.delete.append(EOSGNMIClient.PATHS.VXMAP_VLAN.format(vlan=curr_map.vlan))
