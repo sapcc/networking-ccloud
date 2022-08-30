@@ -93,8 +93,9 @@ class EOSGNMIClient:
             LOG.debug("Command %s() succeeded in %.2fs", method, time.time() - start_time)
             return data
         except gNMIException as e:
-            LOG.exception("Command %s() failed on %s in %.2fs (retries left: %s): %s %s",
-                          method, self._switch_name, time.time() - start_time, retries, e.__class__.__name__, str(e))
+            log_method = LOG.warning if retries > 0 else LOG.exception
+            log_method("Command %s() failed on %s in %.2fs (retries left: %s): %s %s",
+                       method, self._switch_name, time.time() - start_time, retries, e.__class__.__name__, str(e))
 
             cmd = [f"{method}("]
             if args:
