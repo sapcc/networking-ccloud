@@ -90,7 +90,7 @@ class EOSGNMIClient:
         try:
             start_time = time.time()
             data = getattr(self._gnmi, method)(*args, **kwargs)
-            LOG.debug("Command %s() succeeded in %.2fs", method, time.time() - start_time)
+            LOG.debug("Command %s() succeeded on %s in %.2fs", method, self._switch_name, time.time() - start_time)
             return data
         except gNMIException as e:
             log_method = LOG.warning if retries > 0 else LOG.exception
@@ -625,8 +625,8 @@ class EOSSwitch(SwitchBase):
         #   option 1: synchronous applying the config
         #   option 2: put it into a queue, worker thread applies config
         # FIXME: blindly apply the config? or should we do an "inexpensive get" beforehand
-        LOG.info("Device %s %s got new config: vxlans %s interfaces %s",
-                 self.name, self.host, config.vxlan_maps, config.ifaces)
+        LOG.info("Device %s (%s) got new config: op %s vxlans %s interfaces %s",
+                 self.name, self.host, config.operation.name, config.vxlan_maps, config.ifaces)
 
         config_req = self._make_config_from_update(config)
         try:
