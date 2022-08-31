@@ -149,7 +149,7 @@ class CCFabricNetboxModeller():
 
         lag = self.api.dcim.interfaces.get(device_id=device.id, name=lag_name)
         if not lag:
-            lag = {'name':  lag_name, 'device': device.id, 'type': 'lag'}
+            lag = {'name': lag_name, 'device': device.id, 'type': 'lag'}
             print(f'Creating LAG on {device.name}: {lag}')
             if not self.dry_run:
                 lag = self.api.dcim.interfaces.create(lag)
