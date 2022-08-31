@@ -280,6 +280,12 @@ class TestNetworkExtension(test_segment.SegmentTestCase, base.PortBindingHelper)
             }
             self.assertEqual(expected, resp.json)
 
+    def test_switch_get_os_config(self):
+        resp = self.app.get("/cc-fabric/switches/seagull-sw1/os_config")
+        # just make sure it looks somewhat relatable to what we expect / have set in the db
+        self.assertEqual(10, len(resp.json['config']['ifaces']))
+        self.assertEqual([23, 42, 100], resp.json['config']['ifaces'][0]['trunk_vlans'])
+
     def test_switchgroups(self):
         # index
         resp = self.app.get("/cc-fabric/switchgroups")
@@ -361,3 +367,11 @@ class TestNetworkExtension(test_segment.SegmentTestCase, base.PortBindingHelper)
                 },
             }
             self.assertEqual(expected, resp.json)
+
+    def test_switchgroup_get_os_config(self):
+        resp = self.app.get("/cc-fabric/switchgroups/seagull/os_config")
+        for switch in 'seagull-sw1', 'seagull-sw2':
+            cfg = resp.json[switch]
+            # just make sure it looks somewhat relatable to what we expect / have set in the db
+            self.assertEqual(10, len(cfg['config']['ifaces']))
+            self.assertEqual([23, 42, 100], cfg['config']['ifaces'][0]['trunk_vlans'])
