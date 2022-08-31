@@ -174,6 +174,14 @@ class IfaceConfig(pydantic.BaseModel):
     def __lt__(self, other):
         return self.name < other.name
 
+    def sort(self):
+        if self.members:
+            self.members.sort()
+        if self.trunk_vlans:
+            self.trunk_vlans.sort(key=lambda x: int(str(x).split("..")[0]))
+        if self.vlan_translations:
+            self.vlan_translations.sort()
+
     @classmethod
     def from_switchport(cls, switchport):
         iface = cls(name=switchport.name)
@@ -219,6 +227,8 @@ class SwitchConfigUpdate(pydantic.BaseModel):
             self.vxlan_maps.sort()
         if self.ifaces:
             self.ifaces.sort()
+            for iface in self.ifaces:
+                iface.sort()
         if self.bgp:
             self.bgp.sort()
 
