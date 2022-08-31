@@ -229,7 +229,7 @@ class FabricNetworksController(wsgi.Controller):
 
 class SwitchesController(wsgi.Controller):
     """List and show Switches from config"""
-    MEMBER_ACTIONS = {'diff': 'GET', 'sync': 'PUT', 'sync_infra_networks': 'PUT', 'config': 'GET'}
+    MEMBER_ACTIONS = {'diff': 'GET', 'sync': 'PUT', 'sync_infra_networks': 'PUT', 'config': 'GET', 'os_config': 'GET'}
 
     def __init__(self, fabric_plugin):
         super().__init__()
@@ -313,6 +313,18 @@ class SwitchesController(wsgi.Controller):
             del config['config']['operation']
         return config
 
+    @check_cloud_admin
+    def os_config(self, request, **kwargs):
+        switch, sg = self._get_switch(kwargs.pop('id'))
+        config = self._make_switch_config(request.context, switch, sg)
+        config = config.switch_config_updates.get(switch.name)
+        if not config:
+            return None
+        config.sort()
+        config = config.dict(exclude_unset=True, exclude_defaults=True)
+        del config['operation']
+        return dict(config=config)
+
     def _add_device_info(self, context, switches):
         for platform, switches in groupby(sorted(switches, key=itemgetter('platform')), key=itemgetter('platform')):
             switches = list(switches)
@@ -371,7 +383,7 @@ class SwitchesController(wsgi.Controller):
 class SwitchgroupsController(wsgi.Controller):
     """List and show SwitchGroups from config"""
 
-    MEMBER_ACTIONS = {'diff': 'GET', 'sync': 'PUT', 'sync_infra_networks': 'PUT', 'config': 'GET'}
+    MEMBER_ACTIONS = {'diff': 'GET', 'sync': 'PUT', 'sync_infra_networks': 'PUT', 'config': 'GET', 'os_config': 'GET'}
 
     def __init__(self, fabric_plugin):
         super().__init__()
@@ -422,6 +434,14 @@ class SwitchgroupsController(wsgi.Controller):
         result = {}
         for member in sg.members:
             result[member.name] = self._swctrl.config(request, id=member.name)
+        return result
+
+    @check_cloud_admin
+    def os_config(self, request, **kwargs):
+        sg = self._get_switchgroup(kwargs.pop('id'))
+        result = {}
+        for member in sg.members:
+            result[member.name] = self._swctrl.os_config(request, id=member.name)
         return result
 
     def _get_switchgroup(self, sg_name):
