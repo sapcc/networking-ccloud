@@ -72,6 +72,7 @@ class ConfigGenerator:
     }
     ignore_tags = {"cc-net-driver-ignore"}
     netbox_vpod_cluster_type = "cc-vsphere-prod"
+    netbox_neutron_router_cluster_type = 'neutron-router-pair'
 
     def __init__(self, region, args, verbose=False, verify_ssl=False):
         self.region = region
@@ -464,7 +465,7 @@ class ConfigGenerator:
         if not cluster.type:
             print(f'Warning: Cluster {cluster.name} has no type - ignoring')
             return False
-        if cluster.type.slug not in {cls.netbox_vpod_cluster_type}:
+        if cluster.type.slug not in {cls.netbox_vpod_cluster_type, cls.netbox_neutron_router_cluster_type}:
             print(f'Warning: Cluster {cluster.name} has unsupported type {cluster.type.slug} - ignoring')
             return False
         return True
@@ -480,6 +481,14 @@ class ConfigGenerator:
         binding_host = "nova-compute-{}".format(cname[len("production"):])
         return conf.Hostgroup(binding_hosts=[binding_host], metagroup=True, members=[member.name])
 
+    def make_neutron_router_metagroup(self, cluster: NbRecord, member: NbRecord) -> Optional[conf.Hostgroup]:
+        cname: str = cluster.name  # type: ignore
+        cprefix = f'{self.region}-'
+        if not cname.startswith(cprefix):
+            raise ValueError(f'Cluster {cname} must start with {cprefix}')
+        cname = cname[len(cprefix):]
+        return conf.Hostgroup(binding_hosts=[cname], metagroup=True, members=[member.name])
+
     def get_metagroups(self, connected_devices: Set[NbRecord]) -> List[conf.Hostgroup]:
         metagroups: Dict[NbRecord, conf.Hostgroup] = dict()
         for device in connected_devices:
@@ -491,8 +500,11 @@ class ConfigGenerator:
             metagroup = metagroups.get(cluster, None)
             if not metagroup:
                 # create the metagroup
-                if getattr(cluster.type, 'slug', None) == self.netbox_vpod_cluster_type:
+                ctype = getattr(cluster.type, 'slug', None)
+                if ctype == self.netbox_vpod_cluster_type:
                     metagroup = self.make_vpod_metagroup(cluster, device)
+                if ctype == self.netbox_neutron_router_cluster_type:
+                    metagroup = self.make_neutron_router_metagroup(cluster, device)
                 if not metagroup:
                     # something failed here, so we ignore
                     continue
