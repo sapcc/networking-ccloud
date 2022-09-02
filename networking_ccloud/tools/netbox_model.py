@@ -25,8 +25,7 @@ from pynetbox.core.response import Record as NbRecord
 from pynetbox.core.response import RecordSet as NbRecordSet
 
 
-import networking_ccloud.tools.netbox_config_gen as cg
-from networking_ccloud.tools.netbox_config_gen import ConfigGenerator, SWITCHGROUP_ROLE_VPOD
+from networking_ccloud.tools.netbox_config_gen import ConfigGenerator, SWITCHGROUP_ROLE_VPOD, SWITCHGROUP_ROLE_NETPOD
 
 NBR_DICT_T = Union[Dict[str, Any], NbRecord]
 
@@ -34,7 +33,7 @@ NBR_DICT_T = Union[Dict[str, Any], NbRecord]
 class CCFabricNetboxModeller():
 
     READ_API = pynetbox.api(ConfigGenerator.netbox_url)
-    SUPPORTED_ROLES = {SWITCHGROUP_ROLE_VPOD}
+    SUPPORTED_ROLES = {SWITCHGROUP_ROLE_VPOD, SWITCHGROUP_ROLE_NETPOD}
 
     PORT_CHANNEL_RANGE_BEGIN = 100
 
@@ -68,6 +67,7 @@ class CCFabricNetboxModeller():
         self.region = region
         self.api = pynetbox.api(ConfigGenerator.netbox_url, netbox_token)
         self.underlay_vrf = self.api.ipam.vrfs.get(name=f'EVPN-Underlay {self.region.upper()}')
+        self.leaves_by_role = self.get_supported_pod_leaves()
         self.dry_run = dry_run
 
     def ensure_single_attribute(self, attributes: Iterable[str], devices: Iterable[NbRecord]) -> bool:
@@ -83,25 +83,28 @@ class CCFabricNetboxModeller():
             return False
         return True
 
-    def get_supported_pod_leaves(self) -> Generator[NbRecord, None, None]:
+    def get_supported_pod_leaves(self) -> Dict[str, List[NbRecord]]:
         leaf_role = ConfigGenerator.leaf_role
         pod_roles = ConfigGenerator.pod_roles
+        result = defaultdict(list)
         for device in self.api.dcim.devices.filter(region=self.region, role=leaf_role, status='active'):
             roles = {pod_roles.get(t.slug) for t in getattr(device, 'tags', [])}
             seq_no = ConfigGenerator.parse_ccloud_switch_number_resources(device.name)['seq_no']
             if roles and seq_no and len(roles.intersection(self.SUPPORTED_ROLES)) == 1:
-                yield device
+                role = roles.intersection(self.SUPPORTED_ROLES).pop()
+                result[role].append(device)
+        return result
 
-    def get_server_facing_interfaces(self, ifaces: NbRecordSet) -> Generator[NbRecord, None, None]:
+    def get_role_facing_interfaces(self, ifaces: NbRecordSet, role_slug: str) -> Generator[NbRecord, None, None]:
         for iface in ifaces:
             if not iface.connected_endpoint:
                 continue
             device_role = getattr(iface.connected_endpoint.device, 'device_role')
-            if not device_role or device_role.slug != 'server':
-                continue
-            if device_role.slug != 'server':
+            if not device_role or device_role.slug != role_slug:
                 continue
             cluster = getattr(iface.connected_endpoint.device, 'cluster')
+            if not cluster:
+                continue
             if not ConfigGenerator.cluster_is_valid(cluster):
                 continue
             yield iface
@@ -138,7 +141,36 @@ class CCFabricNetboxModeller():
             raise ValueError(f'Could not find a mgmt supernet for BB{bb:03d} or found more than 1')
         return candidate_nets[0]
 
-    def bundle_ports(self, device: NbRecord, ifaces: Iterable[NbRecord]) -> NBR_DICT_T:
+    def find_and_bundle_mlag_ports(self, gr_number, leaf_group: List[NbRecord],
+                                   remote_role: str) -> Dict[NBR_DICT_T, NBR_DICT_T]:
+        interfaces = set()
+        lags_members = dict()
+        for leaf in leaf_group:
+            ifaces = self.api.dcim.interfaces.filter(device_id=leaf.id, connection_status=True)
+            interfaces.update(self.get_role_facing_interfaces(ifaces, remote_role))
+
+        def sorter(x):
+            lag = getattr(x.connected_endpoint, 'lag', None)
+            if lag:
+                lag = lag.name
+            return x.connected_endpoint.device.name, lag
+
+        interfaces = sorted(interfaces, key=sorter)
+        for (device, _), members_ifaces in groupby(interfaces, sorter):
+            # ensure symmetric cabling
+            members_ifaces = list(members_ifaces)
+            if any(y != 2 for y in Counter(x.name for x in members_ifaces).values()):
+                print(f'Asymmetric cabling in bb/np/st/{gr_number}, to {device}')
+                continue
+            # create both port-channels on the MLAG pair
+            device_interface_map = defaultdict(list)
+            for iface in members_ifaces:
+                device_interface_map[iface.device].append(iface)
+            for device, local_ifaces in device_interface_map.items():
+                lags_members[self._bundle_ports(device, local_ifaces)] = local_ifaces
+        return lags_members
+
+    def _bundle_ports(self, device: NbRecord, ifaces: Iterable[NbRecord]) -> NBR_DICT_T:
         ifaces = list(ifaces)
 
         vendor = getattr(getattr(device.device_type, 'manufacturer', None), 'slug', None)
@@ -149,7 +181,7 @@ class CCFabricNetboxModeller():
 
         lag = self.api.dcim.interfaces.get(device_id=device.id, name=lag_name)
         if not lag:
-            lag = {'name':  lag_name, 'device': device.id, 'type': 'lag'}
+            lag = {'name': lag_name, 'device': device.id, 'type': 'lag'}
             print(f'Creating LAG on {device.name}: {lag}')
             if not self.dry_run:
                 lag = self.api.dcim.interfaces.create(lag)
@@ -370,9 +402,7 @@ class CCFabricNetboxModeller():
             self._check_set_attr(bound_ip, vrf=self.underlay_vrf.id, tenant=self.CC_TENANT.id)
 
     def model_bbs(self, limit_bbs: Optional[Set[int]] = None):
-        leaves = self.get_supported_pod_leaves()
-
-        for bb, gr in self.group_leaves_by(leaves, 'seq_no'):
+        for bb, gr in self.group_leaves_by(self.leaves_by_role[SWITCHGROUP_ROLE_VPOD], 'seq_no'):
             if limit_bbs and bb not in limit_bbs:
                 continue
             if not self.ensure_single_attribute(('site', 'slug'), gr):
@@ -390,27 +420,30 @@ class CCFabricNetboxModeller():
                 self.create_attach_bgpsrc(switch)
                 for vlan_name, vlan in vlans.items():
                     self.attach_svi_to_switch(switch, vlan, prefixes[vlan_name])
-            gr_attributes = ConfigGenerator.get_switchgroup_attributes(gr)
-            if gr_attributes['pod_role'] == cg.SWITCHGROUP_ROLE_VPOD:
-                server_interfaces = set()
-                for leaf in gr:
-                    ifaces = self.api.dcim.interfaces.filter(device_id=leaf.id, connection_status=True)
-                    server_interfaces.update(self.get_server_facing_interfaces(ifaces))
-                sorter = lambda x: x.connected_endpoint.device.name  # noqa e731
-                server_interfaces = sorted(server_interfaces, key=sorter)
-                for server, members_ifaces in groupby(server_interfaces, sorter):
-                    # ensure symmetric cabling
-                    members_ifaces = list(members_ifaces)
-                    if any((y != 2 for y in Counter((x.name for x in members_ifaces)).values())):
-                        print(f'Asymmetric cabling in bb{bb}, to {server}')
-                        continue
-                    # create both port-channels on the MLAG pair
-                    device_interface_map = defaultdict(list)
-                    for iface in members_ifaces:
-                        device_interface_map[iface.device].append(iface)
-                    for device, local_ifaces in device_interface_map.items():
-                        lag = self.bundle_ports(device, local_ifaces)
-                        self.attach_infra_vlans_to_iface(vlans.values(), lag)
+            lags = self.find_and_bundle_mlag_ports(bb, gr, 'server')
+            for lag in lags.keys():
+                self.attach_infra_vlans_to_iface(vlans.values(), lag)
+
+    def model_neutron_routers(self, limit_nps: Optional[Set[int]] = None):
+        for np, gr in self.group_leaves_by(self.leaves_by_role[SWITCHGROUP_ROLE_NETPOD], 'seq_no'):
+            if limit_nps and np not in limit_nps:
+                continue
+            if not self.ensure_single_attribute(('site', 'slug'), gr):
+                print(f'Np{np} switches {gr} have different sites, skipping')
+                continue
+            lags = self.find_and_bundle_mlag_ports(np, gr, 'neutron-router')
+            for lag, members in lags.items():
+                for member in members:
+                    # We only care about port-channel 1 at the moment cause that's the one OS binds ports to
+                    ignore_tag = list(ConfigGenerator.ignore_tags)[0]
+                    if member.connected_endpoint.lag.name != 'Port-channel1':
+                        if ignore_tag in {x.slug for x in lag.tags}:
+                            break
+                        print(f'Adding ignore-tag to {lag.name} on {lag.device.name}.')
+                        if not self.dry_run:
+                            lag.tags.append({'slug': ignore_tag})
+                            lag.save()
+                    break
 
 
 def main():
@@ -420,7 +453,8 @@ def main():
     parser.add_argument("-r", "--region", required=True)
     parser.add_argument("-s", "--shell", action="store_true")
     parser.add_argument("-t", "--netbox-token", help='Netbox self.api token, can also use ENV: NETBOX_TOKEN')
-    parser.add_argument('-l', "--limit-bbs", nargs='*', type=int, help='Only run for some bb/np/sto', default=list())
+    parser.add_argument('-l', "--limit-bb", nargs='*', type=int, help='Only run for some bb', default=list())
+    parser.add_argument('-n', "--limit-np", nargs='*', type=int, help='Only run for some np', default=list())
     parser.add_argument('-d', "--dry-run", help='Do not actually change something, just log', action="store_true")
 
     args = parser.parse_args()
@@ -437,7 +471,8 @@ def main():
         import IPython
         IPython.embed()
 
-    modeller.model_bbs(limit_bbs=set(args.limit_bbs))
+    modeller.model_bbs(limit_bbs=set(args.limit_bb))
+    modeller.model_neutron_routers(limit_nps=args.limit_np)
 
 
 if __name__ == '__main__':
