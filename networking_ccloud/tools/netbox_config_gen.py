@@ -79,7 +79,7 @@ class ConfigGenerator:
         self.args = args
         self.verbose = verbose
 
-        self.netbox = pynetbox.api(self.netbox_url)
+        self.netbox = pynetbox.api(self.netbox_url, threading=True)
         if not verify_ssl:
             urllib3.disable_warnings()
             self.netbox.http_session = requests.Session()
