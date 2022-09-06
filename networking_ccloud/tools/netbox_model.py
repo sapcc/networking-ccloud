@@ -118,7 +118,7 @@ class CCFabricNetboxModeller():
 
         rx = None
         if vendor.lower() == 'arista':
-            rx = re.compile(r'Ethernet(?P<idx>\d+)/(?P<slot>\d+)')
+            rx = re.compile(r'Ethernet(?P<idx>\d+)(?:/(?P<slot>\d+))?')
         elif vendor.lower() == 'cisco':
             rx = re.compile(r'Ethernet(?P<slot>\d+)/(?P<idx>\d+)')
         else:
