@@ -24,8 +24,8 @@ import pynetbox
 from pynetbox.core.response import Record as NbRecord
 from pynetbox.core.response import RecordSet as NbRecordSet
 
-
-from networking_ccloud.tools.netbox_config_gen import ConfigGenerator, SWITCHGROUP_ROLE_VPOD, SWITCHGROUP_ROLE_NETPOD
+from networking_ccloud.tools.netbox_config_gen import ConfigGenerator, SWITCHGROUP_ROLE_VPOD, SWITCHGROUP_ROLE_NETPOD, \
+    SWITCHGROUP_ROLE_APOD
 
 NBR_DICT_T = Union[Dict[str, Any], NbRecord]
 
@@ -33,7 +33,7 @@ NBR_DICT_T = Union[Dict[str, Any], NbRecord]
 class CCFabricNetboxModeller():
 
     READ_API = pynetbox.api(ConfigGenerator.netbox_url)
-    SUPPORTED_ROLES = {SWITCHGROUP_ROLE_VPOD, SWITCHGROUP_ROLE_NETPOD}
+    SUPPORTED_ROLES = {SWITCHGROUP_ROLE_VPOD, SWITCHGROUP_ROLE_NETPOD, SWITCHGROUP_ROLE_APOD}
 
     PORT_CHANNEL_RANGE_BEGIN = 100
 
@@ -448,6 +448,32 @@ class CCFabricNetboxModeller():
                             lag.save()
                     break
 
+    def model_apods(self, limit_aps: Optional[Set[int]] = None):
+        for ap, gr in self.group_leaves_by(self.leaves_by_role[SWITCHGROUP_ROLE_APOD], 'seq_no'):
+            if limit_aps and ap not in limit_aps:
+                continue
+            if not self.ensure_single_attribute(('site', 'slug'), gr):
+                print(f'ap{ap} switches {gr} have different sites, skipping')
+                continue
+            lags = self.find_and_bundle_mlag_ports(ap, gr, 'server')
+            for lag, members in lags:
+                for member in members:
+                    # We only care about LAG0 at the moment cause that's the one OS binds ports to
+                    # LAG1 carries BGP peerings and other apod backbone vlans that currently are not
+                    # configured by the driver
+                    ignore_tag = list(ConfigGenerator.ignore_tags)[0]
+                    if member.connected_endpoint.lag.name != 'LAG0':
+                        if isinstance(lag, dict):
+                            print(f'Adding ignore-tag to {lag["name"]} on {lag["device"]}.')
+                            break
+                        if ignore_tag in {x.slug for x in lag.tags}:
+                            break
+                        print(f'Adding ignore-tag to {lag.name} on {lag.device.name}.')
+                        if not self.dry_run:
+                            lag.tags.append({'slug': ignore_tag})
+                            lag.save()
+                    break
+
 
 def main():
     import argparse
@@ -458,6 +484,7 @@ def main():
     parser.add_argument("-t", "--netbox-token", help='Netbox self.api token, can also use ENV: NETBOX_TOKEN')
     parser.add_argument('-l', "--limit-bb", nargs='*', type=int, help='Only run for some bb', default=list())
     parser.add_argument('-n', "--limit-np", nargs='*', type=int, help='Only run for some np', default=list())
+    parser.add_argument('-a', "--limit-ap", nargs='*', type=int, help='Only run for some ap', default=list())
     parser.add_argument('-d', "--dry-run", help='Do not actually change something, just log', action="store_true")
 
     args = parser.parse_args()
@@ -476,6 +503,7 @@ def main():
 
     modeller.model_bbs(limit_bbs=set(args.limit_bb))
     modeller.model_neutron_routers(limit_nps=args.limit_np)
+    modeller.model_apods(limit_aps=args.limit_ap)
 
 
 if __name__ == '__main__':
