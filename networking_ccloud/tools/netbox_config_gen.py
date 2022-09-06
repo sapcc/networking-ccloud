@@ -37,6 +37,7 @@ SWITCHGROUP_ROLE_APOD = 'ap'
 SWITCHGROUP_ROLE_NETPOD = 'np'
 
 DEFAULT_VLAN_RANGES = ["2000:3750"]
+NETWORK_AGENTS_PER_APOD = 15
 
 VAULT_REF_REPLACEMENT = 'VAULTER-WHITE-REPLACE-ME'
 
@@ -57,6 +58,8 @@ class ConfigGenerator:
     switch_name_re = re.compile(r"^(?P<region>\w{2}-\w{2}-\d)-sw(?P<switchgroup_id>(?P<az>\d)"
                                 r"(?P<pod>\d)(?P<switchgroup>\d{2}))"
                                 r"(?P<leaf>[ab])(?:-(?P<role>[a-z]+(?P<seq_no>[0-9]+)?))$")
+    apod_node_name_re = re.compile(r'^node\d+-ap(?P<apod_seq>\d+)$')
+
     leaf_role = "evpn-leaf"
     spine_role = "evpn-spine"
     connection_roles = {"server", "neutron-router"}
@@ -71,8 +74,49 @@ class ConfigGenerator:
         "cnd-net-evpn-tl": c_const.DEVICE_TYPE_TRANSIT,
     }
     ignore_tags = {"cc-net-driver-ignore"}
-    netbox_vpod_cluster_type = "cc-vsphere-prod"
-    netbox_neutron_router_cluster_type = 'neutron-router-pair'
+
+    # metagroup handlers
+
+    def vpod_metagroup_handler(self, cluster: NbRecord, member: NbRecord) -> Optional[conf.Hostgroup]:
+        # FIXME: CCloud specific name generation
+        cname: str = cluster.name  # type: ignore
+        ctype = cluster.type.slug  # type: ignore
+        if not cname.startswith("production"):
+            print(f"Warning: Cluster {cname} of type {ctype} does not start "
+                  "with 'production' - ignoring")
+            return None
+        binding_host = "nova-compute-{}".format(cname[len("production"):])
+        return conf.Hostgroup(binding_hosts=[binding_host], metagroup=True, members=[member.name])
+
+    def neutron_router_metagroup_handler(self, cluster: NbRecord, member: NbRecord) -> Optional[conf.Hostgroup]:
+        cname: str = cluster.name  # type: ignore
+        cprefix = f'{self.region}-'
+        if not cname.startswith(cprefix):
+            raise ValueError(f'Cluster {cname} must start with {cprefix}')
+        cname = cname[len(cprefix):]
+        return conf.Hostgroup(binding_hosts=[cname], metagroup=True, members=[member.name])
+
+    def apod_metagroup_handler(self, cluster: NbRecord, member: NbRecord) -> Optional[conf.Hostgroup]:
+        m = self.apod_node_name_re.match(member.name)
+        if not m:
+            raise ValueError(f'{member.name} is not complying with expected node naming for apod clusters')
+        apod_sequence = int(m.group('apod_seq'))
+        binding_host_prefix = f'neutron-network-agent-ap{apod_sequence:03d}-'
+        # right now 15 network agents are statically created per apod
+        binding_hosts = [f'{binding_host_prefix}{x}' for x in range(0, NETWORK_AGENTS_PER_APOD)]
+        return conf.Hostgroup(binding_hosts=binding_hosts, metagroup=True, members=[member.name])
+
+    def noop_metagroup_handler(self, cluster: NbRecord, member: NbRecord) -> Optional[conf.Hostgroup]:
+        # In case we still care about the cluster type, but just do not need a metagroup from it
+        return None
+
+    metagroup_handlers = {
+        'cc-vsphere-prod': vpod_metagroup_handler,
+        'neutron-router-pair': neutron_router_metagroup_handler,
+        'cc-k8s-controlplane': apod_metagroup_handler,
+        'cc-vsphere-apod-mgmt': noop_metagroup_handler,
+        'cc-vsphere-apod-pool': noop_metagroup_handler
+        }
 
     def __init__(self, region, args, verbose=False, verify_ssl=False):
         self.region = region
@@ -458,63 +502,42 @@ class ConfigGenerator:
         return interconnects_with_sorted_members
 
     @classmethod
-    def cluster_is_valid(cls, cluster) -> bool:
+    def cluster_is_valid(cls, cluster: NbRecord) -> bool:
         if not cluster.name:
             print(f'Warning: Cluster {cluster.id} has no name - ignoring')
             return False
         if not cluster.type:
             print(f'Warning: Cluster {cluster.name} has no type - ignoring')
             return False
-        if cluster.type.slug not in {cls.netbox_vpod_cluster_type, cls.netbox_neutron_router_cluster_type}:
+        if cluster.type.slug not in cls.metagroup_handlers:
             print(f'Warning: Cluster {cluster.name} has unsupported type {cluster.type.slug} - ignoring')
             return False
         return True
 
-    def make_vpod_metagroup(self, cluster: NbRecord, member: NbRecord) -> Optional[conf.Hostgroup]:
-        # FIXME: CCloud specific name generation
-        cname: str = cluster.name  # type: ignore
-        ctype = cluster.type.slug  # type: ignore
-        if not cname.startswith("production"):
-            print(f"Warning: Cluster {cname} of type {ctype} does not start "
-                  "with 'production' - ignoring")
-            return None
-        binding_host = "nova-compute-{}".format(cname[len("production"):])
-        return conf.Hostgroup(binding_hosts=[binding_host], metagroup=True, members=[member.name])
-
-    def make_neutron_router_metagroup(self, cluster: NbRecord, member: NbRecord) -> Optional[conf.Hostgroup]:
-        cname: str = cluster.name  # type: ignore
-        cprefix = f'{self.region}-'
-        if not cname.startswith(cprefix):
-            raise ValueError(f'Cluster {cname} must start with {cprefix}')
-        cname = cname[len(cprefix):]
-        return conf.Hostgroup(binding_hosts=[cname], metagroup=True, members=[member.name])
-
     def get_metagroups(self, connected_devices: Set[NbRecord]) -> List[conf.Hostgroup]:
-        metagroups: Dict[NbRecord, conf.Hostgroup] = dict()
+        metagroups: Dict[str, conf.Hostgroup] = dict()
         for device in connected_devices:
             if not device.cluster:
                 continue
             cluster = device.cluster
             if not self.cluster_is_valid(cluster):
                 continue
-            metagroup = metagroups.get(cluster, None)
+            # there must be a handler, otherwise the cluster would not be valid
+            metagroup = self.metagroup_handlers[cluster.type.slug](self, cluster, device)
             if not metagroup:
-                # create the metagroup
-                ctype = getattr(cluster.type, 'slug', None)
-                if ctype == self.netbox_vpod_cluster_type:
-                    metagroup = self.make_vpod_metagroup(cluster, device)
-                if ctype == self.netbox_neutron_router_cluster_type:
-                    metagroup = self.make_neutron_router_metagroup(cluster, device)
-                if not metagroup:
-                    # something failed here, so we ignore
-                    continue
-                metagroups[cluster] = metagroup
+                # something failed here, so we ignore
+                continue
+            # unfortunately the assumption that a netbox cluster corresponds to a metagroup does not hold with
+            # with apods anymore, hence, we call the metagroup handler and then use the binding_host to check
+            # if that metagroup exists
+            existing = metagroups.get(metagroup.binding_host_name)
+            if not existing:
+                metagroups[metagroup.binding_host_name] = metagroup
             else:
-                metagroup.members.append(device.name)
+                existing.members.append(device.name)
 
         # Check cluster names for duplicates
-        cluster_names = (x.name for x in metagroups.keys())
-        for name, count in Counter(cluster_names).items():
+        for name, count in Counter(metagroups.keys()).items():
             if count > 1:
                 raise ConfigException(f'Cluster {name} appeared {count} times')
         for name, metagroup in metagroups.items():
