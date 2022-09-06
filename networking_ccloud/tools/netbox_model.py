@@ -142,9 +142,9 @@ class CCFabricNetboxModeller():
         return candidate_nets[0]
 
     def find_and_bundle_mlag_ports(self, gr_number, leaf_group: List[NbRecord],
-                                   remote_role: str) -> Dict[NBR_DICT_T, NBR_DICT_T]:
+                                   remote_role: str) -> List[Tuple[NBR_DICT_T, NBR_DICT_T]]:
         interfaces = set()
-        lags_members = dict()
+        lags_members = []
         for leaf in leaf_group:
             ifaces = self.api.dcim.interfaces.filter(device_id=leaf.id, connection_status=True)
             interfaces.update(self.get_role_facing_interfaces(ifaces, remote_role))
@@ -167,7 +167,7 @@ class CCFabricNetboxModeller():
             for iface in members_ifaces:
                 device_interface_map[iface.device].append(iface)
             for device, local_ifaces in device_interface_map.items():
-                lags_members[self._bundle_ports(device, local_ifaces)] = local_ifaces
+                lags_members.append(tuple([self._bundle_ports(device, local_ifaces), local_ifaces]))
         return lags_members
 
     def _bundle_ports(self, device: NbRecord, ifaces: Iterable[NbRecord]) -> NBR_DICT_T:
@@ -421,7 +421,7 @@ class CCFabricNetboxModeller():
                 for vlan_name, vlan in vlans.items():
                     self.attach_svi_to_switch(switch, vlan, prefixes[vlan_name])
             lags = self.find_and_bundle_mlag_ports(bb, gr, 'server')
-            for lag in lags.keys():
+            for lag, _ in lags:
                 self.attach_infra_vlans_to_iface(vlans.values(), lag)
 
     def model_neutron_routers(self, limit_nps: Optional[Set[int]] = None):
@@ -432,11 +432,14 @@ class CCFabricNetboxModeller():
                 print(f'Np{np} switches {gr} have different sites, skipping')
                 continue
             lags = self.find_and_bundle_mlag_ports(np, gr, 'neutron-router')
-            for lag, members in lags.items():
+            for lag, members in lags:
                 for member in members:
                     # We only care about port-channel 1 at the moment cause that's the one OS binds ports to
                     ignore_tag = list(ConfigGenerator.ignore_tags)[0]
                     if member.connected_endpoint.lag.name != 'Port-channel1':
+                        if isinstance(lag, dict):
+                            print(f'Adding ignore-tag to {lag["name"]} on {lag["device"]}.')
+                            break
                         if ignore_tag in {x.slug for x in lag.tags}:
                             break
                         print(f'Adding ignore-tag to {lag.name} on {lag.device.name}.')
