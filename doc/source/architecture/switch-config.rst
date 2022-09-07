@@ -364,9 +364,9 @@ aPOD/vPOD/stPOD/netPOD/bPOD/Transit leafs
 
    router bgp 65130.1112
      vlan 3150
-         rd 65130.1112:10394
-         route-target export 65130.1:10394
-         route-target import 65130.1:10394
+         rd 1112:10394
+         route-target export 1:10394
+         route-target import 1:10394
          redistribute learned
          redistribute static
 
@@ -385,9 +385,9 @@ aPOD/vPOD/stPOD/netPOD/bPOD/Transit leafs
    router bgp 65130.1103
       evpn
          vni 10394 l2
-            rd 65130.1103:10394
-            route-target export 65130.1:10394
-            route-target import 65130.1:10394
+            rd 1103:10394
+            route-target export 1:10394
+            route-target import 1:10394
 
 Border Gateway
 --------------
