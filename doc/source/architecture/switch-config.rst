@@ -540,26 +540,109 @@ Sample Subnet Definition
 
 On Device configuration
 -----------------------
+All examples use CC-CLOUD02 and availability-zone A as examples.
 
+For the prefixes that need to be redistributed into BGP there are the following combinations:
+
+.. list-table:: BGP prefix properties
+   :widths: 10 10 40 40
+   :header-rows: 1
+ 
+  * - az-local
+    - is supernet (exported net)
+    - config EOS
+    - config NXOS
+
+  * - False
+    - False
+    - * entry in `PL-CC-CLOUD02`
+      * `aggregate-address <supernet> attribute-map RM-CC-CLOUD02-AGGREGATE`
+    - * `network <prefix> route-map RM-CC-CLOUD02``
+      * `aggregate-address  <supernet>  attribute-map RM-CC-CLOUD02-AGGREGATE`
+
+  * - True
+    - False
+    - * entry in `PL-CC-CLOUD02-A`
+      * `aggregate-address <supernet> attribute-mapRM-CC-CLOUD02-A-AGGREGATE`
+    - * `network <prefix> route-map RM-CC-CLOUD02-A``
+      * `aggregate-address  <supernet>  attribute-map RM-CC-CLOUD02-A-AGGREGATE`
+
+  * - False
+    - True
+    - * entry in `PL-CC-CLOUD02-AGGREGATE`
+    - * `network <prefix> route-map RM-CC-CLOUD02-AGGREGATE``
+
+  * - True
+    - True
+    - * entry in `PL-CC-CLOUD02-A-AGGREGATE`
+    - * `network <prefix> route-map RM-CC-CLOUD02-AGGREGATE``
+  
 **EOS**:
+
+We assume the following L3 related config to be preconfigured on each device, example for AZ A, regional ASN 65130, VRF CC-CLOUD02:
+
 ::
 
-   route-map RM-CC-CLOUD02
-      set extcommunity rt 65130:102
+  vrf instance CC-CLOUD02
 
-   route-map RM-CC-CLOUD02-AGGREGATE
-      set extcommunity rt 65130:102
-      set community 65101:1
+  ip routing vrf CC-CLOUD02
 
-   route-map RM-CC-CLOUD02-A
+  route-map RM-CC-CLOUD02-REDIST permit 10
+    match ip address prefix-list PL-CC-CLOUD02
+    set extcommunity rt 65130:102
+  route-map RM-CC-CLOUD02-REDIST permit 20
+    match ip address prefix-list PL-CC-CLOUD02-A
+    set extcommunity rt 65130:1102
+  route-map RM-CC-CLOUD02-REDIST permit 30
+    match ip address prefix-list PL-CC-CLOUD02-AGGREGATE
+    set community 65130:1
+    set extcommunity rt 65130:102
+  route-map RM-CC-CLOUD02-REDIST permit 40
+    match ip address prefix-list PL-CC-CLOUD02-A-AGGREGATE
+    set community 65130:1
+    set extcommunity rt 65130:1102
 
-   route-map RM-CC-CLOUD02-A-AGGREGATE
-      set extcommunity rt 65130:1102
-      set community 65101:1
+  route-map RM-CC-CLOUD02-AGGREGATE permit 10
+    set community 65130:1
+    set extcommunity rt 65130:102
 
-   vrf instance CC-CLOUD02
+  route-map RM-CC-CLOUD02-A-AGGREGATE permit 10
+    set community 65130:1
+    set extcommunity rt 65130:1102
 
-   ip routing vrf CC-CLOUD02
+   interface vxlan1
+      vxlan vrf CC-CLOUD02 vni 102
+
+   router bgp 65130.1103
+      vrf CC-CLOUD02
+         rd 65130.1103:102
+         route-target export evpn 65130:1102
+         route-target import evpn 65130:102
+         route-target import evpn 65130:1102
+         route-target import evpn 65130:2102
+         route-target import evpn 65130:4102
+         redistribute connected route-map RM-CC-CLOUD02-REDIST
+         redistribute static route-map RM-CC-CLOUD02-REDIST
+   
+
+
+Driver controlled configuration:
+
+::
+
+  # The driver assumes full control over these prefix-lists
+  # any prefix unknown to the driver will be removed.
+
+  ip prefix-list PL-CC-CLOUD02
+    seq 10 permit 10.47.8.192/27 eq 27
+
+  ip prefix-list PL-CC-CLOUD02-A
+    seq 10 permit 10.47.20.0/25 eq 25
+
+  ip prefix-list PL-CC-CLOUD02-AGGREGATE
+    seq 10 permit 10.47.10.0/24 eq 24
+
+  ip prefix-list PL-CC-CLOUD02-A-AGGREGATE
 
    interface vlan 3150
       description aeec9fd4-30f7-4398-8554-34acb36b7712
@@ -573,23 +656,16 @@ On Device configuration
       ip address virtual 10.47.20.1/25
 
    interface vxlan1
-      vxlan vlan 3150 vni 10394
-      vxlan vlan 3200 vni 10400
       vxlan vrf CC-CLOUD02 vni 102
-   !
+
    router bgp 65130.1103
       vrf CC-CLOUD02
-         rd 65130.1103:102
-         route-target export evpn 65130:1102
-         route-target import evpn 65130:102
-         route-target import evpn 65130:1102
-         route-target import evpn 65130:2102
-         route-target import evpn 65130:4102
-         aggregate-address 10.47.8.0/24 attribute-map RM-CC-CLOUD02-AGGREGATE
-         aggregate-address 10.47.20.0/24 attribute-map RM-CC-CLOUD02-A-AGGREGATE
-         network 10.47.8.192/27 route-map RM-CC-CLOUD02
-         network 10.47.20.0/25 route-map RM-CC-CLOUD02-A
-         network 10.47.10.0/24 route-map RM-CC-CLOUD02-AGGREGATE
+         # The driver assumes full control over aggregate address statements,
+         # any aggregate statement not known to the driver will be removed
+         aggregate-address 10.47.8.0/24 attribute-map RM-CC-CLOUD02-A-AGGREGATE
+         aggregate-address 10.47.20.0/24 attribute-map RM-CC-CLOUD02-AGGREGATE
+
+
 
 **NX-OS**:
 ::
