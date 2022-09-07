@@ -12,7 +12,7 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
-from collections import defaultdict, Counter
+from collections import defaultdict
 import ipaddress
 from itertools import chain, groupby
 import logging
@@ -536,10 +536,6 @@ class ConfigGenerator:
             else:
                 existing.members.append(device.name)
 
-        # Check cluster names for duplicates
-        for name, count in Counter(metagroups.keys()).items():
-            if count > 1:
-                raise ConfigException(f'Cluster {name} appeared {count} times')
         for name, metagroup in metagroups.items():
             metagroup.members.sort()  # type: ignore
         return list(metagroups.values())
