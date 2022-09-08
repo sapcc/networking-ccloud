@@ -288,7 +288,7 @@ class ConfigGenerator:
             return f"{role}{switchgroup_id}"
         if pod_sequence == 0:
             raise ConfigException("Switchgroups {switchgroup_id} has no pod_sequence, e.g. '-bb147/st044/np19'")
-        return f"{role}{pod_sequence}"
+        return f"{role}{pod_sequence:03d}"
 
     def get_l3_data(self, asn_region: int, pod: int, switchgroup_no: int, leaf_no: int,
                     az_no: int, **kwargs) -> Dict[str, str]:
