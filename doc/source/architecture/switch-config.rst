@@ -542,24 +542,6 @@ On Device configuration
 -----------------------
 All examples use CC-CLOUD02 and availability-zone A as examples.
 
-.. list-table:: BGP prefix Properties
-   :widths: 10 10 40 40
-   :header-rows: 1
-
-   * - az-local
-     - is supernet (exported net)
-     - config EOS
-     - config NXOS
-   * - Row 1, column 1
-     -
-     - * Row 1, column 3
-       * 2  
-     - 
-   * - Row 2, column 1
-     - Row 2, column 2
-     - Row 2, column 3
-     - 
-
 For the prefixes that need to be redistributed into BGP there are the following combinations:
 
 .. list-table:: BGP prefix properties
