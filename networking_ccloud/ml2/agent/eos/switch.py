@@ -525,7 +525,7 @@ class EOSSwitch(SwitchBase):
                 # port-channel configuration
                 normal_ifaces = []
                 if iface.portchannel_id is not None:
-                    data = {
+                    agg_data = {
                         'config': {
                             'arista-intf-augments:mlag': iface.portchannel_id,
                             'lag-type': 'LACP',
@@ -533,12 +533,21 @@ class EOSSwitch(SwitchBase):
                         },
                     }
                     if data_vlan:
-                        data['switched-vlan'] = {'config': data_vlan}
+                        agg_data['switched-vlan'] = {'config': data_vlan}
+
+                    data = {
+                        'name': iface.name,
+                        'config': {
+                            'name': iface.name,
+                            'type': 'iana-if-type:ieee8023adLag',
+                        },
+                        'aggregation': agg_data
+                    }
 
                     if iface.vlan_translations:
                         remove_stale_vlan_translations(iface.name, iface, is_pc=True)
 
-                    pc_cfg = (EOSGNMIClient.PATHS.IFACE_PC.format(iface=iface.name), data)
+                    pc_cfg = (EOSGNMIClient.PATHS.IFACE.format(iface=iface.name), data)
                     config_req.get_list(operation).append(pc_cfg)
                     normal_ifaces = iface.members or []
                 else:

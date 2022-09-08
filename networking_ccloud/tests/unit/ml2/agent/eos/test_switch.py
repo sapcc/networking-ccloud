@@ -71,25 +71,55 @@ class TestEOSConfigUpdates(base.TestCase):
                                                              'import': ['65123:232323']}},
                                  'vlans': {'vlan': [{'config': {'vlan-id': 1000},
                                                      'vlan-id': 1000}]}}]}),
-            ('interfaces/interface[name=Port-Channel23]/aggregation',
-             {'config': {'arista-intf-augments:fallback': 'individual',
-                         'arista-intf-augments:mlag': 23,
-                         'lag-type': 'LACP'},
-              'switched-vlan': {'config': {'interface-mode': 'TRUNK',
-                                           'native-vlan': 1000,
-                                           'trunk-vlans': ['1000..1001'],
-                                           'vlan-translation': {'egress': [{'config': {'bridging-vlan': 2323,
-                                                                                       'translation-key': 1000},
-                                                                            'translation-key': 1000},
-                                                                           {'config': {'bridging-vlan': 1337,
-                                                                                       'translation-key': 1001},
-                                                                            'translation-key': 1001}],
-                                                                'ingress': [{'config': {'bridging-vlan': 1000,
-                                                                                        'translation-key': 2323},
-                                                                             'translation-key': 2323},
-                                                                            {'config': {'bridging-vlan': 1001,
-                                                                                        'translation-key': 1337},
-                                                                             'translation-key': 1337}]}}}}),
+            ('interfaces/interface[name=Port-Channel23]', {
+                'config': {
+                    'name': 'Port-Channel23',
+                    'type': 'iana-if-type:ieee8023adLag'
+                },
+                'name': 'Port-Channel23',
+                'aggregation': {
+                    'config': {
+                        'arista-intf-augments:fallback': 'individual',
+                        'arista-intf-augments:mlag': 23,
+                        'lag-type': 'LACP',
+                    },
+                    'switched-vlan': {
+                        'config': {
+                            'interface-mode': 'TRUNK',
+                            'native-vlan': 1000,
+                            'trunk-vlans': ['1000..1001'],
+                            'vlan-translation': {
+                                'egress': [{
+                                    'config': {
+                                        'bridging-vlan': 2323,
+                                        'translation-key': 1000
+                                    },
+                                    'translation-key': 1000
+                                }, {
+                                    'config': {
+                                        'bridging-vlan': 1337,
+                                        'translation-key': 1001
+                                    },
+                                    'translation-key': 1001
+                                }],
+                                'ingress': [{
+                                    'config': {
+                                        'bridging-vlan': 1000,
+                                        'translation-key': 2323
+                                    },
+                                    'translation-key': 2323
+                                }, {
+                                    'config': {
+                                        'bridging-vlan': 1001,
+                                        'translation-key': 1337
+                                    },
+                                    'translation-key': 1337
+                                }]
+                            }
+                        }
+                    }
+                }
+            }),
             ('interfaces/interface[name=Ethernet4/1]/ethernet',
              {'config': {'aggregate-id': 'Port-Channel23'},
               'switched-vlan': {'config': {'interface-mode': 'TRUNK',
@@ -398,22 +428,52 @@ class TestEOSConfigUpdates(base.TestCase):
             ],
             'replace': [],
             'update': [
-                ('interfaces/interface[name=Port-Channel23]/aggregation',
-                 {'config': {'arista-intf-augments:fallback': 'individual',
-                             'arista-intf-augments:mlag': 23,
-                             'lag-type': 'LACP'},
-                  'switched-vlan': {'config': {'vlan-translation': {'egress': [{'config': {'bridging-vlan': 42,
-                                                                                           'translation-key': 23},
-                                                                                'translation-key': 23},
-                                                                               {'config': {'bridging-vlan': 2000,
-                                                                                           'translation-key': 1000},
-                                                                                'translation-key': 1000}],
-                                                                    'ingress': [{'config': {'bridging-vlan': 23,
-                                                                                            'translation-key': 42},
-                                                                                 'translation-key': 42},
-                                                                                {'config': {'bridging-vlan': 1000,
-                                                                                            'translation-key': 2000},
-                                                                                 'translation-key': 2000}]}}}}),
+                ('interfaces/interface[name=Port-Channel23]', {
+                    'name': 'Port-Channel23',
+                    'config': {
+                        'name': 'Port-Channel23',
+                        'type': 'iana-if-type:ieee8023adLag'
+                    },
+                    'aggregation': {
+                        'config': {
+                            'arista-intf-augments:fallback': 'individual',
+                            'arista-intf-augments:mlag': 23,
+                            'lag-type': 'LACP'
+                        },
+                        'switched-vlan': {
+                            'config': {
+                                'vlan-translation': {
+                                    'egress': [{
+                                        'config': {
+                                            'bridging-vlan': 42,
+                                            'translation-key': 23
+                                        },
+                                        'translation-key': 23
+                                    }, {
+                                        'config': {
+                                            'bridging-vlan': 2000,
+                                            'translation-key': 1000
+                                        },
+                                        'translation-key': 1000
+                                    }],
+                                    'ingress': [{
+                                        'config': {
+                                            'bridging-vlan': 23,
+                                            'translation-key': 42
+                                        },
+                                        'translation-key': 42
+                                    }, {
+                                        'config': {
+                                            'bridging-vlan': 1000,
+                                            'translation-key': 2000
+                                        },
+                                        'translation-key': 2000
+                                    }]
+                                }
+                            }
+                        }
+                    }
+                }),
                 ('interfaces/interface[name=Ethernet23/1]/ethernet',
                  {'config': {'aggregate-id': 'Port-Channel23'},
                   'switched-vlan': {'config': {'vlan-translation': {'egress': [{'config': {'bridging-vlan': 42,
