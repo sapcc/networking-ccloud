@@ -293,6 +293,10 @@ class ConfigGenerator:
                 raise ConfigException(f'For {infra_net_name} the prefixes are sourced from multiple parent '
                                       f'networks {parent_prefixes}')
 
+            if len(parent_prefixes) == 0:
+                raise ConfigException(f"Missing parent prefix for infra net {infra_net_name} "
+                                      f"(svi map for vlan {vlan} was {svis[vlan]})")
+
             infra_net = conf.InfraNetwork(name=infra_net_name, vlan=vlan.vid, vrf=self.infra_network_vrf,
                                           networks=networks, vni=vni, aggregates=[str(parent_prefixes.pop())])
 
