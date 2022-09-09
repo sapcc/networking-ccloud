@@ -375,3 +375,16 @@ class TestNetworkExtension(test_segment.SegmentTestCase, base.PortBindingHelper)
             # just make sure it looks somewhat relatable to what we expect / have set in the db
             self.assertEqual(10, len(cfg['config']['ifaces']))
             self.assertEqual([23, 42, 100], cfg['config']['ifaces'][0]['trunk_vlans'])
+
+    def test_create_all_portchannels(self):
+        with mock.patch.object(CCFabricSwitchAgentRPCClient, 'apply_config_update') as mock_acu:
+            resp = self.app.put("/cc-fabric/switches/create_all_portchannels")
+            self.assertTrue(resp.json['sync_sent'])
+            swcfgs = mock_acu.call_args[0][1]
+            self.assertEqual(1, mock_acu.call_count)
+            self.assertEqual(4, len(swcfgs))
+            for swcfg in swcfgs:
+                self.assertEqual(10, len(swcfg.ifaces))
+                for iface in swcfg.ifaces:
+                    self.assertTrue(iface.portchannel_id)
+                    self.assertEqual(iface.members, [])
