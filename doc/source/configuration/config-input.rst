@@ -206,6 +206,8 @@ in the form::
     CC-NET-EVPN-DHCP-RELAY:10.10.10.10
     CC-NET-EVPN-DHCP-RELAY:10.11.11.11
 
+.. _vlan-to-vni:
+
 L2 Networks VLAN to VNI mapping
 ##################################
 Netbox does not yet support a model for overlay network VNIs, the following conventions are used:
@@ -243,38 +245,12 @@ This does also include Leaf to Spine links, which are necessary for diagnostic t
 
 Link Aggregation Groups
 ########################
-There are two types Link Aggregation Groups (LAGs)), static which are defined in Netbox as LAG
-with member interfaces and dynamic which are defined via CCloud port groups self service.
-
-To ensure LAG definitions do not conflict, the id range is distinct for 
-both use cases as follows.
-
-.. list-table:: LAG Ranges
-   :widths: 25 25 50
-   :header-rows: 1
-
-   * - Port-Channel ID
-     - Type
-     - Usage
-   * - 1
-     - Static
-     - MLAG or vPC peer link
-   * - 2-3
-     - Static
-     - reserved for admin switch connectivity
-   * - 4-9
-     - Static
-     - reserved for future use
-   * - 10-99
-     - Static
-     - reserved for non-driver controlled Port-channels
-   * - 100-999
-     - Dynamic
-     - reserved for driver controlled Port-channels
-
-Static LAGs must be defined in Netbox by creating a new interface of type *LAG*, the interface must be *enabled*. A LAG interface's
+LAGs must be defined in Netbox by creating a new interface of type *LAG*, the interface must be *enabled*. A LAG interface's
 name must exact-match the full name in the vendor specific configuration, i.e *Port-Channel* for Arista EOS, *Port-channel* for Cisco NXOS.
 All member interfaces must be made a member of the LAG interface in Netbox.
+
+The driver will assemble all lags that are known to it in its config. Within CCloud we must follow this convention
+which is not policy enforced at the moment. However the netbox modeller will generate LAG-ids based on this.
 
 LAGs can either have ports only on one leaf or be spanned across two leaves (MLAG/vPC).
 The following convention will be used to distinguish the two 
@@ -282,6 +258,34 @@ variants::
 
     port-channel100 defined on device 1110a only: a regular port-channel will be configured
     port-channel100 defined on device 1110a AND 1110b: a MLAG/vPC will be configured
+
+.. _LAG Ranges:
+.. list-table:: LAG Ranges
+   :widths: 25 50
+   :header-rows: 1
+
+   * - Port-Channel ID
+     - Usage
+   * - 1
+     - MLAG or vPC peer link
+   * - 2-3
+     - reserved for admin switch connectivity
+   * - 4-9
+     - reserved for future use
+   * - 10-99
+     - reserved for non-driver controlled Port-channels
+   * - 100-999
+     - reserved for driver controlled Port-channels
+
+Netbox Modeller LAG ID Generation
+----------------------------------------
+Driver controlled and hence netbox modeller generated LAGs have the ID space from 100-999.
+We will generate the id based on the `interface index` and the `slot number`. `slot number` refers to either the
+number of the linecard or the number of the interface that is broken out (if breakout cables are used). Interface index
+refers to interface number within that linecard or breakout group. We will never form LAGs over multiple breakouts
+or linecards. If multiple interfaces are used, the lowest `interface index` will be used.
+The LAG ID will then be calculated using `slot_number * 100 + interface_index`.
+
 
 
 Infrastructure Network Assignment
