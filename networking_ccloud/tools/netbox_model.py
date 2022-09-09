@@ -223,7 +223,8 @@ class CCFabricNetboxModeller():
         if vgroup:
             print(f'VLAN group cc-vpod{bb:03d} exists')
             return vgroup
-        vgroup = {'name': f'CC-vPOD{bb:03d}', 'slug': f'cc-vpod{bb:03d}', 'site': site.id}
+        vgroup = {'name': f'CC-vPOD{bb:03d}', 'slug': f'cc-vpod{bb:03d}',
+                  'scope_type': 'dcim.site', 'scope_id': site.id}
         print(f'Creating VLAN group {vgroup}')
         if self.dry_run:
             return vgroup
