@@ -278,6 +278,12 @@ class CCFabricNetboxModeller():
                 # FIXME: take care of dangling prefix
                 prefix = self.api.ipam.prefixes.get(vrf_id=self.CC_MGMT_VRF.id, tenant_id=self.CC_TENANT.id,
                                                     site_id=site.id, vlan_id=vlan_id, prefix=desired_prefix)
+                if not prefix:
+                    prefix = self.api.ipam.prefixes.get(vrf_id=self.CC_MGMT_VRF.id, tenant_id=self.CC_TENANT.id,
+                                                        site_id=site.id, prefix=desired_prefix)
+                    print(f'Prefix on incorrect VLAN, found on {prefix.vlan.id}, correcting.')
+                    prefix.vlan = vlan_id
+                    prefix.save()
             if not prefix:
                 vlan_role = vlan.role.id if isinstance(vlan, NbRecord) else vlan['role']  # type: ignore
                 prefix = {
