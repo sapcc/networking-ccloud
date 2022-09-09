@@ -116,7 +116,7 @@ class ConfigGenerator:
         'cc-k8s-controlplane': apod_metagroup_handler,
         'cc-vsphere-apod-mgmt': noop_metagroup_handler,
         'cc-vsphere-apod-pool': noop_metagroup_handler
-        }
+    }
 
     def __init__(self, region, args, verbose=False, verify_ssl=False):
         self.region = region
