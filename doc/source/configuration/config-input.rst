@@ -225,7 +225,7 @@ Netbox does not yet support a model for overlay network VNIs, the following conv
 ||                    || V=Local VLAN id 3-Digit with leading zeros.              |
 ||                    || i.e Vlan 100 in vPOD 371 -> VNI=10371100                 |
 +---------------------+-----------------------------------------------------------+
-| Tenant              | CCloud platform driver should use range 10000 - 99999     |
+| Tenant              | CCloud platform driver should use range 10000 - 65535     |
 +---------------------+-----------------------------------------------------------+
 
 
