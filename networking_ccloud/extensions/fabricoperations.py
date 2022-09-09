@@ -250,6 +250,33 @@ class SwitchesController(wsgi.Controller):
             raise nl_exc.ObjectNotFound(id=switch_name)
 
     @check_cloud_admin
+    def create_all_portchannels(self, request, **kwargs):
+        scul = agent_msg.SwitchConfigUpdateList(agent_msg.OperationEnum.add, self.drv_conf)
+
+        for hg in self.drv_conf.hostgroups:
+            if hg.metagroup:
+                continue
+            for switchport in hg.members:
+                if not switchport.lacp:
+                    continue
+                cfg_switch = scul.get_or_create_switch(switchport.switch)
+                cfg_iface = cfg_switch.get_or_create_iface_from_switchport(switchport)
+                # clear members, as they would cause a reference error on first config
+                cfg_iface.members = []
+
+        try:
+            config_generated = scul.execute(request.context)
+        except RemoteError as e:
+            raise web_exc.HTTPInternalServerError(f"{e.exc_type} {e.value}")
+        return {'sync_sent': config_generated}
+
+    @check_cloud_admin
+    def update(self, request, **kwargs):
+        if kwargs['id'] == 'create_all_portchannels':
+            return self.create_all_portchannels(request, **kwargs)
+        raise web_exc.HTTPNotFound()
+
+    @check_cloud_admin
     def index(self, request, **kwargs):
         switches = [self._make_switch_dict(switch, sg) for sg in self.drv_conf.switchgroups for switch in sg.members]
 
