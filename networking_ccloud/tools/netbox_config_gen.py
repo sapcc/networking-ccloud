@@ -276,8 +276,9 @@ class ConfigGenerator:
                                           f'interface\'s address {gateway.address} address does not reside in the '
                                           'vlan\'s assigned prefix')
                 if not gateway.vrf or gateway.vrf.name != self.infra_network_vrf:
-                    raise ConfigException(f'Gateway address with ID {gateway.id} does not reside in VRF'
-                                          f'{gateway.vrf} but must for InfraNetwork')
+                    raise ConfigException(f'Gateway address {gateway} with ID {gateway.id} does not reside in VRF '
+                                          f'{self.infra_network_vrf} but must for InfraNetwork '
+                                          f'(current VRF {gateway.vrf})')
                 networks.append(gateway.address)
                 nb_parent_prefix = self.netbox.ipam.prefixes.get(contains=prefix.with_prefixlen,
                                                                  vrf_id=nb_prefix.vrf.id,
