@@ -16,7 +16,7 @@
     <script src="../_static/doctools.js"></script>
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
-    <link rel="next" title="Networking CCloud VXLAN Fabric service installation guide" href="../install/index.html" />
+    <link rel="next" title="Numerical Attributes" href="numerical-attributes.html" />
     <link rel="prev" title="CC-Fabric ML2 Driver Internals" href="driver.html" />
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <!-- Bootstrap CSS -->
@@ -108,7 +108,7 @@ ga('send', 'pageview');
     <a href="driver.html"><i class="fa fa-angle-double-left" data-toggle="tooltip" data-placement="top" title="Previous: CC-Fabric ML2 Driver Internals"></i></a>
     
     
-    <a href="../install/index.html"><i class="fa fa-angle-double-right" data-toggle="tooltip" data-placement="top" title="Next: Networking CCloud VXLAN Fabric service installation guide"></i></a>
+    <a href="numerical-attributes.html"><i class="fa fa-angle-double-right" data-toggle="tooltip" data-placement="top" title="Next: Numerical Attributes"></i></a>
     
   </div>
 </div>
@@ -511,9 +511,9 @@ Regional networks are expected to not have an AZ hint set.</p>
 
 <span class="n">router</span> <span class="n">bgp</span> <span class="mf">65130.1112</span>
   <span class="n">vlan</span> <span class="mi">3150</span>
-      <span class="n">rd</span> <span class="mf">65130.1112</span><span class="p">:</span><span class="mi">10394</span>
-      <span class="n">route</span><span class="o">-</span><span class="n">target</span> <span class="n">export</span> <span class="mf">65130.1</span><span class="p">:</span><span class="mi">10394</span>
-      <span class="n">route</span><span class="o">-</span><span class="n">target</span> <span class="kn">import</span> <span class="mf">65130.1</span><span class="p">:</span><span class="mi">10394</span>
+      <span class="n">rd</span> <span class="mi">1112</span><span class="p">:</span><span class="mi">10394</span>
+      <span class="n">route</span><span class="o">-</span><span class="n">target</span> <span class="n">export</span> <span class="mi">1</span><span class="p">:</span><span class="mi">10394</span>
+      <span class="n">route</span><span class="o">-</span><span class="n">target</span> <span class="kn">import</span> <span class="mi">1</span><span class="p">:</span><span class="mi">10394</span>
       <span class="n">redistribute</span> <span class="n">learned</span>
       <span class="n">redistribute</span> <span class="n">static</span>
 </pre></div>
@@ -531,9 +531,9 @@ Regional networks are expected to not have an AZ hint set.</p>
 <span class="n">router</span> <span class="n">bgp</span> <span class="mf">65130.1103</span>
    <span class="n">evpn</span>
       <span class="n">vni</span> <span class="mi">10394</span> <span class="n">l2</span>
-         <span class="n">rd</span> <span class="mf">65130.1103</span><span class="p">:</span><span class="mi">10394</span>
-         <span class="n">route</span><span class="o">-</span><span class="n">target</span> <span class="n">export</span> <span class="mf">65130.1</span><span class="p">:</span><span class="mi">10394</span>
-         <span class="n">route</span><span class="o">-</span><span class="n">target</span> <span class="kn">import</span> <span class="mf">65130.1</span><span class="p">:</span><span class="mi">10394</span>
+         <span class="n">rd</span> <span class="mi">1103</span><span class="p">:</span><span class="mi">10394</span>
+         <span class="n">route</span><span class="o">-</span><span class="n">target</span> <span class="n">export</span> <span class="mi">1</span><span class="p">:</span><span class="mi">10394</span>
+         <span class="n">route</span><span class="o">-</span><span class="n">target</span> <span class="kn">import</span> <span class="mi">1</span><span class="p">:</span><span class="mi">10394</span>
 </pre></div>
 </div>
 </section>
@@ -690,53 +690,153 @@ to tag a prefix as a supernet that should be announced towards upstream routers:
 </section>
 <section id="id3">
 <h4>On Device configuration<a class="headerlink" href="#id3" title="Permalink to this heading">¶</a></h4>
+<p>All examples use CC-CLOUD02 and availability-zone A as examples.</p>
+<p>For the prefixes that need to be redistributed into BGP there are the following combinations:</p>
+<table class="docutils align-default" id="id9">
+<caption><span class="caption-text">BGP prefix properties</span><a class="headerlink" href="#id9" title="Permalink to this table">¶</a></caption>
+<colgroup>
+<col style="width: 10.0%" />
+<col style="width: 10.0%" />
+<col style="width: 40.0%" />
+<col style="width: 40.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>az-local</p></th>
+<th class="head"><p>is supernet (exported net)</p></th>
+<th class="head"><p>config EOS</p></th>
+<th class="head"><p>config NXOS</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>False</p></td>
+<td><p>False</p></td>
+<td><ul class="simple">
+<li><p>entry in <cite>PL-CC-CLOUD02</cite></p></li>
+<li><p><cite>aggregate-address &lt;supernet&gt; attribute-map RM-CC-CLOUD02-AGGREGATE</cite></p></li>
+</ul>
+</td>
+<td><ul class="simple">
+<li><p><cite>network &lt;prefix&gt; route-map RM-CC-CLOUD02`</cite></p></li>
+<li><p><cite>aggregate-address  &lt;supernet&gt;  attribute-map RM-CC-CLOUD02-AGGREGATE</cite></p></li>
+</ul>
+</td>
+</tr>
+<tr class="row-odd"><td><p>True</p></td>
+<td><p>False</p></td>
+<td><ul class="simple">
+<li><p>entry in <cite>PL-CC-CLOUD02-A</cite></p></li>
+<li><p><cite>aggregate-address &lt;supernet&gt; attribute-mapRM-CC-CLOUD02-A-AGGREGATE</cite></p></li>
+</ul>
+</td>
+<td><ul class="simple">
+<li><p><cite>network &lt;prefix&gt; route-map RM-CC-CLOUD02-A`</cite></p></li>
+<li><p><cite>aggregate-address  &lt;supernet&gt;  attribute-map RM-CC-CLOUD02-A-AGGREGATE</cite></p></li>
+</ul>
+</td>
+</tr>
+<tr class="row-even"><td><p>False</p></td>
+<td><p>True</p></td>
+<td><ul class="simple">
+<li><p>entry in <cite>PL-CC-CLOUD02-AGGREGATE</cite></p></li>
+</ul>
+</td>
+<td><ul class="simple">
+<li><p><cite>network &lt;prefix&gt; route-map RM-CC-CLOUD02-AGGREGATE`</cite></p></li>
+</ul>
+</td>
+</tr>
+<tr class="row-odd"><td><p>True</p></td>
+<td><p>True</p></td>
+<td><ul class="simple">
+<li><p>entry in <cite>PL-CC-CLOUD02-A-AGGREGATE</cite></p></li>
+</ul>
+</td>
+<td><ul class="simple">
+<li><p><cite>network &lt;prefix&gt; route-map RM-CC-CLOUD02-AGGREGATE`</cite></p></li>
+</ul>
+</td>
+</tr>
+</tbody>
+</table>
 <p><strong>EOS</strong>:</p>
-<div class="highlight-default notranslate"><div class="highlight"><pre><span></span>route-map RM-CC-CLOUD02
-   set extcommunity rt 65130:102
+<p>We assume the following L3 related config to be preconfigured on each device, example for AZ A, regional ASN 65130, VRF CC-CLOUD02:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">vrf</span> <span class="n">instance</span> <span class="n">CC</span><span class="o">-</span><span class="n">CLOUD02</span>
 
-route-map RM-CC-CLOUD02-AGGREGATE
-   set extcommunity rt 65130:102
-   set community 65101:1
+<span class="n">ip</span> <span class="n">routing</span> <span class="n">vrf</span> <span class="n">CC</span><span class="o">-</span><span class="n">CLOUD02</span>
 
-route-map RM-CC-CLOUD02-A
+<span class="n">route</span><span class="o">-</span><span class="nb">map</span> <span class="n">RM</span><span class="o">-</span><span class="n">CC</span><span class="o">-</span><span class="n">CLOUD02</span><span class="o">-</span><span class="n">REDIST</span> <span class="n">permit</span> <span class="mi">10</span>
+  <span class="k">match</span> <span class="n">ip</span> <span class="n">address</span> <span class="n">prefix</span><span class="o">-</span><span class="nb">list</span> <span class="n">PL</span><span class="o">-</span><span class="n">CC</span><span class="o">-</span><span class="n">CLOUD02</span>
+  <span class="nb">set</span> <span class="n">extcommunity</span> <span class="n">rt</span> <span class="mi">65130</span><span class="p">:</span><span class="mi">102</span>
+<span class="n">route</span><span class="o">-</span><span class="nb">map</span> <span class="n">RM</span><span class="o">-</span><span class="n">CC</span><span class="o">-</span><span class="n">CLOUD02</span><span class="o">-</span><span class="n">REDIST</span> <span class="n">permit</span> <span class="mi">20</span>
+  <span class="k">match</span> <span class="n">ip</span> <span class="n">address</span> <span class="n">prefix</span><span class="o">-</span><span class="nb">list</span> <span class="n">PL</span><span class="o">-</span><span class="n">CC</span><span class="o">-</span><span class="n">CLOUD02</span><span class="o">-</span><span class="n">A</span>
+  <span class="nb">set</span> <span class="n">extcommunity</span> <span class="n">rt</span> <span class="mi">65130</span><span class="p">:</span><span class="mi">1102</span>
+<span class="n">route</span><span class="o">-</span><span class="nb">map</span> <span class="n">RM</span><span class="o">-</span><span class="n">CC</span><span class="o">-</span><span class="n">CLOUD02</span><span class="o">-</span><span class="n">REDIST</span> <span class="n">permit</span> <span class="mi">30</span>
+  <span class="k">match</span> <span class="n">ip</span> <span class="n">address</span> <span class="n">prefix</span><span class="o">-</span><span class="nb">list</span> <span class="n">PL</span><span class="o">-</span><span class="n">CC</span><span class="o">-</span><span class="n">CLOUD02</span><span class="o">-</span><span class="n">AGGREGATE</span>
+  <span class="nb">set</span> <span class="n">community</span> <span class="mi">65130</span><span class="p">:</span><span class="mi">1</span>
+  <span class="nb">set</span> <span class="n">extcommunity</span> <span class="n">rt</span> <span class="mi">65130</span><span class="p">:</span><span class="mi">102</span>
+<span class="n">route</span><span class="o">-</span><span class="nb">map</span> <span class="n">RM</span><span class="o">-</span><span class="n">CC</span><span class="o">-</span><span class="n">CLOUD02</span><span class="o">-</span><span class="n">REDIST</span> <span class="n">permit</span> <span class="mi">40</span>
+  <span class="k">match</span> <span class="n">ip</span> <span class="n">address</span> <span class="n">prefix</span><span class="o">-</span><span class="nb">list</span> <span class="n">PL</span><span class="o">-</span><span class="n">CC</span><span class="o">-</span><span class="n">CLOUD02</span><span class="o">-</span><span class="n">A</span><span class="o">-</span><span class="n">AGGREGATE</span>
+  <span class="nb">set</span> <span class="n">community</span> <span class="mi">65130</span><span class="p">:</span><span class="mi">1</span>
+  <span class="nb">set</span> <span class="n">extcommunity</span> <span class="n">rt</span> <span class="mi">65130</span><span class="p">:</span><span class="mi">1102</span>
 
-route-map RM-CC-CLOUD02-A-AGGREGATE
-   set extcommunity rt 65130:1102
-   set community 65101:1
+<span class="n">route</span><span class="o">-</span><span class="nb">map</span> <span class="n">RM</span><span class="o">-</span><span class="n">CC</span><span class="o">-</span><span class="n">CLOUD02</span><span class="o">-</span><span class="n">AGGREGATE</span> <span class="n">permit</span> <span class="mi">10</span>
+  <span class="nb">set</span> <span class="n">community</span> <span class="mi">65130</span><span class="p">:</span><span class="mi">1</span>
+  <span class="nb">set</span> <span class="n">extcommunity</span> <span class="n">rt</span> <span class="mi">65130</span><span class="p">:</span><span class="mi">102</span>
 
-vrf instance CC-CLOUD02
+<span class="n">route</span><span class="o">-</span><span class="nb">map</span> <span class="n">RM</span><span class="o">-</span><span class="n">CC</span><span class="o">-</span><span class="n">CLOUD02</span><span class="o">-</span><span class="n">A</span><span class="o">-</span><span class="n">AGGREGATE</span> <span class="n">permit</span> <span class="mi">10</span>
+  <span class="nb">set</span> <span class="n">community</span> <span class="mi">65130</span><span class="p">:</span><span class="mi">1</span>
+  <span class="nb">set</span> <span class="n">extcommunity</span> <span class="n">rt</span> <span class="mi">65130</span><span class="p">:</span><span class="mi">1102</span>
 
-ip routing vrf CC-CLOUD02
+ <span class="n">interface</span> <span class="n">vxlan1</span>
+    <span class="n">vxlan</span> <span class="n">vrf</span> <span class="n">CC</span><span class="o">-</span><span class="n">CLOUD02</span> <span class="n">vni</span> <span class="mi">102</span>
 
-interface vlan 3150
-   description aeec9fd4-30f7-4398-8554-34acb36b7712
-   vrf CC-CLOUD02
-   ip address virtual 10.47.8.193/27
-   ip address virtual 10.47.10.1/24 secondary
+ <span class="n">router</span> <span class="n">bgp</span> <span class="mf">65130.1103</span>
+    <span class="n">vrf</span> <span class="n">CC</span><span class="o">-</span><span class="n">CLOUD02</span>
+       <span class="n">rd</span> <span class="mf">65130.1103</span><span class="p">:</span><span class="mi">102</span>
+       <span class="n">route</span><span class="o">-</span><span class="n">target</span> <span class="n">export</span> <span class="n">evpn</span> <span class="mi">65130</span><span class="p">:</span><span class="mi">1102</span>
+       <span class="n">route</span><span class="o">-</span><span class="n">target</span> <span class="kn">import</span> <span class="nn">evpn</span> <span class="mi">65130</span><span class="p">:</span><span class="mi">102</span>
+       <span class="n">route</span><span class="o">-</span><span class="n">target</span> <span class="kn">import</span> <span class="nn">evpn</span> <span class="mi">65130</span><span class="p">:</span><span class="mi">1102</span>
+       <span class="n">route</span><span class="o">-</span><span class="n">target</span> <span class="kn">import</span> <span class="nn">evpn</span> <span class="mi">65130</span><span class="p">:</span><span class="mi">2102</span>
+       <span class="n">route</span><span class="o">-</span><span class="n">target</span> <span class="kn">import</span> <span class="nn">evpn</span> <span class="mi">65130</span><span class="p">:</span><span class="mi">4102</span>
+       <span class="n">redistribute</span> <span class="n">connected</span> <span class="n">route</span><span class="o">-</span><span class="nb">map</span> <span class="n">RM</span><span class="o">-</span><span class="n">CC</span><span class="o">-</span><span class="n">CLOUD02</span><span class="o">-</span><span class="n">REDIST</span>
+       <span class="n">redistribute</span> <span class="n">static</span> <span class="n">route</span><span class="o">-</span><span class="nb">map</span> <span class="n">RM</span><span class="o">-</span><span class="n">CC</span><span class="o">-</span><span class="n">CLOUD02</span><span class="o">-</span><span class="n">REDIST</span>
+</pre></div>
+</div>
+<p>Driver controlled configuration:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="c1"># The driver assumes full control over these prefix-lists</span>
+<span class="c1"># any prefix unknown to the driver will be removed.</span>
 
-interface vlan 3200
-   description fce02a86-525c-49c9-a6cd-bf472881a83f
-   vrf CC-CLOUD02
-   ip address virtual 10.47.20.1/25
+<span class="n">ip</span> <span class="n">prefix</span><span class="o">-</span><span class="nb">list</span> <span class="n">PL</span><span class="o">-</span><span class="n">CC</span><span class="o">-</span><span class="n">CLOUD02</span>
+  <span class="n">seq</span> <span class="mi">10</span> <span class="n">permit</span> <span class="mf">10.47.8.192</span><span class="o">/</span><span class="mi">27</span> <span class="n">eq</span> <span class="mi">27</span>
 
-interface vxlan1
-   vxlan vlan 3150 vni 10394
-   vxlan vlan 3200 vni 10400
-   vxlan vrf CC-CLOUD02 vni 102
-!
-router bgp 65130.1103
-   vrf CC-CLOUD02
-      rd 65130.1103:102
-      route-target export evpn 65130:1102
-      route-target import evpn 65130:102
-      route-target import evpn 65130:1102
-      route-target import evpn 65130:2102
-      route-target import evpn 65130:4102
-      aggregate-address 10.47.8.0/24 attribute-map RM-CC-CLOUD02-AGGREGATE
-      aggregate-address 10.47.20.0/24 attribute-map RM-CC-CLOUD02-A-AGGREGATE
-      network 10.47.8.192/27 route-map RM-CC-CLOUD02
-      network 10.47.20.0/25 route-map RM-CC-CLOUD02-A
-      network 10.47.10.0/24 route-map RM-CC-CLOUD02-AGGREGATE
+<span class="n">ip</span> <span class="n">prefix</span><span class="o">-</span><span class="nb">list</span> <span class="n">PL</span><span class="o">-</span><span class="n">CC</span><span class="o">-</span><span class="n">CLOUD02</span><span class="o">-</span><span class="n">A</span>
+  <span class="n">seq</span> <span class="mi">10</span> <span class="n">permit</span> <span class="mf">10.47.20.0</span><span class="o">/</span><span class="mi">25</span> <span class="n">eq</span> <span class="mi">25</span>
+
+<span class="n">ip</span> <span class="n">prefix</span><span class="o">-</span><span class="nb">list</span> <span class="n">PL</span><span class="o">-</span><span class="n">CC</span><span class="o">-</span><span class="n">CLOUD02</span><span class="o">-</span><span class="n">AGGREGATE</span>
+  <span class="n">seq</span> <span class="mi">10</span> <span class="n">permit</span> <span class="mf">10.47.10.0</span><span class="o">/</span><span class="mi">24</span> <span class="n">eq</span> <span class="mi">24</span>
+
+<span class="n">ip</span> <span class="n">prefix</span><span class="o">-</span><span class="nb">list</span> <span class="n">PL</span><span class="o">-</span><span class="n">CC</span><span class="o">-</span><span class="n">CLOUD02</span><span class="o">-</span><span class="n">A</span><span class="o">-</span><span class="n">AGGREGATE</span>
+
+ <span class="n">interface</span> <span class="n">vlan</span> <span class="mi">3150</span>
+    <span class="n">description</span> <span class="n">aeec9fd4</span><span class="o">-</span><span class="mi">30</span><span class="n">f7</span><span class="o">-</span><span class="mi">4398</span><span class="o">-</span><span class="mi">8554</span><span class="o">-</span><span class="mi">34</span><span class="n">acb36b7712</span>
+    <span class="n">vrf</span> <span class="n">CC</span><span class="o">-</span><span class="n">CLOUD02</span>
+    <span class="n">ip</span> <span class="n">address</span> <span class="n">virtual</span> <span class="mf">10.47.8.193</span><span class="o">/</span><span class="mi">27</span>
+    <span class="n">ip</span> <span class="n">address</span> <span class="n">virtual</span> <span class="mf">10.47.10.1</span><span class="o">/</span><span class="mi">24</span> <span class="n">secondary</span>
+
+ <span class="n">interface</span> <span class="n">vlan</span> <span class="mi">3200</span>
+    <span class="n">description</span> <span class="n">fce02a86</span><span class="o">-</span><span class="mi">525</span><span class="n">c</span><span class="o">-</span><span class="mi">49</span><span class="n">c9</span><span class="o">-</span><span class="n">a6cd</span><span class="o">-</span><span class="n">bf472881a83f</span>
+    <span class="n">vrf</span> <span class="n">CC</span><span class="o">-</span><span class="n">CLOUD02</span>
+    <span class="n">ip</span> <span class="n">address</span> <span class="n">virtual</span> <span class="mf">10.47.20.1</span><span class="o">/</span><span class="mi">25</span>
+
+ <span class="n">interface</span> <span class="n">vxlan1</span>
+    <span class="n">vxlan</span> <span class="n">vrf</span> <span class="n">CC</span><span class="o">-</span><span class="n">CLOUD02</span> <span class="n">vni</span> <span class="mi">102</span>
+
+ <span class="n">router</span> <span class="n">bgp</span> <span class="mf">65130.1103</span>
+    <span class="n">vrf</span> <span class="n">CC</span><span class="o">-</span><span class="n">CLOUD02</span>
+       <span class="c1"># The driver assumes full control over aggregate address statements,</span>
+       <span class="c1"># any aggregate statement not known to the driver will be removed</span>
+       <span class="n">aggregate</span><span class="o">-</span><span class="n">address</span> <span class="mf">10.47.8.0</span><span class="o">/</span><span class="mi">24</span> <span class="n">attribute</span><span class="o">-</span><span class="nb">map</span> <span class="n">RM</span><span class="o">-</span><span class="n">CC</span><span class="o">-</span><span class="n">CLOUD02</span><span class="o">-</span><span class="n">A</span><span class="o">-</span><span class="n">AGGREGATE</span>
+       <span class="n">aggregate</span><span class="o">-</span><span class="n">address</span> <span class="mf">10.47.20.0</span><span class="o">/</span><span class="mi">24</span> <span class="n">attribute</span><span class="o">-</span><span class="nb">map</span> <span class="n">RM</span><span class="o">-</span><span class="n">CC</span><span class="o">-</span><span class="n">CLOUD02</span><span class="o">-</span><span class="n">AGGREGATE</span>
 </pre></div>
 </div>
 <p><strong>NX-OS</strong>:</p>
@@ -1185,8 +1285,8 @@ interface Port-Channel201
 </section>
 <section id="scaling-limits">
 <h2>Scaling Limits<a class="headerlink" href="#scaling-limits" title="Permalink to this heading">¶</a></h2>
-<table class="docutils align-default" id="id9">
-<caption><span class="caption-text">Relevant Device Scaling Limits</span><a class="headerlink" href="#id9" title="Permalink to this table">¶</a></caption>
+<table class="docutils align-default" id="id10">
+<caption><span class="caption-text">Relevant Device Scaling Limits</span><a class="headerlink" href="#id10" title="Permalink to this table">¶</a></caption>
 <colgroup>
 <col style="width: 33.3%" />
 <col style="width: 33.3%" />
@@ -1237,11 +1337,11 @@ interface Port-Channel201
             <a href="driver.html"><i class="fa fa-angle-double-left" data-toggle="tooltip" data-placement="top" title="Previous: CC-Fabric ML2 Driver Internals"></i></a>
           
           
-            <a href="../install/index.html"><i class="fa fa-angle-double-right" data-toggle="tooltip" data-placement="top" title="Next: Networking CCloud VXLAN Fabric service installation guide"></i></a>
+            <a href="numerical-attributes.html"><i class="fa fa-angle-double-right" data-toggle="tooltip" data-placement="top" title="Next: Numerical Attributes"></i></a>
           
           </div>
           <div class="row docs-byline bottom">
-            <div class="docs-updated">this page last updated: 2022-09-08 16:10:13</div>
+            <div class="docs-updated">this page last updated: 2022-09-09 13:54:17</div>
           </div>
           <div class="row">
             <div class="col-lg-8 col-md-8 col-sm-8 docs-license">
@@ -1268,6 +1368,7 @@ interface Port-Channel201
 <li class="toctree-l2"><a class="reference internal" href="overview.html">Overview</a></li>
 <li class="toctree-l2"><a class="reference internal" href="driver.html">CC-Fabric ML2 Driver Internals</a></li>
 <li class="toctree-l2 current"><a class="current reference internal" href="#">Device Config</a></li>
+<li class="toctree-l2"><a class="reference internal" href="numerical-attributes.html">Numerical Attributes</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="../install/index.html">Networking CCloud VXLAN Fabric service installation guide</a></li>

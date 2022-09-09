@@ -10,3 +10,4 @@ Architecture of networking-ccloud.
     overview.rst
     driver.rst
     switch-config.rst
+    numerical-attributes.rst
