@@ -358,10 +358,13 @@ class ConfigGenerator:
         return site_asns.pop()
 
     def make_switch(self, asn_region: int, switch: NbRecord, user: str, password: str) -> conf.Switch:
-        # use nb primary address for now, later this is probably going to be loopback10
-        if not switch.primary_ip:
-            raise ConfigSchemeException(f"Device {switch.name} does not have a usable primary address")
-        host_ip = switch.primary_ip.address.split("/")[0]
+        # get primary ip from Loopback10
+        lo10_addr = list(self.netbox.ipam.ip_addresses.filter(interface="Loopback10", device_id=switch.id))
+        if len(lo10_addr) == 0:
+            raise ConfigException(f"Device {switch.name} has no IP on Loopback10!")
+        if len(lo10_addr) > 1:
+            raise ConfigException(f"Device {switch.name} has multiple IPs on Loopback10! {lo10_addr}")
+        host_ip = lo10_addr[0].address.split("/")[0]
 
         numbered_resources = self.parse_ccloud_switch_number_resources(switch.name)
         l3_data = self.get_l3_data(asn_region, **numbered_resources)
