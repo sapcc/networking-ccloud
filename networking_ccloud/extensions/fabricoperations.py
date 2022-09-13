@@ -70,11 +70,12 @@ class Fabricoperations(api_extensions.APIExtensionDescriptor):
     api_definition = FabricAPIDefinition
 
     @classmethod
-    def _add_controller(cls, endpoints, ctrl, path, parent=None, path_prefix='cc-fabric'):
+    def _add_controller(cls, endpoints, ctrl, path, parent=None, path_prefix='/cc-fabric'):
         member_actions = getattr(ctrl, "MEMBER_ACTIONS", None)
+        collection_actions = getattr(ctrl, "COLLECTION_ACTIONS", None)
         res = Resource(ctrl, faults.FAULT_MAP)
         ep = extensions.ResourceExtension(path, res, parent=parent, path_prefix=path_prefix,
-                                          member_actions=member_actions)
+                                          member_actions=member_actions, collection_actions=collection_actions)
         endpoints.append(ep)
 
     @classmethod
@@ -230,6 +231,7 @@ class FabricNetworksController(wsgi.Controller):
 class SwitchesController(wsgi.Controller):
     """List and show Switches from config"""
     MEMBER_ACTIONS = {'diff': 'GET', 'sync': 'PUT', 'sync_infra_networks': 'PUT', 'config': 'GET', 'os_config': 'GET'}
+    COLLECTION_ACTIONS = {'create_all_portchannels': 'PUT'}
 
     def __init__(self, fabric_plugin):
         super().__init__()
@@ -269,12 +271,6 @@ class SwitchesController(wsgi.Controller):
         except RemoteError as e:
             raise web_exc.HTTPInternalServerError(f"{e.exc_type} {e.value}")
         return {'sync_sent': config_generated}
-
-    @check_cloud_admin
-    def update(self, request, **kwargs):
-        if kwargs['id'] == 'create_all_portchannels':
-            return self.create_all_portchannels(request, **kwargs)
-        raise web_exc.HTTPNotFound()
 
     @check_cloud_admin
     def index(self, request, **kwargs):
