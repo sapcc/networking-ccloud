@@ -589,25 +589,27 @@ We assume the following L3 related config to be preconfigured on each device, ex
 
   route-map RM-CC-CLOUD02-REDIST permit 10
     match ip address prefix-list PL-CC-CLOUD02
+    set community 65130:102
     set extcommunity rt 65130:102
   route-map RM-CC-CLOUD02-REDIST permit 20
     match ip address prefix-list PL-CC-CLOUD02-A
+    set community 65130:1102
     set extcommunity rt 65130:1102
   route-map RM-CC-CLOUD02-REDIST permit 30
     match ip address prefix-list PL-CC-CLOUD02-AGGREGATE
-    set community 65130:1
+    set community 65130:1 65130:102
     set extcommunity rt 65130:102
   route-map RM-CC-CLOUD02-REDIST permit 40
     match ip address prefix-list PL-CC-CLOUD02-A-AGGREGATE
-    set community 65130:1
+    set community 65130:1 65130:1102
     set extcommunity rt 65130:1102
 
   route-map RM-CC-CLOUD02-AGGREGATE permit 10
-    set community 65130:1
+    set community 65130:1 65130:102
     set extcommunity rt 65130:102
 
   route-map RM-CC-CLOUD02-A-AGGREGATE permit 10
-    set community 65130:1
+    set community 65130:1 65130:1102
     set extcommunity rt 65130:1102
 
    interface vxlan1
