@@ -18,20 +18,19 @@ from neutron.agent import rpc as agent_rpc
 from neutron.common import config as common_config
 from neutron.conf.agent.common import register_agent_state_opts_helper
 from neutron import manager
-from neutron import service as neutron_service
 from neutron_lib.agent import constants as agent_consts
 from neutron_lib.agent import topics
 from neutron_lib import context
 from oslo_config import cfg
 from oslo_log import log as logging
 from oslo_service import loopingcall
-from oslo_service import service
 
 from networking_ccloud.common.config import get_driver_config
 from networking_ccloud.common import constants as cc_const
 from networking_ccloud.common import exceptions as cc_exc
 from networking_ccloud.ml2.agent.common import api as cc_agent_api
 from networking_ccloud.ml2.agent.common import messages as agent_msg
+from networking_ccloud.ml2.agent.common.service import ThreadedService
 
 LOG = logging.getLogger(__name__)
 
@@ -99,19 +98,24 @@ class CCFabricSwitchAgent(manager.Manager, cc_agent_api.CCFabricSwitchAgentAPI):
         return None
 
     def init_host(self):
+        # usually called by neutron.service.Service at begin of start()
         LOG.info("Initializing agent %s with topic %s", self.get_binary_name(), self.get_agent_topic())
         self._init_switches()
 
     def after_start(self):
+        # usually called by neutron.service.Service at end of start()
         LOG.info("Agent started")
         LOG.debug("debugging on")
 
     def stop(self):
+        # usually called by neutron.service.Service at end of stop()
         LOG.info("Agent shutting down")
 
-    def initialize_service_hook(self, service):
-        LOG.info("Service hook initialized from %s!", service)
-        LOG.info("Hosts are %s", service.conn.servers[0]._target)
+    def initialize_rpc_hook(self, conn):
+        # this is a method called in
+        # networking_ccloud.ml2.agent.common.rpc.setup_rpc
+        LOG.info("Service hook initialized from %s!", self)
+        LOG.info("Hosts are %s", conn.servers[0]._target)
 
     @classmethod
     def run_agent_main(cls):
@@ -119,14 +123,14 @@ class CCFabricSwitchAgent(manager.Manager, cc_agent_api.CCFabricSwitchAgentAPI):
         common_config.init(sys.argv[1:])
         common_config.setup_logging()
 
-        server = neutron_service.Service.create(
+        server = ThreadedService(
             binary=cls.get_binary_name(),
             topic=cls.get_agent_topic(),
-            report_interval=0,
+            report_interval=cfg.CONF.AGENT.report_interval,
             periodic_interval=10,
             periodic_fuzzy_delay=10,
-            manager=f'{cls.__module__}.{cls.__name__}')
-        service.launch(cfg.CONF, server).wait()
+            manager=cls())
+        server.run()
 
     def _report_state(self):
         try:
