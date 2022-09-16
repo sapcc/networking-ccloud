@@ -20,8 +20,10 @@ LOG = logging.getLogger(__name__)
 
 
 class SwitchBase(abc.ABC):
-    def __init__(self, sw_conf, timeout=20, verify_ssl=False):
+    def __init__(self, sw_conf, asn_region, managed_vlans, timeout=20, verify_ssl=False):
         self.sw_conf = sw_conf
+        self.asn_region = asn_region
+        self.managed_vlans = managed_vlans
         self.name = sw_conf.name
         self.host = sw_conf.host
         self.user = sw_conf.user
