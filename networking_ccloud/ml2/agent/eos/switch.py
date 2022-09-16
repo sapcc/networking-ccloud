@@ -20,7 +20,6 @@ from typing import List, Optional
 from oslo_log import log as logging
 from pygnmi.client import gNMIclient, gNMIException
 
-from networking_ccloud.common.config import get_driver_config
 from networking_ccloud.common import constants as cc_const
 from networking_ccloud.common import exceptions as cc_exc
 from networking_ccloud.ml2.agent.common import messages as agent_msg
@@ -163,10 +162,6 @@ class EOSSwitch(SwitchBase):
 
     CONFIGURE_ORDER = ['vlan', 'vxlan_mapping', 'bgp', 'ifaces']
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.drv_conf = get_driver_config()
-
     @classmethod
     def get_platform(cls):
         return cc_const.PLATFORM_EOS
@@ -226,9 +221,14 @@ class EOSSwitch(SwitchBase):
     def get_vlan_config(self) -> List[agent_msg.Vlan]:
         swdata = self.api.get(EOSGNMIClient.PATHS.VLANS)["openconfig-network-instance:vlan"]
         vlans = [agent_msg.Vlan(vlan=v['vlan-id'], name=v['config']['name'])
-                 for v in swdata]
+                 for v in swdata if v['vlan-id'] in self.managed_vlans]
         vlans.sort()
         return vlans
+
+    def get_all_managed_vlan_ids_on_switch(self):
+        vlans_on_switch = self.api.get(f"{EOSGNMIClient.PATHS.VLANS}/vlan/vlan-id", single=False)
+
+        return set(vlans_on_switch) & set(self.managed_vlans)
 
     def _make_vlan_config(self, config_req: EOSSetConfig, vlans: Optional[List[agent_msg.Vlan]], operation: Op) -> None:
         if vlans is None:
@@ -236,19 +236,28 @@ class EOSSwitch(SwitchBase):
 
         if operation in (Op.add, Op.replace):
             wanted_vlans = []
+            if operation == Op.replace:
+                # remove unwanted vlans
+                vlans_to_remove = self.get_all_managed_vlan_ids_on_switch() - set(v.vlan for v in vlans)
+                for vlan in sorted(vlans_to_remove):
+                    LOG.debug("Removing stale vlan %s from %s (%s) on config replace", vlan, self.name, self.host)
+                    vpath = EOSGNMIClient.PATHS.VLAN.format(vlan=vlan)
+                    config_req.delete.append(vpath)
+
             for vlan in vlans:
                 vcfg = {'vlan-id': vlan.vlan, 'config': {'name': vlan.name, 'vlan-id': vlan.vlan}}
                 wanted_vlans.append(vcfg)
             vlan_cfg = (EOSGNMIClient.PATHS.VLANS, {'vlan': wanted_vlans})
-            config_req.get_list(operation).append(vlan_cfg)
+            config_req.update.append(vlan_cfg)
         else:
             for vlan in vlans:
                 vpath = EOSGNMIClient.PATHS.VLAN.format(vlan=vlan.vlan)
                 config_req.delete.append(vpath)
 
-    def get_vxlan_mappings(self) -> List[agent_msg.VXLANMapping]:
+    def get_vxlan_mappings(self, with_unmanaged=False) -> List[agent_msg.VXLANMapping]:
         swdata = self.api.get(EOSGNMIClient.PATHS.VXMAP)['arista-exp-eos-vxlan:vlan-to-vni']
-        vxlan_maps = [agent_msg.VXLANMapping(vni=v['vni'], vlan=v['vlan']) for v in swdata]
+        vxlan_maps = [agent_msg.VXLANMapping(vni=v['vni'], vlan=v['vlan']) for v in swdata
+                      if with_unmanaged or v['vlan'] in self.managed_vlans]
         vxlan_maps.sort()
         return vxlan_maps
 
@@ -257,22 +266,30 @@ class EOSSwitch(SwitchBase):
         if vxlan_maps is None:
             return
 
-        curr_maps = self.get_vxlan_mappings()
+        curr_maps = self.get_vxlan_mappings(with_unmanaged=True)
         if operation in (Op.add, Op.replace):
-            if operation == Op.add:
-                # delete all mappings for VNIs we want to repurpose, but are used by a different vlan
-                for curr_map in curr_maps:
-                    for os_map in vxlan_maps:
-                        if os_map.vni == curr_map.vni and os_map.vlan != curr_map.vlan:
-                            LOG.warning("Removing stale vxlan map <vlan %s vni %s> in favor of <vlan %s vni %s> "
-                                        "on switch %s (%s)",
-                                        curr_map.vlan, curr_map.vni, os_map.vlan, os_map.vni, self.name, self.host)
-                            del_map = EOSGNMIClient.PATHS.VXMAP_VLAN.format(vlan=curr_map.vlan)
-                            config_req.delete.append(del_map)
+            if operation == Op.replace:
+                # remove all mappings that are managed by us but no longer needed
+                vmaps_to_remove = set(m.vlan for m in curr_maps) - set(m.vlan for m in vxlan_maps)
+                vmaps_to_remove &= self.managed_vlans
+                curr_maps = [m for m in curr_maps if m.vlan not in vmaps_to_remove]
+                for vlan in vmaps_to_remove:
+                    LOG.debug("Removing stale vlan mapping for vlan %s from %s (%s) on config replace",
+                              vlan, self.name, self.host)
+                    config_req.delete.append(EOSGNMIClient.PATHS.VXMAP_VLAN.format(vlan=vlan))
 
-            for vmap in vxlan_maps:
-                mapcfg = (EOSGNMIClient.PATHS.VXMAP, {'vlan-to-vni': [{'vlan': vmap.vlan, 'vni': vmap.vni}]})
-                config_req.get_list(operation).append(mapcfg)
+            # delete all mappings for VNIs we want to repurpose, but are used by a different vlan
+            for curr_map in curr_maps:
+                for os_map in vxlan_maps:
+                    if os_map.vni == curr_map.vni and os_map.vlan != curr_map.vlan:
+                        LOG.warning("Removing stale vxlan map <vlan %s vni %s> in favor of <vlan %s vni %s> "
+                                    "on switch %s (%s)",
+                                    curr_map.vlan, curr_map.vni, os_map.vlan, os_map.vni, self.name, self.host)
+                        del_map = EOSGNMIClient.PATHS.VXMAP_VLAN.format(vlan=curr_map.vlan)
+                        config_req.delete.append(del_map)
+
+            mapcfgs = [{'vlan': vmap.vlan, 'vni': vmap.vni} for vmap in vxlan_maps]
+            config_req.update.append((EOSGNMIClient.PATHS.VXMAP, {'vlan-to-vni': mapcfgs}))
         else:
             # delete vlan mapping only if it has the right vni
             for os_map in vxlan_maps:
@@ -287,7 +304,7 @@ class EOSSwitch(SwitchBase):
                         break
                 else:
                     LOG.warning("VLAN %s not found on switch %s (%s), not deleting it",
-                                curr_map.vlan, self.name, self.host)
+                                os_map.vlan, self.name, self.host)
 
     def get_bgp_vlan_config(self) -> List[agent_msg.BGPVlan]:
         # FIXME: get potential bgw info per device from sysdb (not properly implemented)
@@ -296,6 +313,8 @@ class EOSSwitch(SwitchBase):
         for entry in curr_bgp_vlans:
             if not entry['name'].isdecimal():
                 LOG.warning("Could not match bgp vpn instance name '%s' to a vlan", entry['name'])
+                continue
+            if int(entry['name']) not in self.managed_vlans:
                 continue
 
             # FIXME: what happens if rd is None?
@@ -316,8 +335,7 @@ class EOSSwitch(SwitchBase):
 
     def get_bgp_config(self) -> agent_msg.BGP:
         bgp_asn = self.api.get(f"{EOSGNMIClient.PATHS.PROTO_BGP}/bgp/global/config/as")
-        bgp = agent_msg.BGP(asn=bgp_asn, asn_region=self.drv_conf.global_config.asn_region,
-                            vlans=self.get_bgp_vlan_config())
+        bgp = agent_msg.BGP(asn=bgp_asn, asn_region=self.asn_region, vlans=self.get_bgp_vlan_config())
         return bgp
 
     def _make_bgp_config(self, config_req: EOSSetConfig, bgp: Optional[agent_msg.BGP], operation: Op) -> None:
@@ -325,13 +343,21 @@ class EOSSwitch(SwitchBase):
             return
 
         if operation in (Op.add, Op.replace):
-            evpn_instances = []
+            if operation == Op.replace:
+                # remove stale bgp vlans / evpn instances
+                bgp_vlans_on_switch = self.get_bgp_vlan_config()
+                bgp_vlans_to_remove = set(bv.vlan for bv in bgp_vlans_on_switch) - set(bv.vlan for bv in bgp.vlans)
+                for vlan in bgp_vlans_to_remove:
+                    LOG.debug("Removing stale bgp vlan %s from %s (%s) on config replace", vlan, self.name, self.host)
+                    delete_req = EOSGNMIClient.PATHS.EVPN_INSTANCE.format(vlan=vlan)
+                    config_req.delete.append(delete_req)
+
             for bgp_vlan in bgp.vlans:
                 inst = {
                     "name": str(bgp_vlan.vlan),
                     "config": {
                         "name": str(bgp_vlan.vlan),
-                        "redistribute": ["LEARNED"],
+                        "redistribute": ["LEARNED", "ROUTER_MAC", "HOST_ROUTE"],
                     },
                     "vlans": {
                         "vlan": [{"vlan-id": bgp_vlan.vlan, "config": {"vlan-id": bgp_vlan.vlan}}],
@@ -370,9 +396,12 @@ class EOSSwitch(SwitchBase):
                 if bgp_vlan.rd_evpn_domain_all or bgp_vlan.rt_imports_evpn or bgp_vlan.rt_exports_evpn:
                     # FIXME: I think I checked that this works with replace, but we should make sure
                     config_req.update_cli.extend(cli)
-                evpn_instances.append(inst)
-            config_req.get_list(operation).append((EOSGNMIClient.PATHS.EVPN_INSTANCES,
-                                                   {"evpn-instance": evpn_instances}))
+
+                # NOTE: We could do a replace every time, but replace takes ~320ms per whole call (not per
+                #       evpn instance) vs ~32ms on update. This is only the case on a replace, where we have
+                #       ROUTER_MAC, HOST_ROUTE as part of the "redistribute" key.
+                config_req.get_list(operation).append((EOSGNMIClient.PATHS.EVPN_INSTANCE.format(vlan=bgp_vlan.vlan),
+                                                       inst))
         else:
             for bgp_vlan in bgp.vlans:
                 delete_req = EOSGNMIClient.PATHS.EVPN_INSTANCE.format(vlan=bgp_vlan.vlan)
@@ -527,9 +556,10 @@ class EOSSwitch(SwitchBase):
                 if iface.portchannel_id is not None:
                     agg_data = {
                         'config': {
-                            'arista-intf-augments:mlag': iface.portchannel_id,
+                            'mlag': iface.portchannel_id,
                             'lag-type': 'LACP',
-                            'arista-intf-augments:fallback': 'individual',
+                            'fallback': 'individual',
+                            'fallback-timeout': 50,
                         },
                     }
                     if data_vlan:

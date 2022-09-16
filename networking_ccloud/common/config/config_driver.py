@@ -158,6 +158,27 @@ class SwitchGroup(pydantic.BaseModel):
     def validate_availability_zone(cls, v):
         return v.lower()
 
+    def get_managed_vlans(self, drv_conf, with_infra_nets=False):
+        """Get a list of all vlans that we manage on this switch"""
+        vlan_ranges = self.vlan_ranges
+        if not vlan_ranges:
+            vlan_ranges = drv_conf.global_config.default_vlan_ranges
+
+        all_ranges = set()
+        for vlan_range in vlan_ranges:
+            start, end = vlan_range.split(":")
+            all_ranges |= set(range(int(start), int(end) + 1))
+
+        if with_infra_nets:
+            for hg in drv_conf.hostgroups:
+                if not hg.infra_networks:
+                    continue
+                if not any(hg.has_switch_as_member(drv_conf, sw.name) for sw in self.members):
+                    continue
+                all_ranges |= set(infra_net.vlan for infra_net in hg.infra_networks)
+
+        return all_ranges
+
 
 class SwitchPort(pydantic.BaseModel):
     # FIXME: for LACP is the name just Port-Channel<id>? do we need to parse the id? if so, extra validation

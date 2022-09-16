@@ -83,12 +83,14 @@ class CCFabricSwitchAgent(manager.Manager, cc_agent_api.CCFabricSwitchAgentAPI):
 
     def _init_switches(self):
         """Init all switches the agent manages"""
-        for switch_conf in self.drv_conf.get_switches():
-            if switch_conf.platform != self.get_switch_class().get_platform():
-                continue
-            switch = self.get_switch_class()(switch_conf)
-            LOG.debug("Adding switch %s with user %s to switchpool", switch, switch.user)
-            self._switches.append(switch)
+        for sg_conf in self.drv_conf.switchgroups:
+            managed_vlans = sg_conf.get_managed_vlans(self.drv_conf)
+            for switch_conf in sg_conf.members:
+                if switch_conf.platform != self.get_switch_class().get_platform():
+                    continue
+                switch = self.get_switch_class()(switch_conf, self.drv_conf.global_config.asn_region, managed_vlans)
+                LOG.debug("Adding switch %s with user %s to switchpool", switch, switch.user)
+                self._switches.append(switch)
 
     def get_switch_by_name(self, name):
         for switch in self._switches:
