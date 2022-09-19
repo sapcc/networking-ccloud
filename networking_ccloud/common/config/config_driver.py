@@ -166,6 +166,7 @@ class SwitchPort(pydantic.BaseModel):
     lacp: bool = False
     portchannel_id: pydantic.conint(gt=0) = None
     members: List[str] = None
+    unmanaged: bool = False
 
     @pydantic.root_validator
     def only_allow_members_and_pc_id_with_lacp_enabled(cls, v):

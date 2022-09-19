@@ -261,8 +261,8 @@ class TestNetworkExtension(test_segment.SegmentTestCase, base.PortBindingHelper)
             swcfgs = mock_acu.call_args[0][1]
             self.assertEqual({"transit1-sw1"}, set(s.switch_name for s in swcfgs))
             for swcfg in swcfgs:
-                for iface in swcfg.ifaces:
-                    self.assertEqual({111}, set(iface.trunk_vlans))
+                self.assertEqual([{'vni': 232323, 'vlan': 111}], swcfg.vxlan_maps)
+                self.assertIsNone(swcfg.ifaces)
 
     def test_switch_get_config(self):
         with mock.patch.object(CCFabricSwitchAgentRPCClient, 'get_switch_config') as mock_gsc:

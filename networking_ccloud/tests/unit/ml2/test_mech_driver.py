@@ -557,11 +557,10 @@ class TestCCFabricMechanismDriverInterconnects(CCFabricMechanismDriverTestBase):
                 self.assertEqual(1, len(s.bgp.vlans))
                 if s.switch_name.startswith("bgw"):
                     self.assertTrue(s.bgp.vlans[0].rd_evpn_domain_all)
-                else:
-                    # transit
-                    for iface in s.ifaces:
-                        self.assertIsNone(iface.native_vlan, "No native vlan for transits")
-                        self.assertEqual(1, len(iface.trunk_vlans))
+                # bgws don't have any interfaces
+                # transits are currently marked as unmanaged by default
+                # --> both don't have any iface config attached
+                self.assertIsNone(s.ifaces)
 
     def test_transit_bgw_deallocation_on_network_delete(self):
         with mock.patch.object(CCFabricSwitchAgentRPCClient, 'apply_config_update') as mock_acu:

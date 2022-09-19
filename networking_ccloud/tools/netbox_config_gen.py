@@ -212,7 +212,8 @@ class ConfigGenerator:
         return sorted(switchports, key=keyfunc)
 
     @classmethod
-    def handle_interface_or_portchannel(cls, iface: NbRecord, candidate_interfaces: List[conf.SwitchPort]):
+    def handle_interface_or_portchannel(cls, iface: NbRecord, candidate_interfaces: List[conf.SwitchPort],
+                                        switchport_kwargs: Dict[str, Any] = {}):
 
         device_name = iface.device.name  # type: ignore
         if iface.lag is not None:
@@ -227,10 +228,11 @@ class ConfigGenerator:
                 lag.members.append(iface.name)
             else:
                 candidate_interfaces.append(conf.SwitchPort(switch=device_name, lacp=True,
-                                                            name=iface.lag.name, members=[iface.name]))
+                                                            name=iface.lag.name, members=[iface.name],
+                                                            **switchport_kwargs))
         else:
             # not a lag
-            candidate_interfaces.append(conf.SwitchPort(switch=device_name, name=iface.name))
+            candidate_interfaces.append(conf.SwitchPort(switch=device_name, name=iface.name, **switchport_kwargs))
         return candidate_interfaces
 
     def get_svi_ips_per_vlan(self, device: NbRecord) -> Dict[NbRecord, List[NbRecord]]:
@@ -483,7 +485,9 @@ class ConfigGenerator:
                     if connected_device_role == "aci-leaf":
                         # This can be VPCs on ACI side, so it makes no sense to group on remote devices.
                         # We just group them on the same port-channel name
-                        aci_facing_ifaces = self.handle_interface_or_portchannel(iface, aci_facing_ifaces)
+                        # Transit interfaces are for now marked as unmanaged, as we don't have the full vlan list
+                        aci_facing_ifaces = self.handle_interface_or_portchannel(iface, aci_facing_ifaces,
+                                                                                 switchport_kwargs={'unmanaged': True})
 
                 if not aci_facing_ifaces:
                     raise ConfigException(f'{nb_switch.name} is labelled as transit but has no ACI facing interfaces')

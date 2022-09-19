@@ -74,8 +74,8 @@ def gen_switchport_names(switchgroup=None, switches=None, ports_per_switch=2, of
     return ports
 
 
-def make_switchport(switch, name, lacp=False, members=None):
-    return config_driver.SwitchPort(switch=switch, name=name, lacp=lacp, members=members)
+def make_switchport(switch, name, lacp=False, members=None, unmanaged=False):
+    return config_driver.SwitchPort(switch=switch, name=name, lacp=lacp, members=members, unmanaged=unmanaged)
 
 
 def make_lacp(pc_id, switchgroup, **kwargs):
@@ -108,9 +108,10 @@ def make_metagroup(switchgroup, hg_kwargs={}, meta_kwargs={}):
 
 
 def make_interconnect(role, host, switch_base, handle_azs):
+    unmanaged = role == config_driver.HostgroupRole.transit
     sp_name = f"{host}-1/1/1" if role != config_driver.HostgroupRole.bgw else None
     return config_driver.Hostgroup(binding_hosts=[host], role=role,
-                                   members=[make_switchport(f"{switch_base}-sw1", sp_name)],
+                                   members=[make_switchport(f"{switch_base}-sw1", sp_name, unmanaged=unmanaged)],
                                    handle_availability_zones=handle_azs)
 
 
