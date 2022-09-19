@@ -338,6 +338,8 @@ class SwitchConfigUpdateList:
             # interface config
             if not is_bgw:
                 for sp in switchports:
+                    if sp.unmanaged:
+                        continue
                     iface = scu.get_or_create_iface_from_switchport(sp)
                     iface.add_trunk_vlan(seg_vlan)
 
