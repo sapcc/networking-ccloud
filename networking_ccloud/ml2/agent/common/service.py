@@ -42,7 +42,7 @@ class ThreadedService:
     bring up a manager for our use-case. We needed to extract them, because the
     mentioned classes are too coupled with eventlet/greenthreads.
     """
-    def __init__(self, binary, topic, manager, agent_type, host=None,
+    def __init__(self, binary, topic, manager_cls, agent_type, host=None,
                  report_interval=None, periodic_interval=None,
                  periodic_fuzzy_delay=None):
         if not host:
@@ -74,7 +74,7 @@ class ThreadedService:
         self.report_interval = report_interval
         self.periodic_interval = periodic_interval
         self.periodic_fuzzy_delay = periodic_fuzzy_delay
-        self.manager = manager
+        self.manager = manager_cls()
         # set to the Connection instance containing the RPC servers
         self.conn = None
         # contains the started loopingcalls

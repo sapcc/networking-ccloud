@@ -106,7 +106,7 @@ class CCFabricSwitchAgent(manager.Manager, cc_agent_api.CCFabricSwitchAgentAPI):
             report_interval=cfg.CONF.AGENT.report_interval,
             periodic_interval=10,
             periodic_fuzzy_delay=10,
-            manager=cls(),
+            manager_cls=cls,
             agent_type=cc_const.AGENT_TYPE_CC_FABRIC)
         server.run()
 
