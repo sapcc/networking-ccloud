@@ -65,8 +65,8 @@ class TestEOSConfigUpdates(base.TestCase):
                          'route-distinguisher': '4223:232323',
                          'redistribute': ['LEARNED', 'ROUTER_MAC', 'HOST_ROUTE']},
               'name': '1000',
-              'route-target': {'config': {'export': ['65123:232323'],
-                                          'import': ['65123:232323']}},
+              'route-target': {'config': {'export': ['1:232323'],
+                                          'import': ['1:232323']}},
               'vlans': {'vlan': [{'config': {'vlan-id': 1000},
                                   'vlan-id': 1000}]}}),
             ('interfaces/interface[name=Port-Channel23]', {
@@ -172,7 +172,7 @@ class TestEOSConfigUpdates(base.TestCase):
 
         # bgp stuff / vlans
         cu.bgp = messages.BGP(asn="65000", asn_region="65123", switchgroup_id=4223)
-        cu.bgp.add_vlan(1000, 232323)
+        cu.bgp.add_vlan(1000, 232323, 1)
 
         # interfaces
         iface1 = messages.IfaceConfig(name="Port-Channel23", portchannel_id=23, native_vlan=1000,
@@ -279,7 +279,7 @@ class TestEOSConfigUpdates(base.TestCase):
 
         # bgp stuff / vlans
         cu.bgp = messages.BGP(asn="65000", asn_region="65123", switchgroup_id=4223)
-        cu.bgp.add_vlan(2000, 232323)
+        cu.bgp.add_vlan(2000, 232323, 1)
 
         # interfaces
         iface1 = messages.IfaceConfig(name="Port-Channel23", portchannel_id=23, native_vlan=2000,
@@ -569,8 +569,8 @@ class TestEOSConfigUpdates(base.TestCase):
                   'name': '2000',
                   'route-target': {
                       'config': {
-                          'export': ['65123:232323'],
-                          'import': ['65123:232323']
+                          'export': ['1:232323'],
+                          'import': ['1:232323']
                       }
                   },
                   'vlans': {
@@ -591,7 +591,7 @@ class TestEOSConfigUpdates(base.TestCase):
         cu = messages.SwitchConfigUpdate(switch_name="seagull-sw1", operation=messages.OperationEnum.replace)
         # bgp vlans
         cu.bgp = messages.BGP(asn="65000", asn_region="65123", switchgroup_id=4223)
-        cu.bgp.add_vlan(2000, 232323)
+        cu.bgp.add_vlan(2000, 232323, 1)
 
         self.switch.apply_config_update(cu)
         self.switch._api.set.assert_called_with(**expected_config)
@@ -615,15 +615,15 @@ class TestEOSConfigUpdates(base.TestCase):
             'update': [('arista/eos/arista-exp-eos-evpn:evpn/evpn-instances/evpn-instance[name=1000]',
                         {'config': {'name': '1000', 'redistribute': ['LEARNED', 'ROUTER_MAC', 'HOST_ROUTE']},
                          'name': '1000',
-                         'route-target': {'config': {'export': ['65123:232323'],
-                                                     'import': ['65123:232323']}},
+                         'route-target': {'config': {'export': ['1:232323'],
+                                                     'import': ['1:232323']}},
                          'vlans': {'vlan': [{'config': {'vlan-id': 1000},
                                              'vlan-id': 1000}]}})]}
 
         cu = messages.SwitchConfigUpdate(switch_name="seagull-sw1", operation=messages.OperationEnum.add)
         # bgp vlans
         cu.bgp = messages.BGP(asn="65000", asn_region="65123", switchgroup_id=4223)
-        cu.bgp.add_vlan(1000, 232323, bgw_mode=True)
+        cu.bgp.add_vlan(1000, 232323, 1, bgw_mode=True)
 
         self.switch.apply_config_update(cu)
         self.switch._api.set.assert_has_calls([mock.call(**expected_cli_config), mock.call(**expected_config)])
@@ -657,7 +657,7 @@ class TestEOSSwitch(base.TestCase):
                     'arista-exp-eos-evpn:evpn-instance': [
                         {'config': {'name': '2000',
                                     'route-distinguisher': '4223:10091'},
-                         'route-target': {'config': {'export': ['65130:10091'], 'import': ['65130:10091']}},
+                         'route-target': {'config': {'export': ['1:10091'], 'import': ['1:10091']}},
                          'name': "2000"}
                     ]}
             elif prefix == 'lacp':
@@ -694,7 +694,7 @@ class TestEOSSwitch(base.TestCase):
         cu.add_vlan(2121, "b226a569-e0ed-4d24-b943-c7183288")
         cu.add_vxlan_map(31337, 2121)
         cu.bgp = messages.BGP(asn="65130.4113", asn_region=65130, switchgroup_id=4223)
-        cu.bgp.add_vlan(2000, 10091, bgw_mode=False)
+        cu.bgp.add_vlan(2000, 10091, 1, bgw_mode=False)
         cu.bgp.switchgroup_id = None  # not needed for comparison (not fetched from switch)
         iface = messages.IfaceConfig(name="Port-Channel109", members=["Ethernet9/1"],
                                      trunk_vlans=[2000, 2001, 2002], native_vlan=2121, portchannel_id=109)

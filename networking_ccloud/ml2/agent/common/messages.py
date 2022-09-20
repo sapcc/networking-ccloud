@@ -134,7 +134,7 @@ class BGP(pydantic.BaseModel):
     def sort(self):
         self.vlans.sort()
 
-    def add_vlan(self, vlan, vni, bgw_mode=False):
+    def add_vlan(self, vlan, vni, az_num, bgw_mode=False):
         # FIXME: raise if vni > 2byte (can't encode it in RT otherwise, write snarky commit message for that)
         if not self.vlans:
             self.vlans = []
@@ -147,12 +147,13 @@ class BGP(pydantic.BaseModel):
             if bv.rd == rd and bv.vlan == vlan:
                 return
 
-        rt = f"{self.asn_region}:{vni}"
+        rt = f"{az_num}:{vni}"
         bvargs = dict(rt_imports=[rt], rt_exports=[rt])
         if bgw_mode:
+            bgw_rt = f"{self.asn_region}:{vni}"
             bvargs['rd_evpn_domain_all'] = True
-            bvargs['rt_imports_evpn'] = [rt]
-            bvargs['rt_exports_evpn'] = [rt]
+            bvargs['rt_imports_evpn'] = [bgw_rt]
+            bvargs['rt_exports_evpn'] = [bgw_rt]
 
         self.vlans.append(BGPVlan(rd=rd, vlan=vlan, **bvargs))
 
@@ -324,11 +325,12 @@ class SwitchConfigUpdateList:
 
             # add bgp stuff
             if seg_vni and (add or not keep_mapping):
+                sg = self.drv_conf.get_switchgroup_by_switch_name(switch.name)
+                switch_az_num = self.drv_conf.global_config.get_availability_zone(sg.availability_zone).number
                 if not scu.bgp:
-                    sg = self.drv_conf.get_switchgroup_by_switch_name(switch.name)
                     scu.bgp = BGP(asn=sg.asn, asn_region=self.drv_conf.global_config.asn_region,
                                   switchgroup_id=sg.group_id)
-                scu.bgp.add_vlan(seg_vlan, seg_vni, bgw_mode=is_bgw)
+                scu.bgp.add_vlan(seg_vlan, seg_vni, switch_az_num, bgw_mode=is_bgw)
 
             # vlan-vxlan mapping
             if seg_vni and (add or not keep_mapping):
