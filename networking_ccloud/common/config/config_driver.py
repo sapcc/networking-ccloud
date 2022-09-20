@@ -491,6 +491,12 @@ class GlobalConfig(pydantic.BaseModel):
             nums.add(vrf.number)
         return values
 
+    def get_availability_zone(self, az_name):
+        for az in self.availability_zones:
+            if az.name == az_name:
+                return az
+        return None
+
 
 class DriverConfig(pydantic.BaseModel):
     global_config: GlobalConfig

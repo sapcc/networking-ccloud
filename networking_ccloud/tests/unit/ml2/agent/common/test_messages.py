@@ -51,12 +51,12 @@ class TestSwitchConfigUpdate(base.TestCase):
 
         # bgp
         bgp = agent_msg.BGP(asn=65000, asn_region=65123, switchgroup_id=1000)
-        bgp.add_vlan(23, 42)
-        bgp.add_vlan(23, 42)
+        bgp.add_vlan(23, 42, 1)
+        bgp.add_vlan(23, 42, 1)
         self.assertEqual(1, len(bgp.vlans))
-        bgp.add_vlan(13, 37)
-        bgp.add_vlan(23, 42)
-        bgp.add_vlan(100, 100)
+        bgp.add_vlan(13, 37, 1)
+        bgp.add_vlan(23, 42, 1)
+        bgp.add_vlan(100, 100, 1)
         self.assertEqual(3, len(bgp.vlans))
 
     def test_rt_validation(self):
