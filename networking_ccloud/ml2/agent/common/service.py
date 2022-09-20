@@ -17,7 +17,10 @@ import random
 import signal
 import time
 
+from neutron.agent import rpc as agent_rpc
 from neutron.common import profiler as neutron_profiler
+from neutron_lib.agent import constants as agent_consts
+from neutron_lib.agent import topics
 from neutron_lib import context
 from oslo_config import cfg
 from oslo_log import log as logging
@@ -39,8 +42,9 @@ class ThreadedService:
     bring up a manager for our use-case. We needed to extract them, because the
     mentioned classes are too coupled with eventlet/greenthreads.
     """
-    def __init__(self, binary, topic, manager, host=None, report_interval=None,
-                 periodic_interval=None, periodic_fuzzy_delay=None):
+    def __init__(self, binary, topic, manager, agent_type, host=None,
+                 report_interval=None, periodic_interval=None,
+                 periodic_fuzzy_delay=None):
         if not host:
             host = cfg.CONF.host
         if not binary:
@@ -55,6 +59,16 @@ class ThreadedService:
         if periodic_fuzzy_delay is None:
             periodic_fuzzy_delay = cfg.CONF.periodic_fuzzy_delay
 
+        # this needs to run before we instantiate our manager in case the
+        # manager wants to start loopingcalls in it's __init__()
+        monkeypatch_loopingcall()
+
+        neutron_profiler.setup(binary, host)
+
+        signal.signal(signal.SIGHUP, self._signal_ignore)
+        signal.signal(signal.SIGTERM, self._signal_graceful_exit)
+        signal.signal(signal.SIGINT, self._signal_fast_exit)
+
         self.binary = binary
         self.topic = topic
         self.report_interval = report_interval
@@ -65,14 +79,14 @@ class ThreadedService:
         self.conn = None
         # contains the started loopingcalls
         self.timers = []
-
-        monkeypatch_loopingcall()
-
-        neutron_profiler.setup(binary, host)
-
-        signal.signal(signal.SIGHUP, self._signal_ignore)
-        signal.signal(signal.SIGTERM, self._signal_graceful_exit)
-        signal.signal(signal.SIGINT, self._signal_fast_exit)
+        # state to report against Neutron if report_interval is > 0
+        self.agent_state = {
+            'binary': self.binary,
+            'host': host,
+            'agent_type': agent_type,
+            'topic': self.topic,
+            'configuration': {},
+        }
 
         # conf.register_opts(_options.service_opts)
         # TODO(jkulik) do we need to log all config options?
@@ -107,7 +121,10 @@ class ThreadedService:
         self.conn = setup_rpc(self.topic, self.manager)
 
         if self.report_interval:
-            pulse = loopingcall.FixedIntervalLoopingCall(self.manager._report_state)
+            self.state_rpc = agent_rpc.PluginReportStateAPI(topics.REPORTS)
+            self.failed_report_state = False
+
+            pulse = loopingcall.FixedIntervalLoopingCall(self.report_state)
             pulse.start(interval=self.report_interval,
                         initial_delay=self.report_interval)
             self.timers.append(pulse)
@@ -170,3 +187,22 @@ class ThreadedService:
         """Tasks to be run at a periodic interval."""
         ctxt = context.get_admin_context()
         self.manager.periodic_tasks(ctxt, raise_on_error=raise_on_error)
+
+    def report_state(self):
+        try:
+            if hasattr(self.manager, 'agent_configuration'):
+                self.agent_state['configuration'] = self.manager.agent_configuration()
+
+            ctx = context.get_admin_context_without_session()
+            agent_status = self.state_rpc.report_state(
+                ctx, self.agent_state, True)
+            if agent_status == agent_consts.AGENT_REVIVED:
+                LOG.info("Agent has just been revived")
+        except Exception:
+            self.failed_report_state = True
+            LOG.exception("Failed reporting state!")
+            return
+
+        if self.failed_report_state:
+            self.failed_report_state = False
+            LOG.info("Successfully reported state after a previous failure.")

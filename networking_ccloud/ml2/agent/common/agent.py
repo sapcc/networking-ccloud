@@ -14,16 +14,11 @@
 
 import sys
 
-from neutron.agent import rpc as agent_rpc
 from neutron.common import config as common_config
 from neutron.conf.agent.common import register_agent_state_opts_helper
 from neutron import manager
-from neutron_lib.agent import constants as agent_consts
-from neutron_lib.agent import topics
-from neutron_lib import context
 from oslo_config import cfg
 from oslo_log import log as logging
-from oslo_service import loopingcall
 
 from networking_ccloud.common.config import get_driver_config
 from networking_ccloud.common import constants as cc_const
@@ -61,24 +56,6 @@ class CCFabricSwitchAgent(manager.Manager, cc_agent_api.CCFabricSwitchAgentAPI):
 
         self._switches = []
         self.drv_conf = get_driver_config()
-
-        # agent state
-        self.agent_state = {
-            'binary': self.get_binary_name(),
-            'host': cfg.CONF.host,
-            'agent_type': cc_const.AGENT_TYPE_CC_FABRIC,
-            'topic': self.get_agent_topic(),
-            'configuration': {},
-            # 'availability_zone': 'yes',
-            'start_flag': True,
-        }
-        self.state_rpc = agent_rpc.PluginReportStateAPI(topics.REPORTS)
-        self.failed_report_state = False
-        report_interval = self.conf.AGENT.report_interval
-        if report_interval:
-            self.heartbeat = loopingcall.FixedIntervalLoopingCall(
-                self._report_state)
-            self.heartbeat.start(interval=report_interval)
 
     def _init_switches(self):
         """Init all switches the agent manages"""
@@ -129,25 +106,9 @@ class CCFabricSwitchAgent(manager.Manager, cc_agent_api.CCFabricSwitchAgentAPI):
             report_interval=cfg.CONF.AGENT.report_interval,
             periodic_interval=10,
             periodic_fuzzy_delay=10,
-            manager=cls())
+            manager=cls(),
+            agent_type=cc_const.AGENT_TYPE_CC_FABRIC)
         server.run()
-
-    def _report_state(self):
-        try:
-            ctx = context.get_admin_context_without_session()
-            agent_status = self.state_rpc.report_state(
-                ctx, self.agent_state, True)
-            if agent_status == agent_consts.AGENT_REVIVED:
-                LOG.info("Agent has just been revived")
-        except Exception:
-            self.failed_report_state = True
-            LOG.exception("Failed reporting state!")
-            return
-        if self.failed_report_state:
-            self.failed_report_state = False
-            LOG.info("Successfully reported state after a previous failure.")
-        if self.agent_state.pop('start_flag', None):
-            self.run()
 
     def run(self):
         LOG.info("Run called after start")
