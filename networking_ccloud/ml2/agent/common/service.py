@@ -30,6 +30,7 @@ from oslo_reports import guru_meditation_report as gmr
 from oslo_service import loopingcall
 from osprofiler import profiler
 
+from networking_ccloud.ml2.agent.common.backdoor import BACKDOOR_LOCALS
 from networking_ccloud.ml2.agent.common.loopingcall import monkeypatch_loopingcall
 from networking_ccloud.ml2.agent.common.rpc import setup_rpc, shutdown_rpc
 
@@ -236,6 +237,9 @@ class ThreadedService:
             LOG.warning(f"Could not apply format string to backdoor socket path ({e}) "
                         "- continuing with unformatted path")
 
-        # TODO(jkulik) we can add commonly-used functionality via locals= here
-        # and let the Manager define their own, too
-        manhole.install(patch_fork=False, socket_path=socket_path, daemon_connection=True)
+        # add some commonly used functionality into the backdoor shell
+        locals_ = BACKDOOR_LOCALS.copy()
+        # let the Manager define additional functions for the backdoor shell
+        if hasattr(self.manager, 'backdoor_locals'):
+            locals_.update(self.manager.backdoor_locals())
+        manhole.install(patch_fork=False, socket_path=socket_path, daemon_connection=True, locals=locals_)
