@@ -17,6 +17,7 @@ from operator import attrgetter
 import time
 from typing import List, Optional
 
+from oslo_concurrency import lockutils
 from oslo_log import log as logging
 from pygnmi.client import gNMIclient, gNMIException
 
@@ -660,6 +661,10 @@ class EOSSwitch(SwitchBase):
         return config
 
     def apply_config_update(self, config):
+        with lockutils.lock(name=f"apply-config-update-{self.name}"):
+            return self._apply_config_update(config)
+
+    def _apply_config_update(self, config):
         # FIXME: threading model (does this call block or not?)
         #   option 1: synchronous applying the config
         #   option 2: put it into a queue, worker thread applies config

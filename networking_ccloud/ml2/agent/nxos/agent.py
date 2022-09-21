@@ -12,12 +12,6 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
-import os
-
-if not os.environ.get('DISABLE_EVENTLET_PATCHING'):
-    import eventlet
-    eventlet.monkey_patch()
-
 from oslo_log import log as logging
 
 from networking_ccloud.common import constants as cc_const
