@@ -17,6 +17,7 @@ import random
 import signal
 import time
 
+import manhole
 from neutron.agent import rpc as agent_rpc
 from neutron.common import profiler as neutron_profiler
 from neutron import version
@@ -33,6 +34,15 @@ from networking_ccloud.ml2.agent.common.loopingcall import monkeypatch_loopingca
 from networking_ccloud.ml2.agent.common.rpc import setup_rpc, shutdown_rpc
 
 LOG = logging.getLogger(__name__)
+
+
+backdoor_opts = [
+    cfg.StrOpt('backdoor_socket',
+               help="Enable manhole backdoor, using the provided path"
+                    " as a unix socket that can receive connections. "
+                    "Inside the path {pid} will be replaced with"
+                    " the PID of the current process.")
+]
 
 
 @profiler.trace_cls("rpc")
@@ -72,6 +82,8 @@ class ThreadedService:
         _version_string = version.version_info.release_string()
         gmr.TextGuruMeditation.setup_autorun(version=_version_string)
 
+        self.start_backdoor()
+
         signal.signal(signal.SIGHUP, self._signal_ignore)
         signal.signal(signal.SIGTERM, self._signal_graceful_exit)
         signal.signal(signal.SIGINT, self._signal_fast_exit)
@@ -98,10 +110,6 @@ class ThreadedService:
         # conf.register_opts(_options.service_opts)
         # TODO(jkulik) do we need to log all config options?
         # TODO(jkulik) do we need a graceful shutdown timeout?
-
-        # TODO(jkulik) add a backdoor thread
-        # self.backdoor_port = (
-        #     eventlet_backdoor.initialize_if_enabled(self.conf))
 
     def _signal_ignore(self, signo, frame):
         LOG.info('Caught SIGHUP signal, ignoring it')
@@ -213,3 +221,21 @@ class ThreadedService:
         if self.failed_report_state:
             self.failed_report_state = False
             LOG.info("Successfully reported state after a previous failure.")
+
+    def start_backdoor(self):
+        """Start a backdoor shell for debugging connectable via UNIX socket"""
+        cfg.CONF.register_opts(backdoor_opts)
+
+        if not cfg.CONF.backdoor_socket:
+            return
+
+        try:
+            socket_path = cfg.CONF.backdoor_socket.format(pid=os.getpid())
+        except (KeyError, IndexError, ValueError) as e:
+            socket_path = cfg.CONF.backdoor_socket
+            LOG.warning(f"Could not apply format string to backdoor socket path ({e}) "
+                        "- continuing with unformatted path")
+
+        # TODO(jkulik) we can add commonly-used functionality via locals= here
+        # and let the Manager define their own, too
+        manhole.install(patch_fork=False, socket_path=socket_path, daemon_connection=True)
