@@ -19,11 +19,13 @@ import time
 
 from neutron.agent import rpc as agent_rpc
 from neutron.common import profiler as neutron_profiler
+from neutron import version
 from neutron_lib.agent import constants as agent_consts
 from neutron_lib.agent import topics
 from neutron_lib import context
 from oslo_config import cfg
 from oslo_log import log as logging
+from oslo_reports import guru_meditation_report as gmr
 from oslo_service import loopingcall
 from osprofiler import profiler
 
@@ -64,6 +66,11 @@ class ThreadedService:
         monkeypatch_loopingcall()
 
         neutron_profiler.setup(binary, host)
+
+        # same as in neutron.cmd. Enable reports of tracebacks and config on
+        # USR2 signal
+        _version_string = version.version_info.release_string()
+        gmr.TextGuruMeditation.setup_autorun(version=_version_string)
 
         signal.signal(signal.SIGHUP, self._signal_ignore)
         signal.signal(signal.SIGTERM, self._signal_graceful_exit)
