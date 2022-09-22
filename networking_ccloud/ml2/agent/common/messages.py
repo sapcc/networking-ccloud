@@ -28,50 +28,54 @@ from networking_ccloud.ml2.agent.common.api import CCFabricSwitchAgentRPCClient
 LOG = logging.getLogger(__name__)
 
 
-def validate_route_target(rt) -> str:
+def validate_route_target(rt):
+    if str(rt).isdecimal() and (int(rt) >> 48) & 0xFF != 0x2:
+        raise ValueError("Route targets are extended attributes and need to have a 0x2 in the type field's "
+                         f"low order position - {rt} does not have this set (RFC 4360 sec 4)")
+    return validate_route_distinguisher(rt)
+
+
+def validate_route_distinguisher(rdrt) -> str:
     # https://datatracker.ietf.org/doc/html/rfc4360#section-4
     # https://datatracker.ietf.org/doc/html/rfc4364#section-4.2
-    if not isinstance(rt, str):
-        rt = str(rt)
+    if not isinstance(rdrt, str):
+        rdrt = str(rdrt)
 
-    if rt.isdecimal():
-        rt = int(rt)
-        if (rt >> 48) & 0xFF != 0x2:
-            raise ValueError("Route targets are extended attributes and need to have a 0x2 in the type field's "
-                             f"low order position - {rt} does not have this set (RFC 4360 sec 4)")
-        rt_type = rt >> 56
-        # 8byte rt
-        if rt_type == 0:
+    if rdrt.isdecimal():
+        rdrt = int(rdrt)
+        rdrt_type = rdrt >> 56
+        # 8byte rdrt
+        if rdrt_type == 0:
             # 2 byte asn, 4byte admin field
-            a = (rt >> 32) & (2**16 - 1)
-            b = rt & (2**32 - 1)
-            rt = f"{a}:{b}"
-        elif rt_type == 1:
+            a = (rdrt >> 32) & (2**16 - 1)
+            b = rdrt & (2**32 - 1)
+            rdrt = f"{a}:{b}"
+        elif rdrt_type == 1:
             # 4 byte ip, 2byte admin field
-            a = (rt >> 16) & (2**32 - 1)
-            b = rt & (2**16 - 1)
-            rt = f"{ipaddress.ip_address(a)}:{b}"
-        elif rt_type == 2:
+            a = (rdrt >> 16) & (2**32 - 1)
+            b = rdrt & (2**16 - 1)
+            rdrt = f"{ipaddress.ip_address(a)}:{b}"
+        elif rdrt_type == 2:
             # 4 byte asn, 2byte admin field
-            a = (rt >> 16) & (2**32 - 1)
-            b = rt & (2**16 - 1)
+            a = (rdrt >> 16) & (2**32 - 1)
+            b = rdrt & (2**16 - 1)
             if a > 2**16:
-                rt = f"{a >> 16}.{a & (2**16 - 1)}:{b}"
+                rdrt = f"{a >> 16}.{a & (2**16 - 1)}:{b}"
             else:
-                rt = f"{a}:{b}"
+                rdrt = f"{a}:{b}"
         else:
-            raise ValueError(f"Rt {rt} has invalid type {rt_type}, see RFC 4364 sec 4.2")
+            raise ValueError(f"RD/RT {rdrt} has invalid type {rdrt_type}, see RFC 4364 sec 4.2")
     else:
         # ip:num, asn:num, num:num
-        m = re.match(r"^(?P<first>(?:\d+\.\d+\.\d+\.\d+)|(?:\d+\.\d+)|(?:\d+)):(?P<second>\d+)$", rt)
+        m = re.match(r"^(?P<first>(?:\d+\.\d+\.\d+\.\d+)|(?:\d+\.\d+)|(?:\d+)):(?P<second>\d+)$", rdrt)
         if not m:
-            raise ValueError(f"RT '{rt}' is not in a recognizable format")
+            raise ValueError(f"RD/RT '{rdrt}' is not in a recognizable format")
         # automatically reformat cases where ASN is > 16bit to AS dot notation
         first = m.group('first')
         if first.isdecimal() and int(first) >= 2**16:
             first = int(first)
-            rt = f"{first >> 16}.{first & (2**16 - 1)}:{m.group('second')}"
-    return rt
+            rdrt = f"{first >> 16}.{first & (2**16 - 1)}:{m.group('second')}"
+    return rdrt
 
 
 class OperationEnum(str, Enum):

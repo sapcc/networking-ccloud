@@ -14,6 +14,7 @@
 
 import json
 from operator import attrgetter
+import re
 import time
 from typing import List, Optional
 
@@ -32,6 +33,9 @@ LOG = logging.getLogger(__name__)
 
 
 class EOSGNMIClient:
+    # Sysdb/routing/bgp/macvrf/config/vlan.3087 or
+    # Sysdb/routing/bgp/macvrf/config/vlan.3087/importRemoteDomainRtList
+    evpn_prefix_re = re.compile(r"^Sysdb/routing/bgp/macvrf/config/vlan\.(?P<vlan>\d+)(:?/(?P<suffix>[^/]+))?$")
 
     class PATHS:
         VLANS = "network-instances/network-instance[name=default]/vlans"
@@ -43,6 +47,7 @@ class EOSGNMIClient:
 
         EVPN_INSTANCES = "arista/eos/arista-exp-eos-evpn:evpn/evpn-instances"
         EVPN_INSTANCE = "arista/eos/arista-exp-eos-evpn:evpn/evpn-instances/evpn-instance[name={vlan}]"
+        EVPN_INSTANCES_VIA_SYSDB = "eos_native:Sysdb/routing/bgp/macvrf/config"
         PROTO_BGP = "network-instances/network-instance[name=default]/protocols/protocol[name=BGP]"
 
         IFACES = "interfaces"
@@ -307,29 +312,97 @@ class EOSSwitch(SwitchBase):
                     LOG.warning("VLAN %s not found on switch %s (%s), not deleting it",
                                 os_map.vlan, self.name, self.host)
 
+    def get_bgp_evpn_extented_config_from_sysdb(self):
+        curr_insts = {}
+        sysdb_entries = self.api.get(EOSGNMIClient.PATHS.EVPN_INSTANCES_VIA_SYSDB, unpack=False)['notification']
+        for entry in sysdb_entries:
+            m = EOSGNMIClient.evpn_prefix_re.match(entry['prefix'])
+            if not m:
+                LOG.warning("Unepxected paths %s when fetching vlan instances on %s (%s)",
+                            entry['prefix'], self.name, self.host)
+                continue
+
+            inst = curr_insts.setdefault(int(m.group('vlan')),
+                                         {'remote-rd': None, 'remote-rt-imports': [], 'remote-rt-exports': []})
+
+            suffix = m.group('suffix')
+            if suffix in ('importRemoteDomainRtList', 'exportRemoteDomainRtList'):
+                for subentry in entry['update']:
+                    val = subentry['path']
+                    # FIXME: convert the value
+                    try:
+                        val = agent_msg.validate_route_target(val)
+                        if suffix == 'importRemoteDomainRtList':
+                            inst['remote-rt-imports'].append(val)
+                        else:
+                            inst['remote-rt-exports'].append(val)
+                    except ValueError as e:
+                        LOG.error("Invalid evpn remote RT value %s path %s from sysdb on %s (%s): %s",
+                                  val, entry['prefix'], self.name, self.host, e)
+            elif suffix is None:
+                # find rd evpn domain all
+                rd_no = None
+                rd_valid = False
+                for subentry in entry['update']:
+                    if subentry['path'] == 'remoteRd/rdNboInternal':
+                        rd_no = subentry['val']
+                    elif subentry['path'] == 'remoteRd/valid':
+                        rd_valid = subentry['val']
+                if rd_valid:
+                    # rd_no is in network byte-order, obviously
+                    rd_no = int.from_bytes(rd_no.to_bytes(8, 'big'), 'little')
+
+                    # validate_route_target also works for route-distinguisher in this case
+                    # only the error message will look somewhat weird, but as this is only temporary...
+                    try:
+                        inst['remote-rd'] = agent_msg.validate_route_distinguisher(rd_no)
+                    except ValueError as e:
+                        LOG.error("Invalid evpn remote RD value %s path %s from sysdb on %s (%s): %s ",
+                                  rd_no, entry['prefix'], self.name, self.host, e)
+
+        return curr_insts
+
     def get_bgp_vlan_config(self) -> List[agent_msg.BGPVlan]:
-        # FIXME: get potential bgw info per device from sysdb (not properly implemented)
         bgp_vlans = []
+        curr_evpn_ext_conf = self.get_bgp_evpn_extented_config_from_sysdb()
         curr_bgp_vlans = self.api.get(EOSGNMIClient.PATHS.EVPN_INSTANCES)["arista-exp-eos-evpn:evpn-instance"]
         for entry in curr_bgp_vlans:
             if not entry['name'].isdecimal():
                 LOG.warning("Could not match bgp vpn instance name '%s' to a vlan", entry['name'])
                 continue
-            if int(entry['name']) not in self.managed_vlans:
+
+            vlan = int(entry['name'])
+            if vlan not in self.managed_vlans:
                 continue
 
-            # FIXME: what happens if rd is None?
+            rd = None
+            rd_evpn_domain_all = False
+            rt_imports_evpn = []
+            rt_exports_evpn = []
+
+            # first look in X
+            if vlan in curr_evpn_ext_conf:
+                ext_conf = curr_evpn_ext_conf[vlan]
+                rt_imports_evpn = ext_conf['remote-rt-imports']
+                rt_exports_evpn = ext_conf['remote-rt-exports']
+                rd = ext_conf['remote-rd']
+                if rd:
+                    rd_evpn_domain_all = True
+
             rtdata = entry.get('route-target', {'config': {}})['config']
-            rd = entry['config'].get('route-distinguisher')  # FIXME: this is bad. need to distinguish
+            if not rd:
+                rd = entry['config'].get('route-distinguisher')  # FIXME: this is bad. need to distinguish
+
             if not rd:
                 LOG.debug("BGP Vlan %s on switch %s has no rd, skipping it", entry['name'], self.name)
                 continue
-            bv = agent_msg.BGPVlan(rd=rd, vlan=int(entry['name']),
+
+            bv = agent_msg.BGPVlan(rd=rd, vlan=vlan,
                                    rt_imports=rtdata.get('import', []), rt_exports=rtdata.get('export', []),
                                    # eos_native:Sysdb/routing/bgp/macvrf/config/vlan.2323
-                                   rd_evpn_domain_all=False,  # FIXME: get from somewhere
-                                   rt_imports_evpn=[],       # FIXME: get from somewhere
-                                   rt_exports_evpn=[])       # FIXME: get from somewhere
+                                   rd_evpn_domain_all=rd_evpn_domain_all,
+                                   rt_imports_evpn=rt_imports_evpn,
+                                   rt_exports_evpn=rt_exports_evpn)
             # FIXME: redistribute learned flag? does not fit in our internal data structure
             bgp_vlans.append(bv)
         return bgp_vlans
@@ -344,6 +417,7 @@ class EOSSwitch(SwitchBase):
             return
 
         if operation in (Op.add, Op.replace):
+            bgp_vlans_on_switch = None
             if operation == Op.replace:
                 # remove stale bgp vlans / evpn instances
                 bgp_vlans_on_switch = self.get_bgp_vlan_config()
@@ -386,8 +460,20 @@ class EOSSwitch(SwitchBase):
                         rts["export"] = list(bgp_vlan.rt_exports)
                     inst["route-target"] = {"config": rts}
 
+                # clean old route targets in bgw mode
+                if operation == Op.replace:
+                    for curr_vlan in bgp_vlans_on_switch:
+                        if curr_vlan.vlan != bgp_vlan.vlan:
+                            continue
+                        if curr_vlan.rt_imports_evpn:
+                            for rt in set(curr_vlan.rt_imports_evpn) - set(bgp_vlan.rt_imports_evpn or []):
+                                cli.append(("cli:", f"no route-target import evpn domain remote {rt}"))
+                        if curr_vlan.rt_exports_evpn:
+                            for rt in set(curr_vlan.rt_exports_evpn) - set(bgp_vlan.rt_exports_evpn or []):
+                                cli.append(("cli:", f"no route-target export evpn domain remote {rt}"))
+                        break
+
                 # FIXME: this should be done via model, once we have it
-                # FIXME: what do we do if different route targets exist? they need to go / be removed
                 for rt in bgp_vlan.rt_imports_evpn:
                     cli.append(("cli:", f"route-target import evpn domain remote {rt}"))
                 for rt in bgp_vlan.rt_exports_evpn:
@@ -395,7 +481,7 @@ class EOSSwitch(SwitchBase):
                 cli.extend([("cli:", "exit"), ("cli:", "exit")])
 
                 if bgp_vlan.rd_evpn_domain_all or bgp_vlan.rt_imports_evpn or bgp_vlan.rt_exports_evpn:
-                    # FIXME: I think I checked that this works with replace, but we should make sure
+                    # even when we do a replace via GNMI it won't touch the evpn route targets
                     config_req.update_cli.extend(cli)
 
                 # NOTE: We could do a replace every time, but replace takes ~320ms per whole call (not per

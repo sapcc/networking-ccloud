@@ -537,7 +537,7 @@ class TestEOSConfigUpdates(base.TestCase):
         self.switch._api.set.reset_mock()
 
     def test_replace_bgp_vlans(self):
-        def _get(prefix):
+        def _get(prefix, unpack=True):
             if prefix == 'arista/eos/arista-exp-eos-evpn:evpn/evpn-instances':
                 return {
                     'arista-exp-eos-evpn:evpn-instance': [
@@ -549,13 +549,42 @@ class TestEOSConfigUpdates(base.TestCase):
                                     'route-distinguisher': '4223:10091'},
                          'route-target': {'config': {'export': ['65130:10091'], 'import': ['65130:10091']}},
                          'name': "2000"},
+                        {'config': {'name': '2004',
+                                    'route-distinguisher': 'invalid'},
+                         'route-target': {'config': {'export': ['65130:10091'], 'import': ['65130:10091']}},
+                         'name': "2004"},
                         {'config': {'name': '2500',
                                     'route-distinguisher': '4223:10091'},
                          'route-target': {'config': {'export': ['65130:10091'], 'import': ['65130:10091']}},
                          'name': "2500"},
                     ]}
+            elif not unpack and prefix == 'eos_native:Sysdb/routing/bgp/macvrf/config':
+                return {'notification': [
+                    {'prefix': 'Sysdb/routing/bgp/macvrf/config/vlan.2004',
+                     'update': [
+                        {'path': 'remoteRd/valid', 'val': True},
+                        {'path': 'remoteRd/rdNboInternal', 'val': 1036957114868695040}]},
+                    {'prefix': 'Sysdb/routing/bgp/macvrf/config/vlan.2004/importRemoteDomainRtList',
+                     'update': [{'path': '563426694791390', 'val': True}]},
+                    {'prefix': 'Sysdb/routing/bgp/macvrf/config/vlan.2004/exportRemoteDomainRtList',
+                     'update': [{'path': '564380177531324', 'val': True}]}]}
             raise ValueError(f"unmapped command: {prefix}")
         self.switch._api.get.side_effect = _get
+
+        expected_cli_config = {
+            'update': [
+                ('cli:', 'router bgp 65000'),
+                ('cli:', 'vlan 2004'),
+                ('cli:', 'rd evpn domain all 4223:424242'),
+                ('cli:', 'no route-target import evpn domain remote 111:222'),
+                ('cli:', 'no route-target export evpn domain remote 333:444'),
+                ('cli:', 'route-target import evpn domain remote 65123:424242'),
+                ('cli:', 'route-target export evpn domain remote 65123:424242'),
+                ('cli:', 'exit'),
+                ('cli:', 'exit'),
+            ],
+            'encoding': 'ascii'
+        }
 
         expected_config = {
             'replace':
@@ -581,6 +610,28 @@ class TestEOSConfigUpdates(base.TestCase):
                           'vlan-id': 2000
                       }]
                   }
+              }),
+             ('arista/eos/arista-exp-eos-evpn:evpn/evpn-instances/evpn-instance[name=2004]',
+              {
+                  'config': {
+                      'name': '2004',
+                      'redistribute': ['LEARNED', 'ROUTER_MAC', 'HOST_ROUTE']
+                  },
+                  'name': '2004',
+                  'route-target': {
+                      'config': {
+                          'export': ['3:424242'],
+                          'import': ['3:424242']
+                      }
+                  },
+                  'vlans': {
+                      'vlan': [{
+                          'config': {
+                              'vlan-id': 2004
+                          },
+                          'vlan-id': 2004
+                      }]
+                  }
               })],
             'update': [],
             'delete': [
@@ -592,9 +643,10 @@ class TestEOSConfigUpdates(base.TestCase):
         # bgp vlans
         cu.bgp = messages.BGP(asn="65000", asn_region="65123", switchgroup_id=4223)
         cu.bgp.add_vlan(2000, 232323, 1)
+        cu.bgp.add_vlan(2004, 424242, 3, bgw_mode=True)
 
         self.switch.apply_config_update(cu)
-        self.switch._api.set.assert_called_with(**expected_config)
+        self.switch._api.set.assert_has_calls([mock.call(**expected_cli_config), mock.call(**expected_config)])
 
     def test_bgp_vlans_bgw_mode(self):
         expected_cli_config = {
@@ -641,7 +693,7 @@ class TestEOSSwitch(base.TestCase):
         self.switch._api.execute.return_value = {'result': [{}]}
 
     def test_get_switch_config(self):
-        def _get(prefix):
+        def _get(prefix, unpack=True):
             if prefix == 'network-instances/network-instance[name=default]/vlans':
                 return {
                     'openconfig-network-instance:vlan': [
@@ -658,7 +710,11 @@ class TestEOSSwitch(base.TestCase):
                         {'config': {'name': '2000',
                                     'route-distinguisher': '4223:10091'},
                          'route-target': {'config': {'export': ['1:10091'], 'import': ['1:10091']}},
-                         'name': "2000"}
+                         'name': "2000"},
+                        {'config': {'name': '2004',
+                                    'route-distinguisher': 'invalid'},
+                         'route-target': {'config': {'export': ['3:222222'], 'import': ['3:222222']}},
+                         'name': "2004"},
                     ]}
             elif prefix == 'lacp':
                 return {
@@ -687,6 +743,16 @@ class TestEOSSwitch(base.TestCase):
                                     'ingress': [{'translation-key': 2000,
                                                  'config': {'translation-key': 2000, 'bridging-vlan': 3001}}],
                                 }}}}]}
+            elif not unpack and prefix == 'eos_native:Sysdb/routing/bgp/macvrf/config':
+                return {'notification': [
+                    {'prefix': 'Sysdb/routing/bgp/macvrf/config/vlan.2004',
+                     'update': [
+                        {'path': 'remoteRd/valid', 'val': True},
+                        {'path': 'remoteRd/rdNboInternal', 'val': 1036957114868695040}]},
+                    {'prefix': 'Sysdb/routing/bgp/macvrf/config/vlan.2004/importRemoteDomainRtList',
+                     'update': [{'path': '842681173632014', 'val': True}]},
+                    {'prefix': 'Sysdb/routing/bgp/macvrf/config/vlan.2004/exportRemoteDomainRtList',
+                     'update': [{'path': '842681173632014', 'val': True}]}]}
             raise ValueError(f"unmapped command: {prefix}")
         self.switch._api.get.side_effect = _get
 
@@ -695,6 +761,7 @@ class TestEOSSwitch(base.TestCase):
         cu.add_vxlan_map(31337, 2121)
         cu.bgp = messages.BGP(asn="65130.4113", asn_region=65130, switchgroup_id=4223)
         cu.bgp.add_vlan(2000, 10091, 1, bgw_mode=False)
+        cu.bgp.add_vlan(2004, 222222, 3, bgw_mode=True)
         cu.bgp.switchgroup_id = None  # not needed for comparison (not fetched from switch)
         iface = messages.IfaceConfig(name="Port-Channel109", members=["Ethernet9/1"],
                                      trunk_vlans=[2000, 2001, 2002], native_vlan=2121, portchannel_id=109)
