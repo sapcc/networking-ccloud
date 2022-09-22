@@ -37,7 +37,8 @@ from networking_ccloud.ml2.agent.common import messages as agent_msg
 from networking_ccloud.ml2.plugin import FabricPlugin
 
 
-LOG = logging.getLogger(__name__)
+# we can't use __name__ for this logger, as stevedore only loads us as "fabricoperations"
+LOG = logging.getLogger("networking_ccloud.extensions.fabricoperations")
 
 
 ACCESS_RULE = "context_is_cloud_admin"
