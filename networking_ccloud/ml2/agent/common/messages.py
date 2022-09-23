@@ -379,6 +379,9 @@ class SwitchConfigUpdateList:
     def add_interconnects(self, context, fabric_plugin, interconnects):
         network_ids = set(ic.network_id for ic in interconnects)
         top_segments = fabric_plugin.get_top_level_vxlan_segments(context, network_ids=network_ids)
+
+        # get list of physnets/networks to just query the DB once for everything we need
+        physnet_network_devices = {}
         for device in interconnects:
             if device.network_id not in top_segments:
                 # this is an error and not an exception, because the method is used by the switch sync
@@ -386,7 +389,6 @@ class SwitchConfigUpdateList:
                 LOG.error("Could not create config for interconnect of network %s: Missing top segment",
                           device.network_id)
                 continue
-            vni = top_segments[device.network_id]['segmentation_id']
 
             device_hg = self.drv_conf.get_hostgroup_by_host(device.host)
             if not device_hg:
@@ -395,8 +397,14 @@ class SwitchConfigUpdateList:
                 continue
 
             device_physnet = device_hg.get_vlan_pool_name(self.drv_conf)
-            device_segment = fabric_plugin.get_segment_by_host(context, device.network_id, device_physnet)
-            if not device_segment:
+            physnet_network_devices[(device_physnet, device.network_id)] = device
+
+        db_segments = fabric_plugin.get_segments_by_physnet_network_tuples(context, set(physnet_network_devices.keys()))
+
+        for physnet_network, device in physnet_network_devices.items():
+            vni = top_segments[device.network_id]['segmentation_id']
+            device_segment = db_segments.get(physnet_network)
+            if device_segment is None:
                 LOG.error("Missing network segment for interconnect %s physnet %s in network %s",
                           device.host, device_physnet, device.network_id)
                 continue

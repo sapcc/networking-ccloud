@@ -142,6 +142,18 @@ class CCDbPlugin(db_base_plugin_v2.NeutronDbPluginV2,
         return None
 
     @db_api.retry_if_session_inactive()
+    def get_segments_by_physnet_network_tuples(self, context, physnet_networks, network_type=nl_const.TYPE_VLAN):
+        """Get all segments which have one of the given combinations of physnet and network_id"""
+        query = context.session.query(segment_models.NetworkSegment)
+        query = query.filter_by(network_type=network_type)
+        query = query.filter(sa.tuple_(segment_models.NetworkSegment.physical_network,
+                                       segment_models.NetworkSegment.network_id).in_(physnet_networks))
+        result = {}
+        for segment in query.all():
+            result[(segment.physical_network, segment.network_id)] = segment
+        return result
+
+    @db_api.retry_if_session_inactive()
     def get_azs_for_network(self, context, network_id, extra_binding_hosts=None):
         """Get all AZs in this network bound on this driver"""
         # get binding hosts on network
