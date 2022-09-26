@@ -86,7 +86,7 @@ class NXOSSwitch(SwitchBase):
 
         return result
 
-    def get_switch_status(self):
+    def _get_switch_status(self):
         ver = self.send_cmd("show version")
         return {
             'name': self.name,

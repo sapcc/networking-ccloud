@@ -10,6 +10,7 @@ pydantic
 pyyaml
 
 # driver requirements
+futurist
 manhole
 neutron-lib
 neutron
