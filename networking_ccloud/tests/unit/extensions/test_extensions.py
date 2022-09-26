@@ -87,7 +87,7 @@ class TestNetworkExtension(test_segment.SegmentTestCase, base.PortBindingHelper)
             InfraNetwork(name="infra_net_vlan", vlan=42, vni=14),
         ]
         hg_seagull = cfix.make_metagroup("seagull", meta_kwargs={'infra_networks': seagull_infra_nets})
-        hg_crow = cfix.make_metagroup("crow")
+        hg_crow = cfix.make_metagroup("crow", meta_kwargs={'extra_vlans': [13, 37]})
         interconnects = [
             cfix.make_interconnect(cc_const.DEVICE_TYPE_TRANSIT, "transit1", "transit1", ["qa-de-1a"]),
             cfix.make_interconnect(cc_const.DEVICE_TYPE_TRANSIT, "transit2", "transit2", ["qa-de-1b"]),
@@ -224,6 +224,19 @@ class TestNetworkExtension(test_segment.SegmentTestCase, base.PortBindingHelper)
                 for iface in swcfg.ifaces:
                     self.assertEqual({23, 42, 100}, set(iface.trunk_vlans))
 
+    def test_switch_sync_vpod_extra_vlans(self):
+        with mock.patch.object(CCFabricSwitchAgentRPCClient, 'apply_config_update') as mock_acu:
+            resp = self.app.put("/cc-fabric/switches/crow-sw1/sync")
+            self.assertTrue(resp.json['sync_sent'])
+            mock_acu.assert_called()
+            swcfgs = mock_acu.call_args[0][1]
+
+            self.assertEqual({"crow-sw1"}, set(s.switch_name for s in swcfgs))
+
+            for swcfg in swcfgs:
+                for iface in swcfg.ifaces:
+                    self.assertEqual({13, 37, 200}, set(iface.trunk_vlans))
+
     def test_switch_sync_vpod_infra_networks(self):
         with mock.patch.object(CCFabricSwitchAgentRPCClient, 'apply_config_update') as mock_acu:
             resp = self.app.put("/cc-fabric/switches/seagull-sw1/sync_infra_networks")
@@ -234,6 +247,17 @@ class TestNetworkExtension(test_segment.SegmentTestCase, base.PortBindingHelper)
             for swcfg in swcfgs:
                 for iface in swcfg.ifaces:
                     self.assertEqual({23, 42}, set(iface.trunk_vlans))
+
+    def test_switch_sync_vpod_infra_networks_with_extra_vlans(self):
+        with mock.patch.object(CCFabricSwitchAgentRPCClient, 'apply_config_update') as mock_acu:
+            resp = self.app.put("/cc-fabric/switches/crow-sw1/sync_infra_networks")
+            self.assertTrue(resp.json['sync_sent'])
+            mock_acu.assert_called()
+            swcfgs = mock_acu.call_args[0][1]
+            self.assertEqual({"crow-sw1"}, set(s.switch_name for s in swcfgs))
+            for swcfg in swcfgs:
+                for iface in swcfg.ifaces:
+                    self.assertEqual({13, 37}, set(iface.trunk_vlans))
 
     def test_switch_sync_interconnect_bgw(self):
         with mock.patch.object(CCFabricSwitchAgentRPCClient, 'apply_config_update') as mock_acu:

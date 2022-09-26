@@ -299,6 +299,9 @@ class Hostgroup(pydantic.BaseModel):
     # infra networks attached to hostgroup
     infra_networks: List[InfraNetwork] = []
 
+    # vlans that are added to all allowed-vlan list without managing the vlan on switch
+    extra_vlans: List[pydantic.conint(gt=1, lt=4095)] = None
+
     _vlan_pool: str = None
 
     class Config:
