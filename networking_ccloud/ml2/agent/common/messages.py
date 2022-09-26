@@ -412,6 +412,22 @@ class SwitchConfigUpdateList:
             self.add_binding_host_to_config(device_hg, device.network_id, vni, device_segment[ml2_api.SEGMENTATION_ID],
                                             is_bgw=device.device_type == cc_const.DEVICE_TYPE_BGW)
 
+    def add_extra_vlans(self, hg_config, exclude_hosts=None):
+        """Add extra vlans to interfaces, which only appear in the 'allowed trunk vlans' list"""
+        if not hg_config.extra_vlans:
+            return
+
+        for switch_name, switchports in hg_config.iter_switchports(self.drv_conf, exclude_hosts=exclude_hosts):
+            switch = self.drv_conf.get_switch_by_name(switch_name)
+            scu = self.get_or_create_switch(switch.name)
+
+            for sp in switchports:
+                if sp.unmanaged:
+                    continue
+                iface = scu.get_or_create_iface_from_switchport(sp)
+                for extra_vlan in hg_config.extra_vlans:
+                    iface.add_trunk_vlan(extra_vlan)
+
     def execute(self, context, synchronous=True):
         platform_updates = {}
         for scu in self.switch_config_updates.values():

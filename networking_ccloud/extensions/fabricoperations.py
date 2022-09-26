@@ -320,6 +320,8 @@ class SwitchesController(wsgi.Controller):
                 for inet in hg.infra_networks:
                     # FIXME: exclude hosts
                     scul.add_binding_host_to_config(hg, inet.name, inet.vni, inet.vlan)
+            if hg.extra_vlans:
+                scul.add_extra_vlans(hg)
         self._clean_switches(scul, switch)
         try:
             config_generated = scul.execute(request.context)
@@ -388,6 +390,8 @@ class SwitchesController(wsgi.Controller):
                 for inet in hg.infra_networks:
                     # FIXME: exclude hosts
                     scul.add_binding_host_to_config(hg, inet.name, inet.vni, inet.vlan)
+            if hg.extra_vlans:
+                scul.add_extra_vlans(hg)
             if hg.role:
                 # transits/BGWs don't have bindings, so bind all physnets
                 # find all physnets or interconnects scheduled
