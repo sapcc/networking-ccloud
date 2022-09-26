@@ -356,6 +356,7 @@ class CCFabricNetboxModeller():
             item.save()
         return item
 
+
     def attach_svi_to_switch(self, switch: NbRecord, vlan: NBR_DICT_T,
                              prefix: NBR_DICT_T) -> Tuple[NBR_DICT_T, NBR_DICT_T]:
         ip_addr_prefix = ip_network(prefix['prefix'])
@@ -408,9 +409,9 @@ class CCFabricNetboxModeller():
         else:
             self._check_set_attr(bound_ip, vrf=self.underlay_vrf.id, tenant=self.CC_TENANT.id)
 
-    def model_bbs(self, limit_bbs: Optional[Set[int]] = None):
+    def model_bbs(self, limit: Optional[Set[int]] = None):
         for bb, gr in self.group_leaves_by(self.leaves_by_role[SWITCHGROUP_ROLE_VPOD], 'seq_no'):
-            if limit_bbs and bb not in limit_bbs:
+            if limit is not None and bb not in limit:
                 continue
             if not self.ensure_single_attribute(('site', 'slug'), gr):
                 print(f'BB{bb} switches {gr} have different sites, skipping')
@@ -431,9 +432,9 @@ class CCFabricNetboxModeller():
             for lag, _ in lags:
                 self.attach_infra_vlans_to_iface(vlans.values(), lag)
 
-    def model_neutron_routers(self, limit_nps: Optional[Set[int]] = None):
+    def model_neutron_routers(self, limit: Optional[Set[int]] = None):
         for np, gr in self.group_leaves_by(self.leaves_by_role[SWITCHGROUP_ROLE_NETPOD], 'seq_no'):
-            if limit_nps and np not in limit_nps:
+            if limit is not None and np not in limit:
                 continue
             if not self.ensure_single_attribute(('site', 'slug'), gr):
                 print(f'Np{np} switches {gr} have different sites, skipping')
@@ -455,9 +456,9 @@ class CCFabricNetboxModeller():
                             lag.save()
                     break
 
-    def model_apods(self, limit_aps: Optional[Set[int]] = None):
+    def model_apods(self, limit: Optional[Set[int]] = None):
         for ap, gr in self.group_leaves_by(self.leaves_by_role[SWITCHGROUP_ROLE_APOD], 'seq_no'):
-            if limit_aps and ap not in limit_aps:
+            if limit is not None and ap not in limit:
                 continue
             if not self.ensure_single_attribute(('site', 'slug'), gr):
                 print(f'ap{ap} switches {gr} have different sites, skipping')
@@ -489,9 +490,10 @@ def main():
     parser.add_argument("-r", "--region", required=True)
     parser.add_argument("-s", "--shell", action="store_true")
     parser.add_argument("-t", "--netbox-token", help='Netbox self.api token, can also use ENV: NETBOX_TOKEN')
-    parser.add_argument('-l', "--limit-bb", nargs='*', type=int, help='Only run for some bb', default=list())
-    parser.add_argument('-n', "--limit-np", nargs='*', type=int, help='Only run for some np', default=list())
-    parser.add_argument('-a', "--limit-ap", nargs='*', type=int, help='Only run for some ap', default=list())
+    parser.add_argument("-e", "--entities", nargs='*', type=str, choices=CCFabricNetboxModeller.SUPPORTED_ROLES,
+                        help='Limit modelling to select entity')
+    parser.add_argument('-l', "--limit", nargs='*', type=str, help='Only run for a certain pod number,'
+                                                                   ' such as "ap038, np012 bb139"', default=list())
     parser.add_argument('-d', "--dry-run", help='Do not actually change something, just log', action="store_true")
 
     args = parser.parse_args()
@@ -504,13 +506,31 @@ def main():
     netbox_token = args.netbox_token if args.netbox_token else os.environ.get('NETBOX_TOKEN')
     modeller = CCFabricNetboxModeller(args.region, netbox_token, args.dry_run)
 
+    entities = args.entities if args.entities else CCFabricNetboxModeller.SUPPORTED_ROLES
+
     if args.shell:
         import IPython
         IPython.embed()
 
-    modeller.model_bbs(limit_bbs=set(args.limit_bb))
-    modeller.model_neutron_routers(limit_nps=args.limit_np)
-    modeller.model_apods(limit_aps=args.limit_ap)
+    for entity in entities:
+        limit = set()
+        for item in args.limit:
+            if item.startswith(entity):
+                limit.add(int(item[len(entity):]))
+
+        if not args.limit:
+            limit = None
+
+        if limit is not None and len(limit) == 0:
+            # limit has no item from this entity
+            continue
+
+        if entity == SWITCHGROUP_ROLE_APOD:
+            modeller.model_apods(limit)
+        if entity == SWITCHGROUP_ROLE_VPOD:
+            modeller.model_bbs(limit)
+        if entity == SWITCHGROUP_ROLE_NETPOD:
+            modeller.model_neutron_routers(limit)
 
 
 if __name__ == '__main__':
