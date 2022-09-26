@@ -83,8 +83,6 @@ class ThreadedService:
         _version_string = version.version_info.release_string()
         gmr.TextGuruMeditation.setup_autorun(version=_version_string)
 
-        self.start_backdoor()
-
         signal.signal(signal.SIGHUP, self._signal_ignore)
         signal.signal(signal.SIGTERM, self._signal_graceful_exit)
         signal.signal(signal.SIGINT, self._signal_fast_exit)
@@ -107,6 +105,8 @@ class ThreadedService:
             'topic': self.topic,
             'configuration': {},
         }
+
+        self.start_backdoor()
 
         # conf.register_opts(_options.service_opts)
         # TODO(jkulik) do we need to log all config options?
