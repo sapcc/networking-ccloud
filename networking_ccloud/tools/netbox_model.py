@@ -14,7 +14,7 @@
 
 from collections import Counter, defaultdict
 from ipaddress import ip_network, ip_address
-from itertools import groupby
+from itertools import chain, groupby
 import os
 import re
 from typing import Generator, Iterable, List, Tuple, Dict, Union, Any, Optional, Set
@@ -25,7 +25,7 @@ from pynetbox.core.response import Record as NbRecord
 from pynetbox.core.response import RecordSet as NbRecordSet
 
 from networking_ccloud.tools.netbox_config_gen import ConfigGenerator, SWITCHGROUP_ROLE_VPOD, SWITCHGROUP_ROLE_NETPOD, \
-    SWITCHGROUP_ROLE_APOD
+    SWITCHGROUP_ROLE_APOD, SWITCHGROUP_ROLE_STPOD
 
 NBR_DICT_T = Union[Dict[str, Any], NbRecord]
 
@@ -33,13 +33,14 @@ NBR_DICT_T = Union[Dict[str, Any], NbRecord]
 class CCFabricNetboxModeller():
 
     READ_API = pynetbox.api(ConfigGenerator.netbox_url)
-    SUPPORTED_ROLES = {SWITCHGROUP_ROLE_VPOD, SWITCHGROUP_ROLE_NETPOD, SWITCHGROUP_ROLE_APOD}
+    SUPPORTED_ROLES = {SWITCHGROUP_ROLE_VPOD, SWITCHGROUP_ROLE_NETPOD, SWITCHGROUP_ROLE_APOD, SWITCHGROUP_ROLE_STPOD}
 
     PORT_CHANNEL_RANGE_BEGIN = 100
 
     CC_TENANT = READ_API.tenancy.tenants.get(slug='converged-cloud')
     CC_CONSOLE_ROLE = READ_API.ipam.roles.get(slug='cc-console')
     CC_MGMT_ROLE = READ_API.ipam.roles.get(slug='cc-management')
+    CC_CP_ROLE = READ_API.ipam.roles.get(slug='cc-control-plane')
     CC_VMOTION_ROLE = READ_API.ipam.roles.get(slug='cc-vmotion')
     CC_BACKDOOR_MGMT_ROLE = READ_API.ipam.roles.get(slug='cc-backdoor-management')
     CC_MGMT_VRF = READ_API.ipam.vrfs.get(name='CC-MGMT')
@@ -49,19 +50,32 @@ class CCFabricNetboxModeller():
         'arista': 'Port-Channel'
     }
 
-    INFRA_VLANS = {
+    VPOD_INFRA_VLANS = {
         'console': {'name': 'BB Console', 'role': CC_CONSOLE_ROLE.id, 'vid': 100},
         'mgmt': {'name': 'BB Mgmt', 'role': CC_MGMT_ROLE.id, 'vid': 101},
         'vmotion': {'name': 'BB vMotion', 'role': CC_VMOTION_ROLE.id, 'vid': 104},
         'backdoor': {'name': 'BB Backdoor Management', 'role': CC_BACKDOOR_MGMT_ROLE.id, 'vid': 106}
     }
 
-    INFRA_NETWORKS = {
+    VPOD_INFRA_NETWORKS = {
         'console': {'prefix_length': 26, 'position': 0},
         'mgmt': {'prefix_length': 26, 'position': 1},
         'vmotion': {'prefix_length': 27, 'position': -2},
         'backdoor': {'prefix_length': 27, 'position': -1},
     }
+
+    SWIFT_PREEXISTING_SITE_CP_NETWORKS = [
+        {'vid': 754, 'role_id': CC_MGMT_ROLE.id},
+        {'vid': 755, 'role_id': CC_VMOTION_ROLE.id},
+        {'vid': 756, 'role_id': CC_MGMT_ROLE.id},
+        {'vid': 901, 'role_id': CC_CP_ROLE.id},
+    ]
+
+    SWIFT_PREEXISTING_REGION_NETWORKS = [
+        {'vid': 101, 'role_id': CC_CP_ROLE.id}
+    ]
+
+    MANILA_PREEXISTING_REPLICATION_NETWORKS = [{'id': 1556}]
 
     def __init__(self, region: str, netbox_token: str, dry_run: bool):
         self.region = region
@@ -95,18 +109,19 @@ class CCFabricNetboxModeller():
                 result[role].append(device)
         return result
 
-    def get_role_facing_interfaces(self, ifaces: NbRecordSet, role_slug: str) -> Generator[NbRecord, None, None]:
+    def get_role_facing_interfaces(self, ifaces: NbRecordSet, role_slug: str, enforce_cluster_member=True) -> Generator[NbRecord, None, None]:
         for iface in ifaces:
             if not iface.connected_endpoint:
                 continue
             device_role = getattr(iface.connected_endpoint.device, 'device_role')
             if not device_role or device_role.slug != role_slug:
                 continue
-            cluster = getattr(iface.connected_endpoint.device, 'cluster')
-            if not cluster:
-                continue
-            if not ConfigGenerator.cluster_is_valid(cluster):
-                continue
+            if enforce_cluster_member:
+                cluster = getattr(iface.connected_endpoint.device, 'cluster')
+                if not cluster:
+                    continue
+                if not ConfigGenerator.cluster_is_valid(cluster):
+                    continue
             yield iface
 
     def get_lag_name_for_ifaces(self, ifaces: Iterable[NbRecord], vendor: str) -> str:
@@ -142,12 +157,13 @@ class CCFabricNetboxModeller():
         return candidate_nets[0]
 
     def find_and_bundle_mlag_ports(self, gr_number, leaf_group: List[NbRecord],
-                                   remote_role: str) -> List[Tuple[NBR_DICT_T, NBR_DICT_T]]:
+                                   remote_role: str, enforce_cluster_member=True) -> List[Tuple[NBR_DICT_T, NBR_DICT_T]]:
         interfaces = set()
         lags_members = []
         for leaf in leaf_group:
             ifaces = self.api.dcim.interfaces.filter(device_id=leaf.id, connection_status=True)
-            interfaces.update(self.get_role_facing_interfaces(ifaces, remote_role))
+            interfaces.update(self.get_role_facing_interfaces(ifaces, remote_role,
+                                                              enforce_cluster_member=enforce_cluster_member))
 
         def sorter(x):
             lag = getattr(x.connected_endpoint, 'lag', None)
@@ -233,7 +249,7 @@ class CCFabricNetboxModeller():
     def create_vlans(self, site: NbRecord, vlan_group: NBR_DICT_T) -> Dict[str, NBR_DICT_T]:
         vlans = dict()
         vlan_group_id = vlan_group.id if isinstance(vlan_group, NbRecord) else vlan_group['name']
-        for name, vlan in self.INFRA_VLANS.items():
+        for name, vlan in self.VPOD_INFRA_VLANS.items():
             nb_vlan = None
             if isinstance(vlan_group, NbRecord):
                 # For simplification we assume that without a proper VLAN group there cannot be a
@@ -266,7 +282,7 @@ class CCFabricNetboxModeller():
                                bb_net: NbRecord, site: NbRecord) -> Dict[str, NBR_DICT_T]:
         prefixes = dict()
         for name, vlan in vlans.items():
-            prefix_conf = self.INFRA_NETWORKS[name]
+            prefix_conf = self.VPOD_INFRA_NETWORKS[name]
             bb_ip_network = ip_network(bb_net.prefix)
             position = prefix_conf['position']
             desired_prefix = str(list(bb_ip_network.subnets(new_prefix=prefix_conf['prefix_length']))[position])
@@ -326,6 +342,8 @@ class CCFabricNetboxModeller():
 
         def get_value_or_sorted_list(obj, attr, default=None):
             if isinstance(obj, list):
+                if not hasattr(obj[0], attr):
+                    return default
                 return sorted([getattr(x, attr, default) for x in obj])
             return getattr(obj, attr, default)
 
@@ -347,7 +365,7 @@ class CCFabricNetboxModeller():
                         continue
                 setattr(item, attr, value)
             else:
-                if value != item.get(attr, None):
+                if value == item.get(attr, None):
                     continue
                 item[attr] = value
             print(f'On {item} setting attribute {attr} = {value}')
@@ -482,6 +500,147 @@ class CCFabricNetboxModeller():
                             lag.save()
                     break
 
+    def model_swift_nodes(self, limit: Optional[Set[int]] = None):
+        region = self.api.dcim.regions.get(slug=self.region)
+        regional_vgroup_filter = dict(scope_type='dcim.region', scope_id=region.id, slug=f'{region.slug}-regional')
+        region_vgroup = list(self.api.ipam.vlan_groups.filter(**regional_vgroup_filter))
+
+        if len(region_vgroup) > 1:
+            raise ValueError(f'Found more than one VLAN group for regional networks with filter {region_vgroup}')
+        if len(region_vgroup) == 0:
+            raise ValueError(f'Found no VLAN group for regional networks with filter {regional_vgroup_filter}')
+
+        region_vgroup = region_vgroup[0]
+        regional_vlans = []
+        for vlan_def in self.SWIFT_PREEXISTING_REGION_NETWORKS:
+            vlan_filter = dict(**vlan_def, group_id=region_vgroup.id)
+            vlan = self.api.ipam.vlans.get(**vlan_filter)
+            if vlan:
+                regional_vlans.append(vlan)
+            else:
+                raise ValueError(f'Could not find VLAN with filter {vlan_filter}')
+
+        # dict to maintain VLANs per site
+        site_vlans = dict()
+        for ap, gr in self.group_leaves_by(self.leaves_by_role[SWITCHGROUP_ROLE_STPOD], 'seq_no'):
+            if limit is not None and ap not in limit:
+                continue
+            if not self.ensure_single_attribute(('site', 'slug'), gr):
+                print(f'ap{ap} switches {gr} have different sites, skipping')
+                continue
+
+            lags = self.find_and_bundle_mlag_ports(ap, gr, 'server')
+
+            site = gr[0].site
+            # fetch the site local vlans in CP group
+            if site not in site_vlans:
+                cp_vgroup_filter = dict(scope_type='dcim.site', scope_id=site.id, slug=f'{site.slug}-cp')
+                cp_vgroup = list(self.api.ipam.vlan_groups.filter(**cp_vgroup_filter))
+
+                if len(cp_vgroup) > 1:
+                    raise ValueError(f'Found more than one VLAN group for CP networks with filter {cp_vgroup_filter}')
+                if len(cp_vgroup) == 0:
+                    print(f'Found no VLAN group for CP networks with filter {cp_vgroup_filter}')
+                    continue
+
+                cp_vgroup = cp_vgroup[0]
+                vlans = []
+                for vlan_def in self.SWIFT_PREEXISTING_SITE_CP_NETWORKS:
+                    vlan_filter = dict(**vlan_def, group_id=cp_vgroup.id)
+                    vlan = self.api.ipam.vlans.get(**vlan_filter)
+                    if vlan:
+                        vlans.append(vlan)
+                    else:
+                        print(f'Could not find VLAN with filter {vlan_filter}')
+                    site_vlans[site] = vlans
+
+            for lag in lags:
+                self.attach_infra_vlans_to_iface(site_vlans[site] + regional_vlans, lag[0])
+
+    def model_filers(self, limit: Optional[Set[int]] = None):
+        for st, gr in self.group_leaves_by(self.leaves_by_role[SWITCHGROUP_ROLE_STPOD], 'seq_no'):
+            if limit is not None and st not in limit:
+                continue
+            if not self.ensure_single_attribute(('site', 'slug'), gr):
+                print(f'ap{st} switches {st} have different sites, skipping')
+                continue
+
+            # FIXME: provisional code until storage team models the LAG members properly
+            group_ifaces = chain(*(self.api.dcim.interfaces.filter(device_id=leaf.id) for leaf in gr))
+            filer_facing_ifaces = set(self.get_role_facing_interfaces(group_ifaces, 'filer',
+                                      enforce_cluster_member=False))
+            filer_facing_ifaces = sorted(filer_facing_ifaces, key=lambda x: x.connected_endpoint.device.name)
+            for device, filer_facing_ifaces in groupby(filer_facing_ifaces, lambda x: x.connected_endpoint.device):
+                if not device.parent_device or 'manila' not in {x.slug for x in device.parent_device.tags}:
+                    continue
+                lags = list(self.api.dcim.interfaces.filter(device_id=device.id, type='lag'))
+                if len(lags) > 1:
+                    print(f'{device.name} has more than 1 LAG, but expected 1')
+                    continue
+                if len(lags) == 0:
+                    print(f'{device.name} has no LAG, but expected 1')
+                    continue
+                lag = lags[0]
+                for iface in filer_facing_ifaces:
+                    iface = iface.connected_endpoint
+                    if not iface.lag == lag:
+                        iface.lag = lag
+                        print(f'Attaching {iface.name} on {device.name} to {lag.name}.'
+                              ' This should be done by build in the future!')
+                        if not self.dry_run:
+                            iface.save()
+            lags = self.find_and_bundle_mlag_ports(st, gr, 'filer', enforce_cluster_member=False)
+
+        vlans = []
+        for vlan_def in self.MANILA_PREEXISTING_REPLICATION_NETWORKS:
+            vlan_filter = dict(**vlan_def)
+            vlan = self.api.ipam.vlans.get(**vlan_filter)
+            if vlan:
+                vlans.append(vlan)
+            else:
+                raise ValueError(f'Could not find VLAN with filter {vlan_filter}')
+
+        for st, gr in self.group_leaves_by(self.leaves_by_role[SWITCHGROUP_ROLE_STPOD], 'seq_no'):
+            if limit is not None and st not in limit:
+                continue
+            if not self.ensure_single_attribute(('site', 'slug'), gr):
+                print(f'ap{st} switches {gr} have different sites, skipping')
+                continue
+
+            # FIXME: provisional code until storage team models the LAG members properly
+            group_ifaces = chain(*(self.api.dcim.interfaces.filter(device_id=leaf.id) for leaf in gr))
+            filer_facing_ifaces = set(self.get_role_facing_interfaces(group_ifaces, 'filer',
+                                                                      enforce_cluster_member=False))
+            filer_facing_ifaces = sorted(filer_facing_ifaces, key=lambda x: x.connected_endpoint.device.name)
+            for device, filer_facing_ifaces in groupby(filer_facing_ifaces, lambda x: x.connected_endpoint.device):
+                if (not device.parent_device
+                   or ConfigGenerator.manila_tag not in {x.slug for x in device.parent_device.tags}):
+                    continue
+                lags = list(self.api.dcim.interfaces.filter(device_id=device.id, type='lag'))
+                if len(lags) > 1:
+                    print(f'{device.name} has more than 1 LAG, but expected 1')
+                    continue
+                if len(lags) == 0:
+                    print(f'{device.name} has no LAG, but expected 1')
+                    continue
+                lag = lags[0]
+                for iface in filer_facing_ifaces:
+                    iface = iface.connected_endpoint
+                    if not iface.lag == lag:
+                        iface.lag = lag
+                        print(f'Attaching {iface.name} on {device.name} to {lag.name}.'
+                              ' This should be done by build in the future!')
+                        if not self.dry_run:
+                            iface.save()
+            lags = self.find_and_bundle_mlag_ports(st, gr, 'filer', enforce_cluster_member=False)
+
+            for lag in lags:
+                # use lag members because those will be present even in dry run mode
+                parent = lag[1][0].connected_endpoint.device.parent_device
+                if not parent or ConfigGenerator.manila_tag not in {x.slug for x in parent.tags}:
+                    continue
+                self.attach_infra_vlans_to_iface(vlans, lag[0])
+
 
 def main():
     import argparse
@@ -531,7 +690,9 @@ def main():
             modeller.model_bbs(limit)
         if entity == SWITCHGROUP_ROLE_NETPOD:
             modeller.model_neutron_routers(limit)
-
+        if entity == SWITCHGROUP_ROLE_STPOD:
+            modeller.model_filers(limit)
+            modeller.model_swift_nodes(limit)
 
 if __name__ == '__main__':
     main()

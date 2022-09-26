@@ -62,7 +62,7 @@ class ConfigGenerator:
 
     leaf_role = "evpn-leaf"
     spine_role = "evpn-spine"
-    connection_roles = {"server", "neutron-router"}
+    manila_tag = "manila"
     infra_network_vrf = 'CC-MGMT'
     tenants = {"converged-cloud"}
     pod_roles = {
@@ -115,7 +115,8 @@ class ConfigGenerator:
         'neutron-router-pair': neutron_router_metagroup_handler,
         'cc-k8s-controlplane': apod_metagroup_handler,
         'cc-vsphere-apod-mgmt': noop_metagroup_handler,
-        'cc-vsphere-apod-pool': noop_metagroup_handler
+        'cc-vsphere-apod-pool': noop_metagroup_handler,
+        'cc-k8s-controlplane-swift': noop_metagroup_handler
     }
 
     def __init__(self, region, args, verbose=False, verify_ssl=False):
