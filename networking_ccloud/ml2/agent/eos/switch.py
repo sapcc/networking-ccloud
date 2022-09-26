@@ -18,7 +18,6 @@ import re
 import time
 from typing import List, Optional
 
-from oslo_concurrency import lockutils
 from oslo_log import log as logging
 from pygnmi.client import gNMIclient, gNMIException
 
@@ -206,7 +205,7 @@ class EOSSwitch(SwitchBase):
 
         return result
 
-    def get_switch_status(self):
+    def _get_switch_status(self):
         # FIXME: we can get this without cli, but sometimes the chassis/model seems to be empty
         #        once we figure out when this is the case we can use the code below instead of cli:/show version
         # ver, model, uptime_ns = self.api.get(path=['system/config/hostname',
@@ -737,7 +736,7 @@ class EOSSwitch(SwitchBase):
 
         return config_req
 
-    def get_config(self) -> agent_msg.SwitchConfigUpdate:
+    def _get_config(self) -> agent_msg.SwitchConfigUpdate:
         # get infos from the device for everything that we have a model for
         config = agent_msg.SwitchConfigUpdate(switch_name=self.name, operation=Op.add)
         config.vlans = self.get_vlan_config()
@@ -745,10 +744,6 @@ class EOSSwitch(SwitchBase):
         config.bgp = self.get_bgp_config()
         config.ifaces = self.get_ifaces_config()
         return config
-
-    def apply_config_update(self, config):
-        with lockutils.lock(name=f"apply-config-update-{self.name}"):
-            return self._apply_config_update(config)
 
     def _apply_config_update(self, config):
         # FIXME: threading model (does this call block or not?)

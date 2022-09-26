@@ -87,6 +87,9 @@ class CCFabricSwitchAgent(manager.Manager, cc_agent_api.CCFabricSwitchAgentAPI):
     def stop(self):
         # usually called by neutron.service.Service at end of stop()
         LOG.info("Agent shutting down")
+        for switch in self._switches:
+            switch._executor.shutdown()
+        LOG.info("Agent shut down")
 
     def initialize_rpc_hook(self, conn):
         # this is a method called in
@@ -119,30 +122,40 @@ class CCFabricSwitchAgent(manager.Manager, cc_agent_api.CCFabricSwitchAgentAPI):
          :param list switches: List of switch names or primary addresses to filter for
          """
         result = {'switches': {}}
+        futures = []
         for switch in self._switches:
             if switches and switch.name not in switches:
                 continue
+            futures.append((switch.name, switch.get_switch_status()))
+
+        for switch_name, future in futures:
             try:
-                result['switches'][switch.name] = switch.get_switch_status()
-                result['switches'][switch.name]['reachable'] = True
+                result['switches'][switch_name] = future.result()
+                result['switches'][switch_name]['reachable'] = True
             except cc_exc.SwitchConnectionError as e:
-                result['switches'][switch.name] = dict(reachable=False, error=str(e))
+                result['switches'][switch_name] = dict(reachable=False, error=str(e))
         return result
 
     def get_switch_config(self, context, switches):
         result = {'switches': {}}
+        futures = []
         for switch in self._switches:
             if switches and switch.name not in switches:
                 continue
+            futures.append((switch.name, switch.get_config()))
+
+        for switch_name, future in futures:
             try:
-                config = switch.get_config().dict(exclude_unset=True, exclude_defaults=True)
-                result['switches'][switch.name] = dict(reachable=True, config=config)
+                config = future.result().dict(exclude_unset=True, exclude_defaults=True)
+                result['switches'][switch_name] = dict(reachable=True, config=config)
             except cc_exc.SwitchConnectionError as e:
-                result['switches'][switch.name] = dict(reachable=False, error=str(e))
+                result['switches'][switch_name] = dict(reachable=False, error=str(e))
+
         return result
 
     def apply_config_update(self, context, config):
         result = {}
+        futures = []
         for update in config:
             update = agent_msg.SwitchConfigUpdate.parse_obj(update)
             switch = self.get_switch_by_name(update.switch_name)
@@ -152,5 +165,9 @@ class CCFabricSwitchAgent(manager.Manager, cc_agent_api.CCFabricSwitchAgentAPI):
                           update.switch_name, update.operation)
                 continue
 
-            result[update.switch_name] = switch.apply_config_update(update)
+            futures.append((update.switch_name, switch.apply_config_update(update)))
+
+        for switch_name, future in futures:
+            result[switch_name] = future.result()
+
         return result

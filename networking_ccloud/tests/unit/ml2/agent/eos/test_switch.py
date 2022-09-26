@@ -42,7 +42,7 @@ class TestEOSConfigUpdates(base.TestCase):
         cu = messages.SwitchConfigUpdate(switch_name="seagull-sw1", operation=messages.OperationEnum.add)
         cu.add_vlan(1000, "nest")
         cu.add_vlan(1001, "basket")
-        self.switch.apply_config_update(cu)
+        self.switch.apply_config_update(cu).result()
         self.switch._api.set.assert_called_with(update=expected_update, delete=[], replace=[])
 
     def test_add_everything(self):
@@ -187,7 +187,7 @@ class TestEOSConfigUpdates(base.TestCase):
         iface2.add_trunk_vlan(1001)
         cu.add_iface(iface2)
 
-        self.switch.apply_config_update(cu)
+        self.switch.apply_config_update(cu).result()
         self.switch._api.set.assert_called_with(update=expected_update_config, replace=[],
                                                 delete=expected_delete_config)
 
@@ -294,7 +294,7 @@ class TestEOSConfigUpdates(base.TestCase):
         iface2.add_trunk_vlan(2001)
         cu.add_iface(iface2)
 
-        self.switch.apply_config_update(cu)
+        self.switch.apply_config_update(cu).result()
         self.switch._api.set.assert_called_with(**expected_config)
 
     def test_add_vlan_map_with_existing(self):
@@ -317,7 +317,7 @@ class TestEOSConfigUpdates(base.TestCase):
         cu.add_vxlan_map(232323, 1000)
         cu.add_vxlan_map(424242, 2000)
 
-        self.switch.apply_config_update(cu)
+        self.switch.apply_config_update(cu).result()
         self.switch._api.set.assert_called_with(**expected_config)
 
     def test_replace_trunk_vlans(self):
@@ -333,7 +333,7 @@ class TestEOSConfigUpdates(base.TestCase):
         iface.add_trunk_vlan(1001)
         cu.add_iface(iface)
 
-        self.switch.apply_config_update(cu)
+        self.switch.apply_config_update(cu).result()
         self.switch._api.set.assert_called_with(**expected_config)
 
     def test_replace_vlans(self):
@@ -362,7 +362,7 @@ class TestEOSConfigUpdates(base.TestCase):
         cu.add_vlan(2000, "nest")
         cu.add_vlan(2001, "basket")
 
-        self.switch.apply_config_update(cu)
+        self.switch.apply_config_update(cu).result()
         self.switch._api.set.assert_called_with(**expected_config)
 
     def test_update_vxlan_maps(self):
@@ -389,7 +389,7 @@ class TestEOSConfigUpdates(base.TestCase):
         cu.add_vxlan_map(23, 42)
         cu.add_vxlan_map(232323, 1337)
 
-        self.switch.apply_config_update(cu)
+        self.switch.apply_config_update(cu).result()
         self.switch._api.set.assert_called_with(**expected_config)
 
     def test_replace_vxlan_maps(self):
@@ -419,7 +419,7 @@ class TestEOSConfigUpdates(base.TestCase):
         cu.add_vxlan_map(424242, 2000)
         cu.add_vxlan_map(200444, 2001)
 
-        self.switch.apply_config_update(cu)
+        self.switch.apply_config_update(cu).result()
         self.switch._api.set.assert_called_with(**expected_config)
 
     def test_update_vlan_translations(self):
@@ -532,7 +532,7 @@ class TestEOSConfigUpdates(base.TestCase):
         iface.add_vlan_translation(1000, 2000)
         cu.add_iface(iface)
 
-        self.switch.apply_config_update(cu)
+        self.switch.apply_config_update(cu).result()
         self.switch._api.set.assert_called_with(**expected_config)
         self.switch._api.set.reset_mock()
 
@@ -645,7 +645,7 @@ class TestEOSConfigUpdates(base.TestCase):
         cu.bgp.add_vlan(2000, 232323, 1)
         cu.bgp.add_vlan(2004, 424242, 3, bgw_mode=True)
 
-        self.switch.apply_config_update(cu)
+        self.switch.apply_config_update(cu).result()
         self.switch._api.set.assert_has_calls([mock.call(**expected_cli_config), mock.call(**expected_config)])
 
     def test_bgp_vlans_bgw_mode(self):
@@ -677,7 +677,7 @@ class TestEOSConfigUpdates(base.TestCase):
         cu.bgp = messages.BGP(asn="65000", asn_region="65123", switchgroup_id=4223)
         cu.bgp.add_vlan(1000, 232323, 1, bgw_mode=True)
 
-        self.switch.apply_config_update(cu)
+        self.switch.apply_config_update(cu).result()
         self.switch._api.set.assert_has_calls([mock.call(**expected_cli_config), mock.call(**expected_config)])
 
 
@@ -771,7 +771,7 @@ class TestEOSSwitch(base.TestCase):
         cu.add_iface(iface)
         cu.sort()
 
-        config = self.switch.get_config()
+        config = self.switch.get_config().result()
         config.sort()
         self.assertEqual(cu.dict(exclude_unset=True, exclude_defaults=True),
                          config.dict(exclude_unset=True, exclude_defaults=True))

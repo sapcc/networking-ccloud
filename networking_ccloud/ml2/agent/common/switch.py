@@ -13,10 +13,26 @@
 #    under the License.
 
 import abc
+from functools import wraps
 
+from futurist import ThreadPoolExecutor
+from oslo_concurrency import lockutils
 from oslo_log import log as logging
 
 LOG = logging.getLogger(__name__)
+
+
+def run_in_executor(fn):
+    """Decorator to run a method in the ThreadPoolExecutor of the class
+
+    The wrapped method thus returns a futurist.Future now instead of its actual
+    result.
+    """
+    @wraps(fn)
+    def wrapped(self, *args, **kwargs):
+        return self._executor.submit(fn, self, *args, **kwargs)
+
+    return wrapped
 
 
 class SwitchBase(abc.ABC):
@@ -31,6 +47,7 @@ class SwitchBase(abc.ABC):
         self.timeout = timeout
         self._verify_ssl = verify_ssl
         self._api = None
+        self._executor = ThreadPoolExecutor(max_workers=5)
 
     @classmethod
     @abc.abstractmethod
@@ -51,11 +68,24 @@ class SwitchBase(abc.ABC):
     def __str__(self):
         return f"{self.name} ({self.host})"
 
+    @run_in_executor
     def get_switch_status(self):
+        return self._get_switch_status()
+
+    def _get_switch_status(self):
         raise NotImplementedError
 
+    @run_in_executor
     def get_config(self):
+        return self._get_config()
+
+    def _get_config(self):
         raise NotImplementedError
 
+    @run_in_executor
     def apply_config_update(self, config):
+        with lockutils.lock(name=f"apply-config-update-{self.name}"):
+            return self._apply_config_update(config)
+
+    def _apply_config_update(self, config):
         raise NotImplementedError
