@@ -17,7 +17,7 @@ import ipaddress
 from itertools import groupby
 from operator import attrgetter
 import re
-from typing import List, Union
+from typing import Dict, List, Union
 
 import pydantic
 
@@ -299,8 +299,11 @@ class Hostgroup(pydantic.BaseModel):
     # infra networks attached to hostgroup
     infra_networks: List[InfraNetwork] = []
 
+    _vlan_pool: str = None
+
     class Config:
         use_enum_values = True
+        underscore_attrs_are_private = True
 
     @pydantic.validator('binding_hosts')
     def ensure_at_least_one_binding_host(cls, v):
@@ -408,7 +411,9 @@ class Hostgroup(pydantic.BaseModel):
 
     def get_vlan_pool_name(self, drv_conf):
         """Find vlanpool name for this hostgroup"""
-        return self.get_any_switchgroup(drv_conf).vlan_pool
+        if self._vlan_pool is None:
+            self._vlan_pool = self.get_any_switchgroup(drv_conf).vlan_pool
+        return self._vlan_pool
 
     def iter_switchports(self, driver_config, exclude_hosts=None):
         """Iterate over all switchports, grouped by switch
@@ -502,6 +507,18 @@ class DriverConfig(pydantic.BaseModel):
     global_config: GlobalConfig
     switchgroups: List[SwitchGroup]
     hostgroups: List[Hostgroup]
+
+    _hostgroup_by_host: Dict[str, Hostgroup] = pydantic.PrivateAttr()
+    _switchgroup_by_switch: Dict[str, SwitchGroup] = pydantic.PrivateAttr()
+    _switch_by_name: Dict[str, Switch] = pydantic.PrivateAttr()
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        # cache certain mappings that we need frequently
+        self._hostgroup_by_host = {binding_host: hg for hg in self.hostgroups for binding_host in hg.binding_hosts}
+        self._switchgroup_by_switch = {sw.name: sg for sg in self.switchgroups for sw in sg.members}
+        self._switch_by_name = {sw.name: sw for sg in self.switchgroups for sw in sg.members}
 
     @pydantic.root_validator
     def check_hostgroup_references(cls, values):
@@ -665,34 +682,20 @@ class DriverConfig(pydantic.BaseModel):
         return switches
 
     def get_hostgroup_by_host(self, host):
-        for hg in self.hostgroups:
-            if host in hg.binding_hosts:
-                return hg
-        return None
+        return self._hostgroup_by_host.get(host)
 
     def get_hostgroups_by_hosts(self, hosts):
-        hgs = []
-        for hg in self.hostgroups:
-            if any(host in hg.binding_hosts for host in hosts):
-                hgs.append(hg)
-        return hgs
+        return [self._hostgroup_by_host[host] for host in hosts if host in self._hostgroup_by_host]
 
     def get_hostgroups_by_switch(self, switch_name):
         """Get all hostgroups that reference this switch"""
         return [hg for hg in self.hostgroups if hg.has_switch_as_member(self, switch_name)]
 
     def get_switchgroup_by_switch_name(self, name):
-        for sg in self.switchgroups:
-            if any(s.name == name for s in sg.members):
-                return sg
-        return None
+        return self._switchgroup_by_switch.get(name)
 
     def get_switch_by_name(self, name):
-        for sg in self.switchgroups:
-            for switch in sg.members:
-                if switch.name == name:
-                    return switch
-        return None
+        return self._switch_by_name.get(name)
 
     def get_interconnects_for_az(self, device_type, az):
         return [hg for hg in self.hostgroups
