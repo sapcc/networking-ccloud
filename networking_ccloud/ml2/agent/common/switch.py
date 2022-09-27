@@ -17,6 +17,7 @@ from functools import wraps
 
 from futurist import ThreadPoolExecutor
 from oslo_concurrency import lockutils
+from oslo_context import context
 from oslo_log import log as logging
 
 LOG = logging.getLogger(__name__)
@@ -30,7 +31,22 @@ def run_in_executor(fn):
     """
     @wraps(fn)
     def wrapped(self, *args, **kwargs):
-        return self._executor.submit(fn, self, *args, **kwargs)
+        current_context = context.get_current()
+
+        @wraps(fn)
+        def context_preserving_fn(*args, **kwargs):
+            if current_context:
+                current_context.update_store()
+            else:
+                # clear the current context of the thread set by the last
+                # function so we don't log stuff with the wrong context
+                try:
+                    delattr(context._request_store, 'context')
+                except AttributeError:
+                    pass
+            return fn(*args, **kwargs)
+
+        return self._executor.submit(context_preserving_fn, self, *args, **kwargs)
 
     return wrapped
 
