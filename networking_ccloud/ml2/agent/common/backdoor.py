@@ -43,7 +43,7 @@ def _print_semaphores():
     # local import as we don't want to keep that local variable in global scope
     from oslo_concurrency.lockutils import _semaphores
 
-    print('\n'.join(sorted([f"{name} - {len(s._Semaphore__cond._Condition__waiters)}"
+    print('\n'.join(sorted([f"{name} - {len(s._cond._waiters)}"
                             for name, s in _semaphores._semaphores.items()])))
 
 
