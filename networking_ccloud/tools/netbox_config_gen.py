@@ -59,9 +59,11 @@ class ConfigGenerator:
                                 r"(?P<pod>\d)(?P<switchgroup>\d{2}))"
                                 r"(?P<leaf>[ab])(?:-(?P<role>[a-z]+(?P<seq_no>[0-9]+)?))$")
     apod_node_name_re = re.compile(r'^node\d+-ap(?P<apod_seq>\d+)$')
+    filer_parent_name_re = re.compile(r'^stnpca(?P<cluster_seq>\d+)-st(?P<stpod_seq>\d+)$')
 
     leaf_role = "evpn-leaf"
     spine_role = "evpn-spine"
+    connection_roles = {"server", "neutron-router", "filer"}
     manila_tag = "manila"
     infra_network_vrf = 'CC-MGMT'
     tenants = {"converged-cloud"}
@@ -74,6 +76,7 @@ class ConfigGenerator:
         "cnd-net-evpn-tl": c_const.DEVICE_TYPE_TRANSIT,
     }
     ignore_tags = {"cc-net-driver-ignore"}
+    extra_vlan_tag = "cc-net-driver-extra-vlan"
 
     # metagroup handlers
 
@@ -106,6 +109,15 @@ class ConfigGenerator:
         binding_hosts = [f'{binding_host_prefix}{x}' for x in range(0, NETWORK_AGENTS_PER_APOD)]
         return conf.Hostgroup(binding_hosts=binding_hosts, metagroup=True, members=[member.name])
 
+    def filer_metagroup_handler(self, parent: NbRecord, member: NbRecord) -> Optional[conf.Hostgroup]:
+        m = self.filer_parent_name_re.match(parent.name)
+        if not m:
+            raise ValueError(f'{parent.name} is not complying with expected node naming for stpod parents')
+        if parent.parent_device:
+            raise ValueError(f'{parent.name} is a filer chassis and should not have a parent device')
+        binding_host = f'manila-share-netapp-{parent.name}'
+        return conf.Hostgroup(binding_hosts=[binding_host], metagroup=True, members=[member.name])
+
     def noop_metagroup_handler(self, cluster: NbRecord, member: NbRecord) -> Optional[conf.Hostgroup]:
         # In case we still care about the cluster type, but just do not need a metagroup from it
         return None
@@ -114,6 +126,7 @@ class ConfigGenerator:
         'cc-vsphere-prod': vpod_metagroup_handler,
         'neutron-router-pair': neutron_router_metagroup_handler,
         'cc-k8s-controlplane': apod_metagroup_handler,
+        'filer': filer_metagroup_handler,
         'cc-vsphere-apod-mgmt': noop_metagroup_handler,
         'cc-vsphere-apod-pool': noop_metagroup_handler,
         'cc-k8s-controlplane-swift': noop_metagroup_handler
@@ -247,12 +260,14 @@ class ConfigGenerator:
     def derive_vlan_vni(self, vlan: NbRecord) -> int:
         # https://sapcc.github.io/networking-ccloud/configuration/config-input.html#vlan-to-vni
         # check if bb-local switchgroup significant VLAN
-        if vlan.group.slug.startswith('cc-vpod'):
+        if vlan.group.slug.startswith('cc-vpod'):  # type: ignore
             # we would actually like to use the vlan group's scope type,
             # yet netbox only allows a per rack/site/region scope type
             # but out vpods span over multiple racks, so we have to use
             # a site scope type and need to fallback on regex parsing here
-            m = re.match(r'.*?(\d+)$', vlan.group.slug)  # expects something like cc-vpod271
+
+            # expects something like cc-vpod271
+            m = re.match(r'.*?(\d+)$', vlan.group.slug)  # type: ignore
             if not m:
                 raise ConfigException(f'vlan group {vlan.group.slug} must end with digits '  # type: ignore
                                       ' identifying the bb/np/stp')
@@ -308,8 +323,10 @@ class ConfigGenerator:
 
             # by convention we ignore certain VLAN groups member VLANs, once we upgrade to netbox 3.x we shall remove
             # this as VLAN groups will then support tags
-            if vlan.group and vlan.group.slug.endswith('cp') and vlan.group.slug.startswith(self.region):
-                # local CP network
+            if vlan.group and (
+                    (vlan.group.slug.startswith(self.region) and vlan.group.slug.endswith('cp'))
+                    or vlan.group.slug == f'{self.region}-regional'
+                    or vlan.group.slug == 'global-cc-core-transit'):
                 extra_vlans.add(vlan.vid)
                 continue
 
@@ -458,6 +475,10 @@ class ConfigGenerator:
                 far_device = iface.connected_endpoint.device
                 if far_device.device_role.slug not in self.connection_roles:
                     continue
+                if (far_device.device_role.slug == 'filer'
+                   and far_device.parent_device
+                   and self.manila_tag not in {x.slug for x in far_device.parent_device.tags}):
+                    continue
                 if getattr(far_device.tenant, 'slug', None) not in self.tenants:
                     continue
 
@@ -562,16 +583,40 @@ class ConfigGenerator:
             return False
         return True
 
+    @classmethod
+    def parent_is_valid(cls, parent: NbRecord) -> bool:
+        if not parent.name:
+            print(f'Warning: Parent {parent.id} has no name - ignoring')
+            return False
+        if not parent.device_role:
+            print(f'Warning: Parent {parent.name} has no type - ignoring')
+            return False
+        if parent.device_role.slug not in cls.metagroup_handlers:
+            print(f'Warning: Parent {parent.name} has unsupported type {parent.device_role.slug} - ignoring')
+            return False
+        return True
+
     def get_metagroups(self, connected_devices: Set[NbRecord]) -> List[conf.Hostgroup]:
         metagroups: Dict[str, conf.Hostgroup] = dict()
         for device in connected_devices:
-            if not device.cluster:
+            if not device.cluster and not device.parent_device:
                 continue
-            cluster = device.cluster
-            if not self.cluster_is_valid(cluster):
+            if device.cluster:
+                cluster = device.cluster
+                handler = cluster.type.slug
+                if not self.cluster_is_valid(cluster):
+                    continue
+            # clusters take precedence over parents (let's see how long that will hold)
+            elif device.parent_device:
+                cluster = device.parent_device
+                handler = cluster.device_role.slug
+                if not self.parent_is_valid(cluster):
+                    continue
+            else:
+                # Everything that has neither a cluster nor a parent we ignore
                 continue
-            # there must be a handler, otherwise the cluster would not be valid
-            metagroup = self.metagroup_handlers[cluster.type.slug](self, cluster, device)
+            # there must be a handler, otherwise the cluster/parent would not be valid
+            metagroup = self.metagroup_handlers[handler](self, cluster, device)
             if not metagroup:
                 # something failed here, so we ignore
                 continue
