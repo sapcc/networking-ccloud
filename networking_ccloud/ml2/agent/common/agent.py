@@ -24,6 +24,7 @@ from networking_ccloud.common.config import get_driver_config
 from networking_ccloud.common import constants as cc_const
 from networking_ccloud.common import exceptions as cc_exc
 from networking_ccloud.ml2.agent.common import api as cc_agent_api
+from networking_ccloud.ml2.agent.common import gmr
 from networking_ccloud.ml2.agent.common import messages as agent_msg
 from networking_ccloud.ml2.agent.common.service import ThreadedService
 
@@ -53,6 +54,8 @@ class CCFabricSwitchAgent(manager.Manager, cc_agent_api.CCFabricSwitchAgentAPI):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+
+        gmr.register_thread_pool_stats(self)
 
         self._switches = []
         self.drv_conf = get_driver_config()
