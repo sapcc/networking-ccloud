@@ -615,6 +615,7 @@ class TestEOSConfigUpdates(base.TestCase):
               {
                   'config': {
                       'name': '2004',
+                      'route-distinguisher': '4223:424242',
                       'redistribute': ['LEARNED', 'ROUTER_MAC', 'HOST_ROUTE']
                   },
                   'name': '2004',
@@ -665,7 +666,8 @@ class TestEOSConfigUpdates(base.TestCase):
             'delete': [],
             'replace': [],
             'update': [('arista/eos/arista-exp-eos-evpn:evpn/evpn-instances/evpn-instance[name=1000]',
-                        {'config': {'name': '1000', 'redistribute': ['LEARNED', 'ROUTER_MAC', 'HOST_ROUTE']},
+                        {'config': {'name': '1000', 'redistribute': ['LEARNED', 'ROUTER_MAC', 'HOST_ROUTE'],
+                                    'route-distinguisher': '4223:232323'},
                          'name': '1000',
                          'route-target': {'config': {'export': ['1:232323'],
                                                      'import': ['1:232323']}},
