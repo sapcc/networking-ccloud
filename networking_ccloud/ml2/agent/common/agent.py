@@ -12,6 +12,7 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
+from operator import attrgetter
 import sys
 
 from neutron.common import config as common_config
@@ -171,3 +172,15 @@ class CCFabricSwitchAgent(manager.Manager, cc_agent_api.CCFabricSwitchAgentAPI):
             result[switch_name] = future.result()
 
         return result
+
+    def backdoor_locals(self):
+
+        def show_agent_queue_size():
+            """Print out each switch with the queue size of their ThreadPoolExecutor"""
+            for switch in sorted(self._switches, key=attrgetter('name')):
+                print(switch.name, switch._executor._work_queue.qsize())
+
+        return {
+            'agent': self,
+            'show_agent_queue_size': show_agent_queue_size,
+        }
