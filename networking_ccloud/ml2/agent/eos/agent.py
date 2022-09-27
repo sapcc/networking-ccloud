@@ -42,11 +42,6 @@ class CCFabricEOSSwitchAgent(CCFabricSwitchAgent):
 
         return status
 
-    def backdoor_locals(self):
-        return {
-            'agent': self,
-        }
-
 
 def main():
     CCFabricEOSSwitchAgent.run_agent_main()
