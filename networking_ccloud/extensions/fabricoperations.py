@@ -315,7 +315,7 @@ class SwitchesController(wsgi.Controller):
 
         LOG.info("Got API request for syncing infra networks of %s", switch.name)
         scul = agent_msg.SwitchConfigUpdateList(agent_msg.OperationEnum.replace, self.drv_conf)
-        for hg in self.drv_conf.get_hostgroups_by_switch(switch.name):
+        for hg in self.drv_conf.get_hostgroups_by_switches([switch.name]):
             if hg.infra_networks:
                 for inet in hg.infra_networks:
                     # FIXME: exclude hosts
@@ -372,7 +372,7 @@ class SwitchesController(wsgi.Controller):
                 else:
                     switch['device_info'] = {'found': False}
 
-    def _make_switch_config(self, context, switch, sg):
+    def _make_switchgroup_config(self, context, sg):
         scul = agent_msg.SwitchConfigUpdateList(agent_msg.OperationEnum.replace, self.drv_conf)
 
         # physnets of this switch, which is the switch's switchgroup's vlan pool
@@ -385,7 +385,7 @@ class SwitchesController(wsgi.Controller):
         top_segments = self.fabric_plugin.get_top_level_vxlan_segments(context, network_ids=list(net_segments.keys()))
         scul.add_segments(net_segments, top_segments)
 
-        for hg in self.drv_conf.get_hostgroups_by_switch(switch.name):
+        for hg in self.drv_conf.get_hostgroups_by_switches([sw.name for sw in sg.members]):
             if hg.infra_networks:
                 for inet in hg.infra_networks:
                     # FIXME: exclude hosts
@@ -397,6 +397,11 @@ class SwitchesController(wsgi.Controller):
                 # find all physnets or interconnects scheduled
                 interconnects = self.fabric_plugin.get_interconnects(context, host=hg.binding_hosts[0])
                 scul.add_interconnects(context, self.fabric_plugin, interconnects)
+
+        return scul
+
+    def _make_switch_config(self, context, switch, sg):
+        scul = self._make_switchgroup_config(context, sg)
 
         self._clean_switches(scul, switch)
         return scul
@@ -443,10 +448,14 @@ class SwitchgroupsController(wsgi.Controller):
     @check_cloud_admin
     def sync(self, request, **kwargs):
         sg = self._get_switchgroup(kwargs.pop('id'))
-        result = {}
-        for member in sg.members:
-            result[member.name] = self._swctrl.sync(request, id=member.name)
-        return result
+
+        LOG.info("Got API request for syncing switchgroup %s (%s)", sg.name, ", ".join(sw.name for sw in sg.members))
+        scul = self._swctrl._make_switchgroup_config(request.context, sg)
+        try:
+            config_generated = scul.execute(request.context)
+        except RemoteError as e:
+            raise web_exc.HTTPInternalServerError(f"{e.exc_type} {e.value}")
+        return {'sync_sent': config_generated}
 
     @check_cloud_admin
     def sync_infra_networks(self, request, **kwargs):

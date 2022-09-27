@@ -233,9 +233,9 @@ class TestDriverConfig(base.TestCase):
         self.drv_conf = cfix.make_config(switchgroups=switchgroups, hostgroups=hostgroups)
         _override_driver_config(self.drv_conf)
 
-    def test_get_hostgroups_by_switch(self):
+    def test_get_hostgroups_by_switches(self):
         switch = self.drv_conf.get_switch_by_name("seagull-sw1")
-        hgs = self.drv_conf.get_hostgroups_by_switch(switch.name)
+        hgs = self.drv_conf.get_hostgroups_by_switches([switch.name])
         expected_groups = set(["nova-compute-seagull"] + [f"node{i:03d}-seagull" for i in range(1, 11)])
         self.assertEqual(expected_groups, set(hg.binding_host_name for hg in hgs))
 
