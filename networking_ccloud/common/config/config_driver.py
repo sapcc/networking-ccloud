@@ -173,7 +173,7 @@ class SwitchGroup(pydantic.BaseModel):
             for hg in drv_conf.hostgroups:
                 if not hg.infra_networks:
                     continue
-                if not any(hg.has_switch_as_member(drv_conf, sw.name) for sw in self.members):
+                if not hg.has_switches_as_member(drv_conf, [sw.name for sw in self.members]):
                     continue
                 all_ranges |= set(infra_net.vlan for infra_net in hg.infra_networks)
 
@@ -437,15 +437,15 @@ class Hostgroup(pydantic.BaseModel):
 
         return groupby(sorted(ifaces, key=attrgetter('switch')), key=attrgetter('switch'))
 
-    def has_switch_as_member(self, drv_conf, switch_name):
+    def has_switches_as_member(self, drv_conf, switch_names):
         if self.metagroup:
             for member in self.members:
                 far_hg = drv_conf.get_hostgroup_by_host(member)
-                if far_hg.has_switch_as_member(drv_conf, switch_name):
+                if far_hg.has_switches_as_member(drv_conf, switch_names):
                     return True
         else:
             for member in self.members:
-                if member.switch == switch_name:
+                if member.switch in switch_names:
                     return True
         return False
 
@@ -690,9 +690,9 @@ class DriverConfig(pydantic.BaseModel):
     def get_hostgroups_by_hosts(self, hosts):
         return [self._hostgroup_by_host[host] for host in hosts if host in self._hostgroup_by_host]
 
-    def get_hostgroups_by_switch(self, switch_name):
+    def get_hostgroups_by_switches(self, switch_names):
         """Get all hostgroups that reference this switch"""
-        return [hg for hg in self.hostgroups if hg.has_switch_as_member(self, switch_name)]
+        return [hg for hg in self.hostgroups if hg.has_switches_as_member(self, switch_names)]
 
     def get_switchgroup_by_switch_name(self, name):
         return self._switchgroup_by_switch.get(name)

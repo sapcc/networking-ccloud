@@ -350,12 +350,16 @@ class TestNetworkExtension(test_segment.SegmentTestCase, base.PortBindingHelper)
     def test_switchgroup_sync(self):
         with mock.patch.object(CCFabricSwitchAgentRPCClient, 'apply_config_update') as mock_acu:
             resp = self.app.put("/cc-fabric/switchgroups/seagull/sync")
-            self.assertEqual(2, mock_acu.call_count)
-            expected = {
-                'seagull-sw1': {'sync_sent': True},
-                'seagull-sw2': {'sync_sent': True},
-            }
-            self.assertEqual(expected, resp.json)
+            self.assertEqual(1, mock_acu.call_count)
+            self.assertTrue(resp.json['sync_sent'])
+            swcfgs = mock_acu.call_args[0][1]
+
+            self.assertEqual({"seagull-sw1", "seagull-sw2"}, set(s.switch_name for s in swcfgs))
+
+            # check that infra networks and portbindings are synced
+            for swcfg in swcfgs:
+                for iface in swcfg.ifaces:
+                    self.assertEqual({23, 42, 100}, set(iface.trunk_vlans))
 
     def test_switchgroup_sync_infra_networks(self):
         with mock.patch.object(CCFabricSwitchAgentRPCClient, 'apply_config_update') as mock_acu:
