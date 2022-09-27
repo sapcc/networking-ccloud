@@ -444,11 +444,10 @@ class EOSSwitch(SwitchBase):
                 ]
 
                 # rd
+                inst['config']['route-distinguisher'] = bgp_vlan.rd
                 if bgp_vlan.rd_evpn_domain_all:
                     # FIXME: this should be done via model, once we have it
                     cli.append(("cli:", f"rd evpn domain all {bgp_vlan.rd}"))
-                else:
-                    inst['config']['route-distinguisher'] = bgp_vlan.rd
 
                 # route-targets
                 if bgp_vlan.rt_imports or bgp_vlan.rt_exports:
