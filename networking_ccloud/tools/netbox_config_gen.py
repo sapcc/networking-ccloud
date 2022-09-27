@@ -244,16 +244,75 @@ class ConfigGenerator:
                 vlan_ips[ip.assigned_object.untagged_vlan].append(ip)
         return vlan_ips
 
-    def make_infra_networks(self, iface: NbRecord, svis: Dict[NbRecord, List[NbRecord]]) -> Set[conf.InfraNetwork]:
+    def derive_vlan_vni(self, vlan: NbRecord) -> int:
+        # https://sapcc.github.io/networking-ccloud/configuration/config-input.html#vlan-to-vni
+        # check if bb-local switchgroup significant VLAN
+        if vlan.group.slug.startswith('cc-vpod'):
+            # we would actually like to use the vlan group's scope type,
+            # yet netbox only allows a per rack/site/region scope type
+            # but out vpods span over multiple racks, so we have to use
+            # a site scope type and need to fallback on regex parsing here
+            m = re.match(r'.*?(\d+)$', vlan.group.slug)  # expects something like cc-vpod271
+            if not m:
+                raise ConfigException(f'vlan group {vlan.group.slug} must end with digits '  # type: ignore
+                                      ' identifying the bb/np/stp')
+            pod_sequence = int(m.group(1))
+            return int(f'10{pod_sequence:03d}{vlan.vid:03d}')
+        raise NotImplementedError(f'Cannot derive VNID for vlan {dict(vlan)}')
 
+    def get_infra_network_l3_data(self, iface: NbRecord, vlan: NbRecord,
+                                  svis: Dict[NbRecord, List[NbRecord]]) -> Tuple[List[str], Set[str]]:
+        parent_prefixes = set()
+        networks = list()
+        for gateway in svis[vlan]:
+            prefix = ipaddress.ip_network(gateway.address, strict=False)
+            # make sure that the svi interface's address actually resides in the correct prefix
+            nb_prefix = self.netbox.ipam.prefixes.get(vlan_id=vlan.id, prefix=prefix.with_prefixlen)
+            if not nb_prefix:
+                raise ConfigException(f'Vlan {vlan.id} bound on interface {iface.id} is l3 enabled, but SVI '
+                                      f'interface\'s address {gateway.address} address does not reside in the '
+                                      'vlan\'s assigned prefix')
+            if not gateway.vrf or gateway.vrf.name != self.infra_network_vrf:
+                raise ConfigException(f'Gateway address {gateway} with ID {gateway.id} does not reside in VRF '
+                                      f'{self.infra_network_vrf} but must for InfraNetwork '
+                                      f'(current VRF {gateway.vrf})')
+            networks.append(gateway.address)
+            nb_parent_prefix = self.netbox.ipam.prefixes.get(contains=prefix.with_prefixlen,
+                                                             vrf_id=nb_prefix.vrf.id,
+                                                             tenant_id=nb_prefix.tenant.id,
+                                                             site_id=nb_prefix.site.id,
+                                                             mask_length__lte=prefix.prefixlen - 1)
+            if not nb_parent_prefix:
+                raise ConfigException(f'Could not find supernet for {gateway.address}')
+            parent_prefixes.add(ipaddress.ip_network(nb_parent_prefix.prefix))
+        return networks, parent_prefixes
+
+    def make_infra_networks_and_extra_vlans(self, iface: NbRecord, svis: Dict[NbRecord, List[NbRecord]]
+                                            ) -> Tuple[Set[conf.InfraNetwork], Set[int]]:
         # lag superseeds physcal interface
         infra_nets = set()
+        extra_vlans = set()
         if iface.lag:
             iface = iface.lag
 
         # FIXME: support untagged VLANs
         # FIXME: support DHCP relay
         for vlan in getattr(iface, 'tagged_vlans', list()):
+            # some infra vlans we will not manage, just put in the allowed VLAN list
+            tags = set(x.slug for x in vlan.tags)
+            if vlan.group and hasattr(vlan.group, 'tags'):
+                tags.update(x.slug for x in vlan.group.tags)
+            if self.extra_vlan_tag in tags:
+                extra_vlans.add(vlan.vid)
+                continue
+
+            # by convention we ignore certain VLAN groups member VLANs, once we upgrade to netbox 3.x we shall remove
+            # this as VLAN groups will then support tags
+            if vlan.group and vlan.group.slug.endswith('cp') and vlan.group.slug.startswith(self.region):
+                # local CP network
+                extra_vlans.add(vlan.vid)
+                continue
+
             mandatory_attrs = ('vid', 'tenant')
             for attr in mandatory_attrs:
                 if not getattr(vlan, attr, None):
@@ -262,37 +321,11 @@ class ConfigGenerator:
                 continue
             if not getattr(vlan, 'group', None):
                 raise ConfigException(f'vlan {vlan.id} has no VLAN group')
-            m = re.match(r'.*?(\d+)$', vlan.group.slug)  # expects something like cc-vpod271
-            if not m:
-                raise ConfigException(f'vlan group {vlan.group.id} must end with digits identifying the bb/np/stp')
-            pod_sequence = int(m.group(1))
-            # took this from the excel, this might change
-            vni = int(f'10{pod_sequence:03d}{vlan.vid:03d}')
-            # make sure that the svi interface's address actually resides in the correct prefix
-            networks = list()
-            parent_prefixes = set()
-            for gateway in svis[vlan]:
-                prefix = ipaddress.ip_network(gateway.address, strict=False)
-                nb_prefix = self.netbox.ipam.prefixes.get(vlan_id=vlan.id, prefix=prefix.with_prefixlen)
-                if not nb_prefix:
-                    raise ConfigException(f'Vlan {vlan.id} bound on interface {iface.id} is l3 enabled, but SVI '
-                                          f'interface\'s address {gateway.address} address does not reside in the '
-                                          'vlan\'s assigned prefix')
-                if not gateway.vrf or gateway.vrf.name != self.infra_network_vrf:
-                    raise ConfigException(f'Gateway address {gateway} with ID {gateway.id} does not reside in VRF '
-                                          f'{self.infra_network_vrf} but must for InfraNetwork '
-                                          f'(current VRF {gateway.vrf})')
-                networks.append(gateway.address)
-                nb_parent_prefix = self.netbox.ipam.prefixes.get(contains=prefix.with_prefixlen,
-                                                                 vrf_id=nb_prefix.vrf.id,
-                                                                 tenant_id=nb_prefix.tenant.id,
-                                                                 site_id=nb_prefix.site.id,
-                                                                 mask_length__lte=prefix.prefixlen - 1)
-                if not nb_parent_prefix:
-                    raise ConfigException(f'Could not find supernet for {gateway.address}')
-                parent_prefixes.add(ipaddress.ip_network(nb_parent_prefix.prefix))
+            vni = self.derive_vlan_vni(vlan)
 
-            infra_net_name = f'bb{pod_sequence}-{vlan.name.lower().replace(" ", "-")}'
+            networks, parent_prefixes = self.get_infra_network_l3_data(iface, vlan, svis)
+
+            infra_net_name = f'{vlan.group.name.lower().replace(" ", "-")}-{vlan.name.lower().replace(" ", "-")}'
             if len(parent_prefixes) > 1:
                 raise ConfigException(f'For {infra_net_name} the prefixes are sourced from multiple parent '
                                       f'networks {parent_prefixes}')
@@ -305,7 +338,7 @@ class ConfigGenerator:
                                           networks=networks, vni=vni, aggregates=[str(parent_prefixes.pop())])
 
             infra_nets.add(infra_net)
-        return infra_nets
+        return infra_nets, extra_vlans
 
     @classmethod
     def get_switchgroup_attributes(cls, devices: List[NbRecord]) -> Dict[str, str]:
@@ -412,7 +445,8 @@ class ConfigGenerator:
 
     def get_connected_devices(self, switches: List[NbRecord]) -> Tuple[Set[NbRecord], List[conf.Hostgroup]]:
         device_ports_map: Dict[NbRecord, List[conf.SwitchPort]] = defaultdict(list)
-        device_infra_nets_map: Dict[NbRecord, Set[conf.InfraNetwork]] = dict()
+        device_infra_nets_map: Dict[NbRecord, Tuple[Set[conf.InfraNetwork], Set[int]]] = dict()
+
         for switch in switches:
             svi_vlan_ip_map = self.get_svi_ips_per_vlan(switch)
             ifaces = self._ignore_filter(self.netbox.dcim.interfaces.filter(device_id=switch.id))
@@ -434,16 +468,17 @@ class ConfigGenerator:
 
                 ports_to_device = device_ports_map.get(far_device, [])
                 # ensure InfraNetworks are symmetric
-                infra_nets = self.make_infra_networks(iface, svi_vlan_ip_map)
+                infra_nets_and_extra_vlans = self.make_infra_networks_and_extra_vlans(iface, svi_vlan_ip_map)
                 if far_device in device_infra_nets_map:
-                    if device_infra_nets_map[far_device] != infra_nets:
+                    if device_infra_nets_map[far_device] != infra_nets_and_extra_vlans:
                         raise ConfigException(f'Host {far_device.name} has asymmetric infra networks on both switches')
                 else:
-                    device_infra_nets_map[far_device] = infra_nets
+                    device_infra_nets_map[far_device] = infra_nets_and_extra_vlans
                 device_ports_map[far_device] = self.handle_interface_or_portchannel(iface, ports_to_device)
 
         hgs = [conf.Hostgroup(binding_hosts=[h.name], direct_binding=True, members=self.sort_switchports(m),
-                              infra_networks=sorted(device_infra_nets_map[h], key=lambda x: x.vlan))
+                              infra_networks=sorted(device_infra_nets_map[h][0], key=lambda x: x.vlan),
+                              extra_vlans=sorted(device_infra_nets_map[h][1]) if device_infra_nets_map[h][1] else None)
                for h, m in device_ports_map.items()]
         return set(device_ports_map.keys()), hgs
 
@@ -563,17 +598,26 @@ class ConfigGenerator:
             raise ValueError("'member_hgs.binding_host[0]' and metagroup.members are not matching")
 
         minimum_common_infra_nets = set(member_hgs[0].infra_networks)
+        minimum_common_extra_vlans = set(member_hgs[0].extra_vlans or [])
         for member in member_hgs:
             minimum_common_infra_nets.intersection_update(member.infra_networks)
+            minimum_common_extra_vlans.intersection_update(member.extra_vlans or [])
 
         # purge them from the member_hgs
         for member in member_hgs:
             remaining_infra_nets = list()
+            remaining_extra_vlans = list()
             for infra_net in member.infra_networks:
                 if infra_net not in minimum_common_infra_nets:
                     remaining_infra_nets.append(infra_net)
+            for extra_vlan in member.extra_vlans or []:
+                if extra_vlan not in minimum_common_extra_vlans:
+                    remaining_extra_vlans.append(extra_vlan)
             member.infra_networks = remaining_infra_nets
+            member.extra_vlans = remaining_extra_vlans or None
         metagroup.infra_networks = sorted(minimum_common_infra_nets, key=attrgetter('vlan'))
+        if minimum_common_extra_vlans:
+            metagroup.extra_vlans = sorted(minimum_common_extra_vlans)
 
     def generate_config(self):
 

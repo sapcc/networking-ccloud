@@ -109,7 +109,8 @@ class CCFabricNetboxModeller():
                 result[role].append(device)
         return result
 
-    def get_role_facing_interfaces(self, ifaces: NbRecordSet, role_slug: str, enforce_cluster_member=True) -> Generator[NbRecord, None, None]:
+    def get_role_facing_interfaces(self, ifaces: NbRecordSet, role_slug: str,
+                                   enforce_cluster_member=True) -> Generator[NbRecord, None, None]:
         for iface in ifaces:
             if not iface.connected_endpoint:
                 continue
@@ -157,7 +158,8 @@ class CCFabricNetboxModeller():
         return candidate_nets[0]
 
     def find_and_bundle_mlag_ports(self, gr_number, leaf_group: List[NbRecord],
-                                   remote_role: str, enforce_cluster_member=True) -> List[Tuple[NBR_DICT_T, NBR_DICT_T]]:
+                                   remote_role: str,
+                                   enforce_cluster_member=True) -> List[Tuple[NBR_DICT_T, NBR_DICT_T]]:
         interfaces = set()
         lags_members = []
         for leaf in leaf_group:
@@ -373,7 +375,6 @@ class CCFabricNetboxModeller():
         if not self.dry_run and isinstance(item, NbRecord) and changed:
             item.save()
         return item
-
 
     def attach_svi_to_switch(self, switch: NbRecord, vlan: NBR_DICT_T,
                              prefix: NBR_DICT_T) -> Tuple[NBR_DICT_T, NBR_DICT_T]:
@@ -693,6 +694,7 @@ def main():
         if entity == SWITCHGROUP_ROLE_STPOD:
             modeller.model_filers(limit)
             modeller.model_swift_nodes(limit)
+
 
 if __name__ == '__main__':
     main()
