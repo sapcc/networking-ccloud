@@ -92,7 +92,8 @@ class CCFabricSwitchAgent(manager.Manager, cc_agent_api.CCFabricSwitchAgentAPI):
         # usually called by neutron.service.Service at end of stop()
         LOG.info("Agent shutting down")
         for switch in self._switches:
-            switch._executor.shutdown()
+            switch._read_executor.shutdown()
+            switch._write_executor.shutdown()
         LOG.info("Agent shut down")
 
     def initialize_rpc_hook(self, conn):
@@ -181,7 +182,8 @@ class CCFabricSwitchAgent(manager.Manager, cc_agent_api.CCFabricSwitchAgentAPI):
         def show_agent_queue_size():
             """Print out each switch with the queue size of their ThreadPoolExecutor"""
             for switch in sorted(self._switches, key=attrgetter('name')):
-                print(switch.name, switch._executor._work_queue.qsize())
+                print(f"{switch.name:<21} read {switch._read_executor._work_queue.qsize():>3} "
+                      f"write {switch._write_executor._work_queue.qsize():>3}")
 
         return {
             'agent': self,

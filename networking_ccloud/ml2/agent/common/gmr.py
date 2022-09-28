@@ -31,19 +31,27 @@ class ThreadPoolStatsView(object):
 
     def __call__(self, model):
         return self.FORMAT_STR.format(
-            header=f" ThreadPool for {model.switch_name} ",
+            header=f" ThreadPool of {model.switch_name} for {model.type}",
             stats=model.stats,
             queue_size=model.queue_size
         )
 
 
 def thread_pool_stats_generator(agent):
-    thread_pool_stats_models = [
-        mwdv.ModelWithDefaultViews(dict(switch_name=switch.name, stats=switch._executor.statistics,
-                                        queue_size=switch._executor._work_queue.qsize()),
-                                   text_view=ThreadPoolStatsView())
-        for switch in agent._switches
-    ]
+    thread_pool_stats_models = []
+    for switch in agent._switches:
+        read_model = mwdv.ModelWithDefaultViews(dict(switch_name=switch.name, stats=switch._read_executor.statistics,
+                                                     queue_size=switch._read_executor._work_queue.qsize(),
+                                                     type='read'),
+                                                text_view=ThreadPoolStatsView())
+        thread_pool_stats_models.append(read_model)
+        write_model = mwdv.ModelWithDefaultViews(dict(switch_name=switch.name, stats=switch._write_executor.statistics,
+                                                      queue_size=switch._write_executor._work_queue.qsize(),
+                                                      type='write'),
+                                                 text_view=ThreadPoolStatsView())
+
+        thread_pool_stats_models.append(write_model)
+
     return mwdv.ModelWithDefaultViews(thread_pool_stats_models,
                                       text_view=text_views.MultiView())
 
