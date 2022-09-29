@@ -762,3 +762,6 @@ class EOSSwitch(SwitchBase):
             LOG.error("Could not send config update to switch %s: %s %s",
                       self.name, e.__class__.__name__, e)
             raise
+
+    def _persist_config(self):
+        self.api.set(update=[("cli:", "copy running-config startup-config")], encoding="ascii")
