@@ -25,7 +25,7 @@ class ThreadPoolStatsView(object):
         "Failures: {stats.failures}\n"
         "Cancelled: {stats.cancelled}\n"
         "Runtime: {stats.runtime}\n"
-        "Avg Runtime: {stats.average_runtime}\n"
+        "Avg Runtime: {average_runtime}\n"
         "Queue Size: {queue_size}\n"
     )
 
@@ -33,6 +33,7 @@ class ThreadPoolStatsView(object):
         return self.FORMAT_STR.format(
             header=f" ThreadPool of {model.switch_name} for {model.type}",
             stats=model.stats,
+            average_runtime=model.stats.average_runtime if model.stats.executed else None,
             queue_size=model.queue_size
         )
 
