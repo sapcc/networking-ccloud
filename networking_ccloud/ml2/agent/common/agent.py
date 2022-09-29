@@ -14,12 +14,14 @@
 
 from operator import attrgetter
 import sys
+import time
 
 from neutron.common import config as common_config
 from neutron.conf.agent.common import register_agent_state_opts_helper
 from neutron import manager
 from oslo_config import cfg
 from oslo_log import log as logging
+from oslo_service import periodic_task
 
 from networking_ccloud.common.config import get_driver_config
 from networking_ccloud.common import constants as cc_const
@@ -176,6 +178,18 @@ class CCFabricSwitchAgent(manager.Manager, cc_agent_api.CCFabricSwitchAgentAPI):
             result[switch_name] = future.result()
 
         return result
+
+    @periodic_task.periodic_task(spacing=cfg.CONF.ml2_cc_fabric_agent.persist_config_loop_interval,
+                                 run_immediately=False)
+    def persist_switch_configs(self, context):
+        start_time = time.time()
+        LOG.info("Persisting config on all switches")
+        futures = []
+        for switch in sorted(self._switches, key=attrgetter('name')):
+            futures.append(switch.persist_config())
+        for future in futures:
+            future.result()
+        LOG.info("Persisting of all configs done in %.2fs", time.time() - start_time)
 
     def backdoor_locals(self):
 

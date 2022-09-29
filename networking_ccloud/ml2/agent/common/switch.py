@@ -14,6 +14,7 @@
 
 import abc
 from functools import wraps
+import time
 
 from futurist import ThreadPoolExecutor
 from oslo_concurrency import lockutils
@@ -110,4 +111,16 @@ class SwitchBase(abc.ABC):
             return self._apply_config_update(config)
 
     def _apply_config_update(self, config):
+        raise NotImplementedError
+
+    @run_in_executor('write')
+    def persist_config(self):
+        start_time = time.time()
+        try:
+            self._persist_config()
+            LOG.debug("Switch config of %s saved in %.2f", self, time.time() - start_time)
+        except Exception as e:
+            LOG.error("Saving switch config of %s failed in %.2f: %s", self, time.time() - start_time, e)
+
+    def _persist_config(self):
         raise NotImplementedError

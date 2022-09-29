@@ -23,8 +23,14 @@ cc_fabric_opts = [
                help="Path to yaml config file"),
 ]
 
+cc_fabric_agent_opts = [
+    cfg.IntOpt('persist_config_loop_interval', default=15 * 60,
+               help="Interval between config persists (use -1 to disable)"),
+]
+
 # make sure we have ml2 vlan opts available before this option is parsed
 # as we need to access ml2_type_vlan.network_vlan_ranges in our validation
 register_ml2_drivers_vlan_opts()
 
 cfg.CONF.register_opts(cc_fabric_opts, "ml2_cc_fabric")
+cfg.CONF.register_opts(cc_fabric_agent_opts, "ml2_cc_fabric_agent")
