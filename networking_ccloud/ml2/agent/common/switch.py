@@ -14,9 +14,11 @@
 
 import abc
 from functools import wraps
+import threading
 import time
 
 from futurist import ThreadPoolExecutor
+from neutron_lib.context import get_admin_context
 from oslo_concurrency import lockutils
 from oslo_context import context
 from oslo_log import log as logging
@@ -26,20 +28,68 @@ from networking_ccloud.ml2.driver_rpc_api import CCFabricDriverRPCClient
 LOG = logging.getLogger(__name__)
 
 
-def run_in_executor(type_):
+class FullSyncScheduled(Exception):
+    """Raised if a scheduled write-attempt was voluntarily interrupted because there's a full-sync in the queue
+
+    Callers catching this exception should wait for the attached future
+    attribute instead to know when their task finishes.
+    """
+    def __init__(self, *, future):
+        super().__init__(self)
+        self.future = future
+
+
+def run_in_executor(type_, replacable_by_full_sync=False):
     """Decorator to run a method in the ThreadPoolExecutor of the class
 
     The wrapped method thus returns a futurist.Future now instead of its actual
     result.
+
+    If replacable_by_full_sync is set, the decorated method will not run if
+    there's a full-sync scheduled. Instead, it will raise FullSyncScheduled.
+    Additionally, the decorated method will also not get scheduled, if there's
+    already a full-sync scheduled. In that case, the wrapped method returns the
+    scheduled full-sync's futurist.Future instead of its own. Callers have to
+    be able to handle that.
     """
+    if type_ != 'write' and replacable_by_full_sync:
+        raise ValueError(f"@run_in_executor() called with replacable_by_full_sync=True on {type_} executor - "
+                         "only 'write' is supported.")
+
     def decorator(fn):
 
         @wraps(fn)
         def wrapped(self, *args, **kwargs):
+            executor = getattr(self, f'_{type_}_executor')
+
             current_context = context.get_current()
 
+            if replacable_by_full_sync:
+                # NOTE(jkulik): This is a very rough algorithm as a starting
+                # point and up for discussion. It assumes that a full-sync is
+                # a better/faster solution than running all the tasks in the
+                # queue. It only holds true for tasks that are
+                # replacable_by_full_sync, but the assumption is that these are
+                # most of the tasks. Average runtime is skewed by having the
+                # full-sync run in the same queue.
+                avg_runtime = executor.statistics.average_runtime if executor.statistics.executed else 0
+                qsize = executor._work_queue.qsize()
+                full_sync_threshold = 120
+                if qsize * avg_runtime > full_sync_threshold:
+                    LOG.warning("Scheduling full-sync on %s for queue_size %s and avg runtime %s as the threshold "
+                                "of %s is reached", self, qsize, avg_runtime, full_sync_threshold)
+                    return self.run_full_sync(current_context.elevated() if current_context else get_admin_context())
+
+                # if there's currently a full-sync scheduled and not started,
+                # yet, we do not schedule our changes but rely on the full-sync
+                # instead
+                full_sync_future = self.get_full_sync_future()
+                if full_sync_future is not None:
+                    LOG.debug("Found scheduled full-sync on %s. Returning full-sync's Future instead", self)
+                    return full_sync_future
+
             @wraps(fn)
-            def context_preserving_fn(*args, **kwargs):
+            def extended_fn(self, *args, **kwargs):
                 if current_context:
                     current_context.update_store()
                 else:
@@ -49,10 +99,18 @@ def run_in_executor(type_):
                         delattr(context._request_store, 'context')
                     except AttributeError:
                         pass
-                return fn(*args, **kwargs)
 
-            executor = getattr(self, f'_{type_}_executor')
-            return executor.submit(context_preserving_fn, self, *args, **kwargs)
+                if replacable_by_full_sync:
+                    # short-circuit this function if there's a full-sync in the
+                    # pipeline. our changes will be included there anyways
+                    full_sync_future = self.get_full_sync_future()
+                    if full_sync_future is not None:
+                        LOG.debug("Returning early for scheduled full-sync on %s", self)
+                        raise FullSyncScheduled(future=full_sync_future)
+
+                return fn(self, *args, **kwargs)
+
+            return executor.submit(extended_fn, self, *args, **kwargs)
 
         return wrapped
 
@@ -73,6 +131,8 @@ class SwitchBase(abc.ABC):
         self._api = None
         self._read_executor = ThreadPoolExecutor(max_workers=5)
         self._write_executor = ThreadPoolExecutor(max_workers=1)
+        self._full_sync_future_lock = threading.Lock()
+        self._full_sync_future = None
 
         self._rpc_client = CCFabricDriverRPCClient()
 
@@ -95,6 +155,10 @@ class SwitchBase(abc.ABC):
     def __str__(self):
         return f"{self.name} ({self.host})"
 
+    def get_full_sync_future(self):
+        with self._full_sync_future_lock:
+            return self._full_sync_future
+
     @run_in_executor('read')
     def get_switch_status(self):
         return self._get_switch_status()
@@ -109,7 +173,7 @@ class SwitchBase(abc.ABC):
     def _get_config(self):
         raise NotImplementedError
 
-    @run_in_executor('write')
+    @run_in_executor('write', replacable_by_full_sync=True)
     def apply_config_update(self, config):
         with lockutils.lock(name=f"apply-config-update-{self.name}"):
             return self._apply_config_update(config)
@@ -129,10 +193,30 @@ class SwitchBase(abc.ABC):
     def _persist_config(self):
         raise NotImplementedError
 
-    @run_in_executor('write')
     def run_full_sync(self, context):
-        """Schedule a full sync for this switch. Config will be fetched when the sync starts"""
-        self._run_full_sync(context)
+        """Schedule a full sync for this switch or re-use an already scheduled one and return its future.
+
+        Config will be fetched when the sync starts
+        """
+
+        @run_in_executor('write')
+        def _in_thread_full_sync(self, context):
+            # once the full sync starts, we remove access to the future,
+            # because new state coming in might not be seen by a running
+            # full-sync anymore and thus be missed
+            with self._full_sync_future_lock:
+                self._full_sync_future = None
+
+            return self._run_full_sync(context)
+
+        with self._full_sync_future_lock:
+            # somebody else was already scheduled and didn't start, yet
+            if self._full_sync_future is not None:
+                LOG.debug("Full-sync already scheduled on %s. Returning other full-sync's Future instead", self)
+                return self._full_sync_future
+
+            self._full_sync_future = _in_thread_full_sync(self, context)
+            return self._full_sync_future
 
     def _run_full_sync(self, context):
         start_time = time.time()
