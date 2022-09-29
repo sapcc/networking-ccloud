@@ -30,6 +30,7 @@ from networking_ccloud.ml2.agent.common import api as cc_agent_api
 from networking_ccloud.ml2.agent.common import gmr
 from networking_ccloud.ml2.agent.common import messages as agent_msg
 from networking_ccloud.ml2.agent.common.service import ThreadedService
+from networking_ccloud.ml2.agent.common.switch import FullSyncScheduled
 
 LOG = logging.getLogger(__name__)
 
@@ -175,7 +176,10 @@ class CCFabricSwitchAgent(manager.Manager, cc_agent_api.CCFabricSwitchAgentAPI):
             futures.append((update.switch_name, switch.apply_config_update(update)))
 
         for switch_name, future in futures:
-            result[switch_name] = future.result()
+            try:
+                result[switch_name] = future.result()
+            except FullSyncScheduled as e:
+                result[switch_name] = e.future.result()
 
         return result
 
