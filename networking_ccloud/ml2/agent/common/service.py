@@ -242,4 +242,5 @@ class ThreadedService:
         # let the Manager define additional functions for the backdoor shell
         if hasattr(self.manager, 'backdoor_locals'):
             locals_.update(self.manager.backdoor_locals())
-        manhole.install(patch_fork=False, socket_path=socket_path, daemon_connection=True, locals=locals_)
+        manhole.install(patch_fork=False, socket_path=socket_path, daemon_connection=True, locals=locals_,
+                        redirect_stderr=False)
