@@ -17,7 +17,6 @@ from oslo_log import log as logging
 import oslo_messaging
 
 from networking_ccloud.common import constants as cc_const
-from networking_ccloud.ml2.driver_rpc_api import CCFabricDriverRPCClient
 
 LOG = logging.getLogger(__name__)
 
@@ -28,12 +27,6 @@ class CCFabricSwitchAgentAPI:
 
     def status(self, context):
         return {"agent_responding": True}
-
-    def ping_back_driver(self, context):
-        rpc_client = CCFabricDriverRPCClient()
-        return {
-            'ml2-driver-status': rpc_client.status(context),
-        }
 
     def get_switch_status(self, context, switches=None):
         raise NotImplementedError
@@ -66,10 +59,6 @@ class CCFabricSwitchAgentRPCClient:
     def status(self, context):
         cctxt = self.client.prepare()
         return cctxt.call(context, 'status')
-
-    def ping_back_driver(self, context):
-        cctxt = self.client.prepare()
-        return cctxt.call(context, 'ping_back_driver')
 
     def get_switch_status(self, context, switches=None):
         cctxt = self.client.prepare()
