@@ -90,7 +90,6 @@ class Fabricoperations(api_extensions.APIExtensionDescriptor):
 
         cls._add_controller(endpoints, StatusController(), 'status')
         cls._add_controller(endpoints, ConfigController(), 'config')
-        cls._add_controller(endpoints, AgentCheckController(), 'agent-check')
 
         # "the new ones"
         cls._add_controller(endpoints, FabricNetworksController(fabric_plugin), 'networks')
@@ -513,26 +512,3 @@ class ConfigController(wsgi.Controller):
     @check_cloud_admin
     def show(self, request, **kwargs):
         return "Soon"
-
-
-class AgentCheckController(wsgi.Controller):
-    def __init__(self):
-        super().__init__()
-        self.drv_conf = get_driver_config()
-
-    @check_cloud_admin
-    def index(self, request, **kwargs):
-        LOG.info("agent-check request %s kwargs %s", request, kwargs)
-        resp = []
-        for platform in self.drv_conf.get_platforms():
-            agent_resp = dict(platform=platform)
-            try:
-                rpc_client = CCFabricSwitchAgentRPCClient.get_for_platform(platform)
-                agent_resp['response'] = rpc_client.ping_back_driver(request.context)
-                agent_resp['success'] = True
-            except Exception as e:
-                agent_resp['response'] = f"{type(e.__class__.__name__)}: {e}"
-                agent_resp['success'] = False
-            resp.append(agent_resp)
-
-        return resp
