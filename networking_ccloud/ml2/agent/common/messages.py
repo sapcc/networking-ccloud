@@ -428,6 +428,11 @@ class SwitchConfigUpdateList:
                 for extra_vlan in hg_config.extra_vlans:
                     iface.add_trunk_vlan(extra_vlan)
 
+    def clean_switches(self, switch_names):
+        for cfg_switch in list(self.switch_config_updates):
+            if cfg_switch not in switch_names:
+                del self.switch_config_updates[cfg_switch]
+
     def execute(self, context, synchronous=True):
         platform_updates = {}
         for scu in self.switch_config_updates.values():

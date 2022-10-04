@@ -191,6 +191,18 @@ class CCFabricSwitchAgent(manager.Manager, cc_agent_api.CCFabricSwitchAgentAPI):
             future.result()
         LOG.info("Persisting of all configs done in %.2fs", time.time() - start_time)
 
+    @periodic_task.periodic_task(spacing=cfg.CONF.ml2_cc_fabric_agent.switch_sync_loop_interval,
+                                 run_immediately=False)
+    def sync_all_switches(self, context):
+        start_time = time.time()
+        LOG.info("Starting full switch sync on all switches")
+        futures = []
+        for switch in sorted(self._switches, key=attrgetter('name')):
+            futures.append(switch.run_full_sync(context))
+        for future in futures:
+            future.result()
+        LOG.info("Syncing all switches done in %.2fs", time.time() - start_time)
+
     def backdoor_locals(self):
 
         def show_agent_queue_size():

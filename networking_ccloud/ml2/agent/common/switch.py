@@ -21,6 +21,8 @@ from oslo_concurrency import lockutils
 from oslo_context import context
 from oslo_log import log as logging
 
+from networking_ccloud.ml2.driver_rpc_api import CCFabricDriverRPCClient
+
 LOG = logging.getLogger(__name__)
 
 
@@ -71,6 +73,8 @@ class SwitchBase(abc.ABC):
         self._api = None
         self._read_executor = ThreadPoolExecutor(max_workers=5)
         self._write_executor = ThreadPoolExecutor(max_workers=1)
+
+        self._rpc_client = CCFabricDriverRPCClient()
 
     @classmethod
     @abc.abstractmethod
@@ -124,3 +128,21 @@ class SwitchBase(abc.ABC):
 
     def _persist_config(self):
         raise NotImplementedError
+
+    @run_in_executor('write')
+    def run_full_sync(self, context):
+        """Schedule a full sync for this switch. Config will be fetched when the sync starts"""
+        self._run_full_sync(context)
+
+    def _run_full_sync(self, context):
+        start_time = time.time()
+        try:
+            config = self._rpc_client.get_switch_config(context, self.name)
+            if not config:
+                LOG.warning("Switch config of %s was empty, skipping it", self)
+                return
+
+            self._apply_config_update(config)
+            LOG.debug("Syncing switch config of %s succeeded in %.2f", self, time.time() - start_time)
+        except Exception as e:
+            LOG.exception("Syncing switch config of %s failed in %.2f: %s", self, time.time() - start_time, e)

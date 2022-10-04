@@ -529,3 +529,14 @@ class CCFabricMechanismDriver(ml2_api.MechanismDriver, CCFabricDriverAPI):
         if not scul.execute(context, synchronous=False):
             LOG.warning("Update for host %s on %s yielded no config updates! add=%s, keep=%s, excl=%s",
                         binding_host, network_id, add, keep_mapping, exclude_hosts)
+
+    def get_switch_config(self, context, switch_name):
+        sw = self.drv_conf.get_switch_by_name(switch_name)
+        if not sw:
+            raise ValueError(f"Switch '{switch_name}' does not exist in config")
+        sg = self.drv_conf.get_switchgroup_by_switch_name(switch_name)
+        scul = self.fabric_plugin.make_switch_config(context, sw, sg)
+        scu = scul.switch_config_updates.get(switch_name)
+        if scu is not None:
+            scu = scu.dict()
+        return scu
