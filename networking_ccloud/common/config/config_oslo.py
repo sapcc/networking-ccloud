@@ -26,6 +26,8 @@ cc_fabric_opts = [
 cc_fabric_agent_opts = [
     cfg.IntOpt('persist_config_loop_interval', default=15 * 60,
                help="Interval between config persists (use -1 to disable)"),
+    cfg.IntOpt('switch_sync_loop_interval', default=15 * 60,
+               help="How often to run a full sync of all switches in the fabric (use -1 to disable)"),
 ]
 
 # make sure we have ml2 vlan opts available before this option is parsed

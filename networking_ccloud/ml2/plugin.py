@@ -121,3 +121,35 @@ class FabricPlugin(CCDbPlugin):
             registry.publish(cc_const.CC_TRANSIT, events.AFTER_CREATE, self, payload=payload)
 
         return new_allocation, errors_found
+
+    def make_switchgroup_config(self, context, sg):
+        scul = agent_msg.SwitchConfigUpdateList(agent_msg.OperationEnum.replace, self.drv_conf)
+
+        # physnets of this switch, which is the switch's switchgroup's vlan pool
+        physnets = [sg.vlan_pool]
+
+        # get all binding hosts bound onto that switch
+        net_segments = self.get_hosts_on_segments(context, physical_networks=physnets)
+        top_segments = self.get_top_level_vxlan_segments(context, network_ids=list(net_segments.keys()))
+        scul.add_segments(net_segments, top_segments)
+
+        # add interconnects, infra networks and extra vlans
+        for hg in self.drv_conf.get_hostgroups_by_switches([sw.name for sw in sg.members]):
+            if hg.infra_networks:
+                for inet in hg.infra_networks:
+                    # FIXME: exclude hosts
+                    scul.add_binding_host_to_config(hg, inet.name, inet.vni, inet.vlan)
+            if hg.extra_vlans:
+                scul.add_extra_vlans(hg)
+            if hg.role:
+                # transits/BGWs don't have bindings, so bind all physnets
+                # find all physnets or interconnects scheduled
+                interconnects = self.get_interconnects(context, host=hg.binding_hosts[0])
+                scul.add_interconnects(context, self, interconnects)
+
+        return scul
+
+    def make_switch_config(self, context, switch, sg):
+        scul = self.make_switchgroup_config(context, sg)
+        scul.clean_switches([switch.name])
+        return scul
