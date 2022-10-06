@@ -195,7 +195,7 @@ class CCFabricSwitchAgent(manager.Manager, cc_agent_api.CCFabricSwitchAgentAPI):
             future.result()
         LOG.info("Persisting of all configs done in %.2fs", time.time() - start_time)
 
-    @periodic_task.periodic_task(spacing=cfg.CONF.ml2_cc_fabric_agent.switch_sync_loop_interval,
+    @periodic_task.periodic_task(spacing=cfg.CONF.ml2_cc_fabric_agent.switch_syncloop_interval,
                                  run_immediately=False)
     def sync_all_switches(self, context):
         start_time = time.time()
