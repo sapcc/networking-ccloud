@@ -37,6 +37,12 @@ class CCFabricSwitchAgentAPI:
     def get_switch_config(self, context, switches):
         raise NotImplementedError
 
+    def get_syncloop_status(self, context):
+        raise NotImplementedError
+
+    def set_syncloop_enabled(self, context, enabled):
+        raise NotImplementedError
+
 
 class CCFabricSwitchAgentRPCClient:
     """Client side RPC interface definition for talking to switching agents
@@ -73,3 +79,11 @@ class CCFabricSwitchAgentRPCClient:
     def get_switch_config(self, context, switches=None):
         cctxt = self.client.prepare()
         return cctxt.call(context, 'get_switch_config', switches=switches)
+
+    def get_syncloop_status(self, context):
+        cctxt = self.client.prepare()
+        return cctxt.call(context, 'get_syncloop_status')
+
+    def set_syncloop_enabled(self, context, enabled):
+        cctxt = self.client.prepare()
+        return cctxt.call(context, 'set_syncloop_enabled', enabled=enabled)

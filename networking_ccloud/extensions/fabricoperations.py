@@ -90,11 +90,10 @@ class Fabricoperations(api_extensions.APIExtensionDescriptor):
 
         cls._add_controller(endpoints, StatusController(), 'status')
         cls._add_controller(endpoints, ConfigController(), 'config')
-
-        # "the new ones"
         cls._add_controller(endpoints, FabricNetworksController(fabric_plugin), 'networks')
         cls._add_controller(endpoints, SwitchesController(fabric_plugin), 'switches')
         cls._add_controller(endpoints, SwitchgroupsController(fabric_plugin), 'switchgroups')
+        cls._add_controller(endpoints, AgentSyncloopController(), 'agent-syncloop')
 
         return endpoints
 
@@ -486,6 +485,44 @@ class SwitchgroupsController(wsgi.Controller):
                 return sg
         else:
             raise nl_exc.ObjectNotFound(id=sg_name)
+
+
+class AgentSyncloopController(wsgi.Controller):
+    def __init__(self):
+        super().__init__()
+        self.drv_conf = get_driver_config()
+
+    @check_cloud_admin
+    def index(self, request, **kwargs):
+        result = {}
+        for platform in self.drv_conf.get_platforms():
+            rpc_client = CCFabricSwitchAgentRPCClient.get_for_platform(platform)
+            result[platform] = rpc_client.get_syncloop_status(request.context)
+
+        return result
+
+    @check_cloud_admin
+    def show(self, request, **kwargs):
+        platform = kwargs.pop("id")
+        if platform not in self.drv_conf.get_platforms():
+            raise nl_exc.ObjectNotFound(id=platform)
+        rpc_client = CCFabricSwitchAgentRPCClient.get_for_platform(platform)
+        return rpc_client.get_syncloop_status(request.context)
+
+    @check_cloud_admin
+    def update(self, request, **kwargs):
+        platform = kwargs.pop("id")
+        if platform not in self.drv_conf.get_platforms():
+            raise nl_exc.ObjectNotFound(id=platform)
+        enabled = request.params.get('enabled')
+        # FIXME: is this right? does put take parameters via url? or is there a different "default" way to do this?
+        if enabled is None or enabled.lower() not in ('0', '1', 'false', 'true'):
+            raise web_exc.HTTPBadRequest("Please provide the parameter 'enabled' with a value of 0/1/true/false")
+        enabled = enabled.lower() in ('1', 'true')
+        rpc_client = CCFabricSwitchAgentRPCClient.get_for_platform(platform)
+        rpc_client.set_syncloop_enabled(request.context, enabled)
+
+        return {'request_sent': True}
 
 
 class StatusController(wsgi.Controller):

@@ -416,3 +416,49 @@ class TestNetworkExtension(test_segment.SegmentTestCase, base.PortBindingHelper)
                 for iface in swcfg.ifaces:
                     self.assertTrue(iface.portchannel_id)
                     self.assertEqual(iface.members, [])
+
+
+class TestSyncloopExtension(base.TestCase):
+    def setUp(self):
+        super().setUp()
+
+        switchgroups = [
+            cfix.make_switchgroup("seagull", availability_zone="qa-de-1a"),
+            cfix.make_switchgroup("crow", availability_zone="qa-de-1a"),
+        ]
+
+        self.conf_drv = cfix.make_config(switchgroups=switchgroups, hostgroups=[])
+        _override_driver_config(self.conf_drv)
+
+        self.ext_mgr = extensions.ExtensionManager(fabric_ext_path[0])
+        self.app = webtest.TestApp(setup_extensions_middleware(self.ext_mgr))
+
+    def test_get_all_syncloop_status(self):
+        with mock.patch.object(CCFabricSwitchAgentRPCClient, 'get_syncloop_status') as mock_gss:
+            mock_gss.return_value = "foo"
+            resp = self.app.get("/cc-fabric/agent-syncloop")
+            self.assertEqual({"test": "foo"}, resp.json)
+
+    def test_get_all_syncloop_status_existing_agent_detail(self):
+        with mock.patch.object(CCFabricSwitchAgentRPCClient, 'get_syncloop_status') as mock_gss:
+            mock_gss.return_value = "foo"
+            resp = self.app.get("/cc-fabric/agent-syncloop/test")
+            self.assertEqual("foo", resp.json)
+
+    def test_get_all_syncloop_status_non_existing_agent_detail(self):
+        self.assertRaisesRegex(webtest.app.AppError, "Object non-existent-platform not found",
+                               self.app.get, "/cc-fabric/agent-syncloop/non-existent-platform")
+
+    def test_set_syncloop_enabled(self):
+        with mock.patch.object(CCFabricSwitchAgentRPCClient, 'set_syncloop_enabled') as mock_gss:
+            expected_calls = [
+                mock.call(mock.ANY, False),
+                mock.call(mock.ANY, False),
+                mock.call(mock.ANY, True),
+                mock.call(mock.ANY, True),
+            ]
+
+            for enabled in ('0', 'false', '1', 'true'):
+                self.app.put(f"/cc-fabric/agent-syncloop/test?enabled={enabled}")
+
+            mock_gss.assert_has_calls(expected_calls)

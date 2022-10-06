@@ -13,6 +13,7 @@
 #    under the License.
 
 import abc
+import datetime
 from functools import wraps
 import threading
 import time
@@ -136,6 +137,8 @@ class SwitchBase(abc.ABC):
 
         self._rpc_client = CCFabricDriverRPCClient()
 
+        self._last_sync_time = None
+
     @classmethod
     @abc.abstractmethod
     def get_platform(cls):
@@ -146,6 +149,10 @@ class SwitchBase(abc.ABC):
         if self._api is None:
             self.login()
         return self._api
+
+    @property
+    def last_sync_time(self):
+        return self._last_sync_time
 
     @abc.abstractmethod
     def login(self):
@@ -227,6 +234,7 @@ class SwitchBase(abc.ABC):
                 return
 
             self._apply_config_update(config)
+            self._last_sync_time = datetime.datetime.now()
             LOG.debug("Syncing switch config of %s succeeded in %.2f", self, time.time() - start_time)
         except Exception as e:
             LOG.exception("Syncing switch config of %s failed in %.2f: %s", self, time.time() - start_time, e)
