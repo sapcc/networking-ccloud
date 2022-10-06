@@ -62,6 +62,7 @@ class CCFabricSwitchAgent(manager.Manager, cc_agent_api.CCFabricSwitchAgentAPI):
         gmr.register_thread_pool_stats(self)
 
         self._switches = []
+        self._syncloop_enabled = True
         self.drv_conf = get_driver_config()
 
     def _init_switches(self):
@@ -183,6 +184,13 @@ class CCFabricSwitchAgent(manager.Manager, cc_agent_api.CCFabricSwitchAgentAPI):
 
         return result
 
+    def get_syncloop_status(self, context):
+        last_sync_times = {switch.name: switch.last_sync_time for switch in self._switches}
+        return {'last_sync_time': last_sync_times, 'enabled': self._syncloop_enabled}
+
+    def set_syncloop_enabled(self, context, enabled):
+        self._syncloop_enabled = enabled
+
     @periodic_task.periodic_task(spacing=cfg.CONF.ml2_cc_fabric_agent.persist_config_loop_interval,
                                  run_immediately=False)
     def persist_switch_configs(self, context):
@@ -198,6 +206,9 @@ class CCFabricSwitchAgent(manager.Manager, cc_agent_api.CCFabricSwitchAgentAPI):
     @periodic_task.periodic_task(spacing=cfg.CONF.ml2_cc_fabric_agent.switch_syncloop_interval,
                                  run_immediately=False)
     def sync_all_switches(self, context):
+        if not self._syncloop_enabled:
+            LOG.warning("Switch syncloop is currently paused. You can reenable it via API or by restarting the agent")
+            return
         start_time = time.time()
         LOG.info("Starting full switch sync on all switches")
         futures = []
