@@ -660,7 +660,8 @@ Driver controlled configuration:
   router bgp 65130.1103
     vrf CC-CLOUD02
       # The driver assumes full control over aggregate address statements,
-      # with route maps
+      # that have an attribute-map/route-map associated that complies with
+      # f'RM-CC-{VRF}-AGGREGATE' or f'RM-CC-{VRF}-{AZ}-AGGREGATE'
       # any aggregate statement not known to the driver will be removed
       aggregate-address 10.47.8.0/24 attribute-map RM-CC-CLOUD02-A-AGGREGATE
       aggregate-address 10.47.20.0/24 attribute-map RM-CC-CLOUD02-AGGREGATE
