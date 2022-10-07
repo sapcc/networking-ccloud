@@ -612,7 +612,7 @@ We assume the following L3 related config to be preconfigured on each device, ex
     set community 65130:1 65130:1102
     set extcommunity rt 65130:1102
 
-   interface vxlan1
+   interface Vxlan1
       vxlan vrf CC-CLOUD02 vni 102
 
   router bgp 65130.1103
@@ -646,13 +646,13 @@ Driver controlled configuration:
 
   ip prefix-list PL-CC-CLOUD02-A-AGGREGATE
 
-  interface vlan 3150
+  interface Vlan3150
     description aeec9fd4-30f7-4398-8554-34acb36b7712
     vrf CC-CLOUD02
     ip address virtual 10.47.8.193/27
     ip address virtual 10.47.10.1/24 secondary
 
-  interface vlan 3200
+  interface Vlan3200
     description fce02a86-525c-49c9-a6cd-bf472881a83f
     vrf CC-CLOUD02
     ip address virtual 10.47.20.1/25
