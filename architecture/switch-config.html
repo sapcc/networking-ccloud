@@ -790,19 +790,19 @@ to tag a prefix as a supernet that should be announced towards upstream routers:
   <span class="nb">set</span> <span class="n">community</span> <span class="mi">65130</span><span class="p">:</span><span class="mi">1</span> <span class="mi">65130</span><span class="p">:</span><span class="mi">1102</span>
   <span class="nb">set</span> <span class="n">extcommunity</span> <span class="n">rt</span> <span class="mi">65130</span><span class="p">:</span><span class="mi">1102</span>
 
- <span class="n">interface</span> <span class="n">vxlan1</span>
+ <span class="n">interface</span> <span class="n">Vxlan1</span>
     <span class="n">vxlan</span> <span class="n">vrf</span> <span class="n">CC</span><span class="o">-</span><span class="n">CLOUD02</span> <span class="n">vni</span> <span class="mi">102</span>
 
- <span class="n">router</span> <span class="n">bgp</span> <span class="mf">65130.1103</span>
-    <span class="n">vrf</span> <span class="n">CC</span><span class="o">-</span><span class="n">CLOUD02</span>
-       <span class="n">rd</span> <span class="mf">65130.1103</span><span class="p">:</span><span class="mi">102</span>
-       <span class="n">route</span><span class="o">-</span><span class="n">target</span> <span class="n">export</span> <span class="n">evpn</span> <span class="mi">65130</span><span class="p">:</span><span class="mi">1102</span>
-       <span class="n">route</span><span class="o">-</span><span class="n">target</span> <span class="kn">import</span> <span class="nn">evpn</span> <span class="mi">65130</span><span class="p">:</span><span class="mi">102</span>
-       <span class="n">route</span><span class="o">-</span><span class="n">target</span> <span class="kn">import</span> <span class="nn">evpn</span> <span class="mi">65130</span><span class="p">:</span><span class="mi">1102</span>
-       <span class="n">route</span><span class="o">-</span><span class="n">target</span> <span class="kn">import</span> <span class="nn">evpn</span> <span class="mi">65130</span><span class="p">:</span><span class="mi">2102</span>
-       <span class="n">route</span><span class="o">-</span><span class="n">target</span> <span class="kn">import</span> <span class="nn">evpn</span> <span class="mi">65130</span><span class="p">:</span><span class="mi">4102</span>
-       <span class="n">redistribute</span> <span class="n">connected</span> <span class="n">route</span><span class="o">-</span><span class="nb">map</span> <span class="n">RM</span><span class="o">-</span><span class="n">CC</span><span class="o">-</span><span class="n">CLOUD02</span><span class="o">-</span><span class="n">REDIST</span>
-       <span class="n">redistribute</span> <span class="n">static</span> <span class="n">route</span><span class="o">-</span><span class="nb">map</span> <span class="n">RM</span><span class="o">-</span><span class="n">CC</span><span class="o">-</span><span class="n">CLOUD02</span><span class="o">-</span><span class="n">REDIST</span>
+<span class="n">router</span> <span class="n">bgp</span> <span class="mf">65130.1103</span>
+  <span class="n">vrf</span> <span class="n">CC</span><span class="o">-</span><span class="n">CLOUD02</span>
+    <span class="n">rd</span> <span class="mf">65130.1103</span><span class="p">:</span><span class="mi">102</span>
+    <span class="n">route</span><span class="o">-</span><span class="n">target</span> <span class="n">export</span> <span class="n">evpn</span> <span class="mi">65130</span><span class="p">:</span><span class="mi">1102</span>
+    <span class="n">route</span><span class="o">-</span><span class="n">target</span> <span class="kn">import</span> <span class="nn">evpn</span> <span class="mi">65130</span><span class="p">:</span><span class="mi">102</span>
+    <span class="n">route</span><span class="o">-</span><span class="n">target</span> <span class="kn">import</span> <span class="nn">evpn</span> <span class="mi">65130</span><span class="p">:</span><span class="mi">1102</span>
+    <span class="n">route</span><span class="o">-</span><span class="n">target</span> <span class="kn">import</span> <span class="nn">evpn</span> <span class="mi">65130</span><span class="p">:</span><span class="mi">2102</span>
+    <span class="n">route</span><span class="o">-</span><span class="n">target</span> <span class="kn">import</span> <span class="nn">evpn</span> <span class="mi">65130</span><span class="p">:</span><span class="mi">4102</span>
+    <span class="n">redistribute</span> <span class="n">connected</span> <span class="n">route</span><span class="o">-</span><span class="nb">map</span> <span class="n">RM</span><span class="o">-</span><span class="n">CC</span><span class="o">-</span><span class="n">CLOUD02</span><span class="o">-</span><span class="n">REDIST</span>
+    <span class="n">redistribute</span> <span class="n">static</span> <span class="n">route</span><span class="o">-</span><span class="nb">map</span> <span class="n">RM</span><span class="o">-</span><span class="n">CC</span><span class="o">-</span><span class="n">CLOUD02</span><span class="o">-</span><span class="n">REDIST</span>
 </pre></div>
 </div>
 <p>Driver controlled configuration:</p>
@@ -820,26 +820,25 @@ to tag a prefix as a supernet that should be announced towards upstream routers:
 
 <span class="n">ip</span> <span class="n">prefix</span><span class="o">-</span><span class="nb">list</span> <span class="n">PL</span><span class="o">-</span><span class="n">CC</span><span class="o">-</span><span class="n">CLOUD02</span><span class="o">-</span><span class="n">A</span><span class="o">-</span><span class="n">AGGREGATE</span>
 
- <span class="n">interface</span> <span class="n">vlan</span> <span class="mi">3150</span>
-    <span class="n">description</span> <span class="n">aeec9fd4</span><span class="o">-</span><span class="mi">30</span><span class="n">f7</span><span class="o">-</span><span class="mi">4398</span><span class="o">-</span><span class="mi">8554</span><span class="o">-</span><span class="mi">34</span><span class="n">acb36b7712</span>
-    <span class="n">vrf</span> <span class="n">CC</span><span class="o">-</span><span class="n">CLOUD02</span>
-    <span class="n">ip</span> <span class="n">address</span> <span class="n">virtual</span> <span class="mf">10.47.8.193</span><span class="o">/</span><span class="mi">27</span>
-    <span class="n">ip</span> <span class="n">address</span> <span class="n">virtual</span> <span class="mf">10.47.10.1</span><span class="o">/</span><span class="mi">24</span> <span class="n">secondary</span>
+<span class="n">interface</span> <span class="n">Vlan3150</span>
+  <span class="n">description</span> <span class="n">aeec9fd4</span><span class="o">-</span><span class="mi">30</span><span class="n">f7</span><span class="o">-</span><span class="mi">4398</span><span class="o">-</span><span class="mi">8554</span><span class="o">-</span><span class="mi">34</span><span class="n">acb36b7712</span>
+  <span class="n">vrf</span> <span class="n">CC</span><span class="o">-</span><span class="n">CLOUD02</span>
+  <span class="n">ip</span> <span class="n">address</span> <span class="n">virtual</span> <span class="mf">10.47.8.193</span><span class="o">/</span><span class="mi">27</span>
+  <span class="n">ip</span> <span class="n">address</span> <span class="n">virtual</span> <span class="mf">10.47.10.1</span><span class="o">/</span><span class="mi">24</span> <span class="n">secondary</span>
 
- <span class="n">interface</span> <span class="n">vlan</span> <span class="mi">3200</span>
-    <span class="n">description</span> <span class="n">fce02a86</span><span class="o">-</span><span class="mi">525</span><span class="n">c</span><span class="o">-</span><span class="mi">49</span><span class="n">c9</span><span class="o">-</span><span class="n">a6cd</span><span class="o">-</span><span class="n">bf472881a83f</span>
-    <span class="n">vrf</span> <span class="n">CC</span><span class="o">-</span><span class="n">CLOUD02</span>
-    <span class="n">ip</span> <span class="n">address</span> <span class="n">virtual</span> <span class="mf">10.47.20.1</span><span class="o">/</span><span class="mi">25</span>
+<span class="n">interface</span> <span class="n">Vlan3200</span>
+  <span class="n">description</span> <span class="n">fce02a86</span><span class="o">-</span><span class="mi">525</span><span class="n">c</span><span class="o">-</span><span class="mi">49</span><span class="n">c9</span><span class="o">-</span><span class="n">a6cd</span><span class="o">-</span><span class="n">bf472881a83f</span>
+  <span class="n">vrf</span> <span class="n">CC</span><span class="o">-</span><span class="n">CLOUD02</span>
+  <span class="n">ip</span> <span class="n">address</span> <span class="n">virtual</span> <span class="mf">10.47.20.1</span><span class="o">/</span><span class="mi">25</span>
 
- <span class="n">interface</span> <span class="n">vxlan1</span>
-    <span class="n">vxlan</span> <span class="n">vrf</span> <span class="n">CC</span><span class="o">-</span><span class="n">CLOUD02</span> <span class="n">vni</span> <span class="mi">102</span>
-
- <span class="n">router</span> <span class="n">bgp</span> <span class="mf">65130.1103</span>
-    <span class="n">vrf</span> <span class="n">CC</span><span class="o">-</span><span class="n">CLOUD02</span>
-       <span class="c1"># The driver assumes full control over aggregate address statements,</span>
-       <span class="c1"># any aggregate statement not known to the driver will be removed</span>
-       <span class="n">aggregate</span><span class="o">-</span><span class="n">address</span> <span class="mf">10.47.8.0</span><span class="o">/</span><span class="mi">24</span> <span class="n">attribute</span><span class="o">-</span><span class="nb">map</span> <span class="n">RM</span><span class="o">-</span><span class="n">CC</span><span class="o">-</span><span class="n">CLOUD02</span><span class="o">-</span><span class="n">A</span><span class="o">-</span><span class="n">AGGREGATE</span>
-       <span class="n">aggregate</span><span class="o">-</span><span class="n">address</span> <span class="mf">10.47.20.0</span><span class="o">/</span><span class="mi">24</span> <span class="n">attribute</span><span class="o">-</span><span class="nb">map</span> <span class="n">RM</span><span class="o">-</span><span class="n">CC</span><span class="o">-</span><span class="n">CLOUD02</span><span class="o">-</span><span class="n">AGGREGATE</span>
+<span class="n">router</span> <span class="n">bgp</span> <span class="mf">65130.1103</span>
+  <span class="n">vrf</span> <span class="n">CC</span><span class="o">-</span><span class="n">CLOUD02</span>
+    <span class="c1"># The driver assumes full control over aggregate address statements,</span>
+    <span class="c1"># that have an attribute-map/route-map associated that complies with</span>
+    <span class="c1"># f&#39;RM-CC-{VRF}-AGGREGATE&#39; or f&#39;RM-CC-{VRF}-{AZ}-AGGREGATE&#39;</span>
+    <span class="c1"># any aggregate statement not known to the driver will be removed</span>
+    <span class="n">aggregate</span><span class="o">-</span><span class="n">address</span> <span class="mf">10.47.8.0</span><span class="o">/</span><span class="mi">24</span> <span class="n">attribute</span><span class="o">-</span><span class="nb">map</span> <span class="n">RM</span><span class="o">-</span><span class="n">CC</span><span class="o">-</span><span class="n">CLOUD02</span><span class="o">-</span><span class="n">A</span><span class="o">-</span><span class="n">AGGREGATE</span>
+    <span class="n">aggregate</span><span class="o">-</span><span class="n">address</span> <span class="mf">10.47.20.0</span><span class="o">/</span><span class="mi">24</span> <span class="n">attribute</span><span class="o">-</span><span class="nb">map</span> <span class="n">RM</span><span class="o">-</span><span class="n">CC</span><span class="o">-</span><span class="n">CLOUD02</span><span class="o">-</span><span class="n">AGGREGATE</span>
 </pre></div>
 </div>
 <p><strong>NX-OS</strong>:</p>
@@ -1344,7 +1343,7 @@ interface Port-Channel201
           
           </div>
           <div class="row docs-byline bottom">
-            <div class="docs-updated">this page last updated: 2022-09-27 16:48:40</div>
+            <div class="docs-updated">this page last updated: 2022-10-07 16:18:26</div>
           </div>
           <div class="row">
             <div class="col-lg-8 col-md-8 col-sm-8 docs-license">
