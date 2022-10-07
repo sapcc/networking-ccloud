@@ -40,7 +40,7 @@ class EOSGNMIClient:
         VLANS = "network-instances/network-instance[name=default]/vlans"
         VLAN = "network-instances/network-instance[name=default]/vlans/vlan[vlan-id={vlan}]"
 
-        VXMAP = "interfaces/interface[name=Vxlan1]/arista-exp-eos-vxlan:arista-vxlan/config/vlan-to-vnis"
+        VXMAPS = "interfaces/interface[name=Vxlan1]/arista-exp-eos-vxlan:arista-vxlan/config/vlan-to-vnis"
         VXMAP_VLAN = ("interfaces/interface[name=Vxlan1]/arista-exp-eos-vxlan:arista-vxlan/config/vlan-to-vnis"
                       "/vlan-to-vni[vlan={vlan}]")
 
@@ -260,7 +260,7 @@ class EOSSwitch(SwitchBase):
                 config_req.delete.append(vpath)
 
     def get_vxlan_mappings(self, with_unmanaged=False) -> List[agent_msg.VXLANMapping]:
-        swdata = self.api.get(EOSGNMIClient.PATHS.VXMAP)['arista-exp-eos-vxlan:vlan-to-vni']
+        swdata = self.api.get(EOSGNMIClient.PATHS.VXMAPS)['arista-exp-eos-vxlan:vlan-to-vni']
         vxlan_maps = [agent_msg.VXLANMapping(vni=v['vni'], vlan=v['vlan']) for v in swdata
                       if with_unmanaged or v['vlan'] in self.managed_vlans]
         vxlan_maps.sort()
@@ -294,7 +294,7 @@ class EOSSwitch(SwitchBase):
                         config_req.delete.append(del_map)
 
             mapcfgs = [{'vlan': vmap.vlan, 'vni': vmap.vni} for vmap in vxlan_maps]
-            config_req.update.append((EOSGNMIClient.PATHS.VXMAP, {'vlan-to-vni': mapcfgs}))
+            config_req.update.append((EOSGNMIClient.PATHS.VXMAPS, {'vlan-to-vni': mapcfgs}))
         else:
             # delete vlan mapping only if it has the right vni
             for os_map in vxlan_maps:
