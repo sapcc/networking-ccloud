@@ -643,13 +643,13 @@ Driver controlled configuration:
   # any prefix unknown to the driver will be removed.
 
   ip prefix-list PL-CC-CLOUD02
-    seq 10 permit 10.47.8.192/27 eq 27
+    seq 10 permit 10.47.8.192/27
 
   ip prefix-list PL-CC-CLOUD02-A
-    seq 10 permit 10.47.20.0/25 eq 25
+    seq 10 permit 10.47.20.0/25
 
   ip prefix-list PL-CC-CLOUD02-AGGREGATE
-    seq 10 permit 10.47.10.0/24 eq 24
+    seq 10 permit 10.47.10.0/24
 
   ip prefix-list PL-CC-CLOUD02-A-AGGREGATE
 
