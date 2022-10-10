@@ -108,7 +108,7 @@ If for a device a different (or reduced) range is in effect it must be expressed
             "evpn": {
                 "tenant-vlan-range": [
                     "2000",
-                    "2100-3000"
+                    "2100:3000"
                 ],
             }
         }

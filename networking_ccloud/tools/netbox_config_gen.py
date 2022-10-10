@@ -363,6 +363,7 @@ class ConfigGenerator:
         attributes = dict()
         pod_roles = set()
         azs = set()
+        vlan_ranges = set()
 
         for device in devices:
 
@@ -375,15 +376,36 @@ class ConfigGenerator:
                 raise ConfigException(f'{device.name} must have a site')
             azs.add(device.site.slug)
 
+            # segment ranges
+            if device.config_context:
+                vlan_range = device.config_context.get('cc', {}) \
+                                                  .get('net', {}) \
+                                                  .get('evpn', {}) \
+                                                  .get('tenant-vlan-range')
+                if vlan_range:
+                    if not isinstance(vlan_range, list):
+                        raise ConfigException(f'cc/net/evpn/tenant-vlan-range in config context of {device.name}'
+                                              ' must be a list.')
+                    for r in vlan_range:
+                        try:
+                            conf.validate_vlan_ranges(r)
+                        except ValueError as e:
+                            raise ConfigException(f'{device.name} has invalid tenant-vlan-range: {e}')
+                    vlan_range = tuple(sorted(vlan_range))
+                    vlan_ranges.add(vlan_range)
+
         # silently reject switches without a role, could be BL or anything we do not care about
         if not pod_roles:
             return dict()
 
         attributes['pod_role'] = cls._ensure_single_item(pod_roles, 'Switchgroup',
-                                                         ', '.join((x.name for x in devices)), 'pod_roles')
+                                                         ', '.join(x.name for x in devices), 'pod_roles')
         attributes['az'] = cls._ensure_single_item(azs, 'Switchgroup',
-                                                   ', '.join((x.name for x in devices)), 'azs')
-
+                                                   ', '.join(x.name for x in devices), 'azs')
+        if vlan_ranges:
+            attributes['vlan_ranges'] = list(cls._ensure_single_item(vlan_ranges, 'Switchgroup',
+                                                                     ', ' .join(x.name for x in devices),
+                                                                     'vlan_ranges'))
         return attributes
 
     def get_switchgroup_name(self, role: str, switchgroup_id: int, pod_sequence: int):
@@ -455,8 +477,11 @@ class ConfigGenerator:
             l3_data = self.get_l3_data(asn_region, **numbered_resources)
             sg_name = self.get_switchgroup_name(sg_attributes['pod_role'], numbered_resources['switchgroup_id'],
                                                 numbered_resources['seq_no'])
-            switchgroup = conf.SwitchGroup(name=sg_name, members=members, availability_zone=sg_attributes['az'],
-                                           vtep_ip=l3_data['loopback1'], asn=l3_data['asn'], group_id=switchgroup_id)
+            sg_args = dict(name=sg_name, members=members, availability_zone=sg_attributes['az'],
+                           vtep_ip=l3_data['loopback1'], asn=l3_data['asn'], group_id=switchgroup_id)
+            if 'vlan_ranges' in sg_attributes:
+                sg_args['vlan_ranges'] = sg_attributes['vlan_ranges']
+            switchgroup = conf.SwitchGroup(**sg_args)
             switchgroups.append(switchgroup)
         return switchgroups
 
