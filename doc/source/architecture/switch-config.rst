@@ -612,6 +612,13 @@ We assume the following L3 related config to be preconfigured on each device, ex
     set community 65130:1 65130:1102
     set extcommunity rt 65130:1102
 
+  # These prefix lists must be preconfigured, otherwise Octa fails to
+  # build a valid config tree
+  ip prefix-list PL-CC-CLOUD02
+  ip prefix-list PL-CC-CLOUD02-A
+  ip prefix-list PL-CC-CLOUD02-AGGREGATE
+  ip prefix-list PL-CC-CLOUD02-A-AGGREGATE
+
    interface Vxlan1
       vxlan vrf CC-CLOUD02 vni 102
 
