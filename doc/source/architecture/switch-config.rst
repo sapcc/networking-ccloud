@@ -556,26 +556,26 @@ For the prefixes that need to be redistributed into BGP there are the following 
    * - False
      - False
      - * entry in `PL-CC-CLOUD02`
-       * `aggregate-address <supernet> attribute-map RM-CC-CLOUD02-AGGREGATE`
-     - * `network <prefix> route-map RM-CC-CLOUD02``
-       * `aggregate-address  <supernet>  attribute-map RM-CC-CLOUD02-AGGREGATE`
+       * :code:`aggregate-address <supernet> attribute-map RM-CC-CLOUD02-AGGREGATE`
+     - * :code:`network <prefix> route-map RM-CC-CLOUD02``
+       * :code:`aggregate-address  <supernet>  attribute-map RM-CC-CLOUD02-AGGREGATE`
  
    * - True
      - False
      - * entry in `PL-CC-CLOUD02-A`
-       * `aggregate-address <supernet> attribute-mapRM-CC-CLOUD02-A-AGGREGATE`
-     - * `network <prefix> route-map RM-CC-CLOUD02-A``
-       * `aggregate-address  <supernet>  attribute-map RM-CC-CLOUD02-A-AGGREGATE`
+       * :code:`aggregate-address <supernet> attribute-map RM-CC-CLOUD02-A-AGGREGATE`
+     - * :code:`network <prefix> route-map RM-CC-CLOUD02-A``
+       * :code:`aggregate-address  <supernet>  attribute-map RM-CC-CLOUD02-A-AGGREGATE`
  
    * - False
      - True
      - * entry in `PL-CC-CLOUD02-EXTERNAL`
-     - * `network <prefix> route-map RM-CC-CLOUD02-AGGREGATE``
+     - * :code:`network <prefix> route-map RM-CC-CLOUD02-AGGREGATE``
  
    * - True
      - True
      - * entry in `PL-CC-CLOUD02-A-EXTERNAL`
-     - * `network <prefix> route-map RM-CC-CLOUD02-AGGREGATE``
+     - * :code:`network <prefix> route-map RM-CC-CLOUD02-AGGREGATE``
   
 **EOS**:
 
