@@ -549,7 +549,7 @@ For the prefixes that need to be redistributed into BGP there are the following 
    :header-rows: 1
 
    * - az-local
-     - is supernet (exported net)
+     - is externally announced (CIDR in address scope)
      - config EOS
      - config NXOS
  
@@ -569,12 +569,12 @@ For the prefixes that need to be redistributed into BGP there are the following 
  
    * - False
      - True
-     - * entry in `PL-CC-CLOUD02-AGGREGATE`
+     - * entry in `PL-CC-CLOUD02-EXTERNAL`
      - * `network <prefix> route-map RM-CC-CLOUD02-AGGREGATE``
  
    * - True
      - True
-     - * entry in `PL-CC-CLOUD02-A-AGGREGATE`
+     - * entry in `PL-CC-CLOUD02-A-EXTERNAL`
      - * `network <prefix> route-map RM-CC-CLOUD02-AGGREGATE``
   
 **EOS**:
@@ -596,11 +596,11 @@ We assume the following L3 related config to be preconfigured on each device, ex
     set community 65130:1102
     set extcommunity rt 65130:1102
   route-map RM-CC-CLOUD02-REDIST permit 30
-    match ip address prefix-list PL-CC-CLOUD02-AGGREGATE
+    match ip address prefix-list PL-CC-CLOUD02-EXTERNAL
     set community 65130:1 65130:102
     set extcommunity rt 65130:102
   route-map RM-CC-CLOUD02-REDIST permit 40
-    match ip address prefix-list PL-CC-CLOUD02-A-AGGREGATE
+    match ip address prefix-list PL-CC-CLOUD02-A-EXTERNAL
     set community 65130:1 65130:1102
     set extcommunity rt 65130:1102
 
@@ -616,8 +616,8 @@ We assume the following L3 related config to be preconfigured on each device, ex
   # build a valid config tree
   ip prefix-list PL-CC-CLOUD02
   ip prefix-list PL-CC-CLOUD02-A
-  ip prefix-list PL-CC-CLOUD02-AGGREGATE
-  ip prefix-list PL-CC-CLOUD02-A-AGGREGATE
+  ip prefix-list PL-CC-CLOUD02-EXTERNAL
+  ip prefix-list PL-CC-CLOUD02-A-EXTERNAL
 
    interface Vxlan1
       vxlan vrf CC-CLOUD02 vni 102
@@ -648,10 +648,10 @@ Driver controlled configuration:
   ip prefix-list PL-CC-CLOUD02-A
     seq 10 permit 10.47.20.0/25
 
-  ip prefix-list PL-CC-CLOUD02-AGGREGATE
+  ip prefix-list PL-CC-CLOUD02-EXTERNAL
     seq 10 permit 10.47.10.0/24
 
-  ip prefix-list PL-CC-CLOUD02-A-AGGREGATE
+  ip prefix-list PL-CC-CLOUD02-A-EXTERNAL
 
   interface Vlan3150
     description aeec9fd4-30f7-4398-8554-34acb36b7712
