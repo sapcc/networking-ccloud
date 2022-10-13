@@ -12,7 +12,7 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
-from collections import defaultdict
+from collections import defaultdict, Counter
 import ipaddress
 from itertools import chain, groupby
 import logging
@@ -60,10 +60,12 @@ class ConfigGenerator:
                                 r"(?P<leaf>[ab])(?:-(?P<role>[a-z]+(?P<seq_no>[0-9]+)?))$")
     apod_node_name_re = re.compile(r'^node\d+-ap(?P<apod_seq>\d+)$')
     filer_parent_name_re = re.compile(r'^stnpca(?P<cluster_seq>\d+)-st(?P<stpod_seq>\d+)$')
+    loadbalancer_vm_name_re = re.compile(
+        r'^(?P<region>\w{2}-\w{2}-\d)-(?P<cluster_name>lb\d{3})(?P<ha_role>[a|b])-(?P<seq>\d{2})$')
 
     leaf_role = "evpn-leaf"
     spine_role = "evpn-spine"
-    connection_roles = {"server", "neutron-router", "filer"}
+    connection_roles = {"server", "neutron-router", "filer", 'loadbalancer'}
     manila_tag = "manila"
     infra_network_vrf = 'CC-MGMT'
     tenants = {"converged-cloud"}
@@ -99,6 +101,34 @@ class ConfigGenerator:
         cname = cname[len(cprefix):]
         return conf.Hostgroup(binding_hosts=[cname], metagroup=True, members=[member.name])
 
+    def f5_loadbalancer_metagroup_handler(self, cluster: NbRecord, member: NbRecord) -> Optional[conf.Hostgroup]:
+        binding_hosts = []
+        for vm in self.netbox.virtualization.virtual_machines.filter(cluster_id=cluster.id):
+            m = self.loadbalancer_vm_name_re.match(vm.name)
+            if m:
+                # VMs in netbox will be named like
+                # {region}-lb414a-01, {region}-lb414b-01 -> binding host should be lb414-01
+                cname, cseq = m.group('cluster_name'), m.group('seq')
+                binding_hosts.append(f'{cname}-{int(cseq):02d}')
+
+        if not binding_hosts:
+            print(f'Warning - Loadbalancer cluster {cluster.name} has no VM that complies with binding host naming')
+            return None
+
+        # Reject binding hosts with just one VM
+        binding_host_counter = Counter(binding_hosts)
+        binding_hosts = []
+        for binding_host, cnt in binding_host_counter.items():
+            if cnt < 2:
+                print(f'Warning - Loadbalancer binding host {binding_host} has only one VM in cluster {cluster.name}'
+                      ' - omitting binding host')
+            elif cnt > 2:
+                print(f'Warning - Loadbalancer binding host {binding_host} has more than 2 VMs in cluster '
+                      f'{cluster.name}, omitting binding host')
+            else:
+                binding_hosts.append(binding_host)
+        return conf.Hostgroup(binding_hosts=sorted(binding_hosts), metagroup=True, members=[member.name])
+
     def apod_metagroup_handler(self, cluster: NbRecord, member: NbRecord) -> Optional[conf.Hostgroup]:
         m = self.apod_node_name_re.match(member.name)
         if not m:
@@ -129,7 +159,8 @@ class ConfigGenerator:
         'filer': filer_metagroup_handler,
         'cc-vsphere-apod-mgmt': noop_metagroup_handler,
         'cc-vsphere-apod-pool': noop_metagroup_handler,
-        'cc-k8s-controlplane-swift': noop_metagroup_handler
+        'cc-k8s-controlplane-swift': noop_metagroup_handler,
+        'cc-f5-vcmp': f5_loadbalancer_metagroup_handler,
     }
 
     def __init__(self, region, args, verbose=False, verify_ssl=False):
