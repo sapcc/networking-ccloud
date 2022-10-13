@@ -475,6 +475,31 @@ class CCFabricNetboxModeller():
                             lag.save()
                     break
 
+    def model_f5_loadbalancers(self, limit: Optional[Set[int]] = None):
+        for np, gr in self.group_leaves_by(self.leaves_by_role[SWITCHGROUP_ROLE_NETPOD], 'seq_no'):
+            if limit is not None and np not in limit:
+                continue
+            if not self.ensure_single_attribute(('site', 'slug'), gr):
+                print(f'Np{np} switches {gr} have different sites, skipping')
+                continue
+            lags = self.find_and_bundle_mlag_ports(np, gr, 'loadbalancer')
+            for lag, members in lags:
+                for member in members:
+                    # We only care about portchannel1 at the moment cause that's the one OS binds ports to
+                    ignore_tag = list(ConfigGenerator.ignore_tags)[0]
+                    if member.connected_endpoint.lag.name == 'portchannel1':
+                        continue
+                    if isinstance(lag, dict):
+                        print(f'Adding ignore-tag to {lag["name"]} on {lag["device"]}.')
+                        break
+                    if ignore_tag in {x.slug for x in lag.tags}:
+                        break
+                    print(f'Adding ignore-tag to {lag.name} on {lag.device.name}.')
+                    if not self.dry_run:
+                        lag.tags.append({'slug': ignore_tag})
+                        lag.save()
+                    break
+
     def model_apods(self, limit: Optional[Set[int]] = None):
         for ap, gr in self.group_leaves_by(self.leaves_by_role[SWITCHGROUP_ROLE_APOD], 'seq_no'):
             if limit is not None and ap not in limit:
@@ -691,6 +716,7 @@ def main():
             modeller.model_bbs(limit)
         if entity == SWITCHGROUP_ROLE_NETPOD:
             modeller.model_neutron_routers(limit)
+            modeller.model_f5_loadbalancers(limit)
         if entity == SWITCHGROUP_ROLE_STPOD:
             modeller.model_filers(limit)
             modeller.model_swift_nodes(limit)
