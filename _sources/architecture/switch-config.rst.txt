@@ -564,18 +564,18 @@ For the prefixes that need to be redistributed into BGP there are the following 
      - False
      - * entry in `PL-CC-CLOUD02-A`
        * :code:`aggregate-address <supernet> attribute-map RM-CC-CLOUD02-A-AGGREGATE`
-     - * :code:`network <prefix> route-map RM-CC-CLOUD02-A``
+     - * :code:`network <prefix> route-map RM-CC-CLOUD02-A`
        * :code:`aggregate-address  <supernet>  attribute-map RM-CC-CLOUD02-A-AGGREGATE`
  
    * - False
      - True
      - * entry in `PL-CC-CLOUD02-EXTERNAL`
-     - * :code:`network <prefix> route-map RM-CC-CLOUD02-AGGREGATE``
+     - * :code:`network <prefix> route-map RM-CC-CLOUD02-AGGREGATE`
  
    * - True
      - True
      - * entry in `PL-CC-CLOUD02-A-EXTERNAL`
-     - * :code:`network <prefix> route-map RM-CC-CLOUD02-AGGREGATE``
+     - * :code:`network <prefix> route-map RM-CC-CLOUD02-AGGREGATE`
   
 **EOS**:
 
