@@ -300,7 +300,7 @@ class SwitchesController(wsgi.Controller):
         switch, sg = self._get_switch(kwargs.pop('id'))
 
         LOG.info("Got API request for syncing switch %s", switch.name)
-        scul = self._make_switch_config(request.context, switch, sg)
+        scul = self.fabric_plugin.make_switch_config(request.context, switch, sg)
         try:
             config_generated = scul.execute(request.context)
         except RemoteError as e:
@@ -320,7 +320,7 @@ class SwitchesController(wsgi.Controller):
                     scul.add_binding_host_to_config(hg, inet.name, inet.vni, inet.vlan)
             if hg.extra_vlans:
                 scul.add_extra_vlans(hg)
-        self._clean_switches(scul, switch)
+        scul.clean_switches(switch.name)
         try:
             config_generated = scul.execute(request.context)
         except RemoteError as e:
@@ -340,7 +340,7 @@ class SwitchesController(wsgi.Controller):
     @check_cloud_admin
     def os_config(self, request, **kwargs):
         switch, sg = self._get_switch(kwargs.pop('id'))
-        config = self._make_switch_config(request.context, switch, sg)
+        config = self.fabric_plugin.make_switch_config(request.context, switch, sg)
         config = config.switch_config_updates.get(switch.name)
         if not config:
             return None
@@ -369,46 +369,6 @@ class SwitchesController(wsgi.Controller):
                         switch['device_error'] = di['error']
                 else:
                     switch['device_info'] = {'found': False}
-
-    def _make_switchgroup_config(self, context, sg):
-        scul = agent_msg.SwitchConfigUpdateList(agent_msg.OperationEnum.replace, self.drv_conf)
-
-        # physnets of this switch, which is the switch's switchgroup's vlan pool
-        physnets = [sg.vlan_pool]
-
-        # get all binding hosts bound onto that switch
-        #   + interconnects
-        #   + infra networks
-        net_segments = self.fabric_plugin.get_hosts_on_segments(context, physical_networks=physnets)
-        top_segments = self.fabric_plugin.get_top_level_vxlan_segments(context, network_ids=list(net_segments.keys()))
-        scul.add_segments(net_segments, top_segments)
-
-        for hg in self.drv_conf.get_hostgroups_by_switches([sw.name for sw in sg.members]):
-            if hg.infra_networks:
-                for inet in hg.infra_networks:
-                    # FIXME: exclude hosts
-                    scul.add_binding_host_to_config(hg, inet.name, inet.vni, inet.vlan)
-            if hg.extra_vlans:
-                scul.add_extra_vlans(hg)
-            if hg.role:
-                # transits/BGWs don't have bindings, so bind all physnets
-                # find all physnets or interconnects scheduled
-                interconnects = self.fabric_plugin.get_interconnects(context, host=hg.binding_hosts[0])
-                scul.add_interconnects(context, self.fabric_plugin, interconnects)
-
-        return scul
-
-    def _make_switch_config(self, context, switch, sg):
-        scul = self._make_switchgroup_config(context, sg)
-
-        self._clean_switches(scul, switch)
-        return scul
-
-    def _clean_switches(self, scul, switch):
-        # make sure we only sync that one switch
-        for cfg_switch in list(scul.switch_config_updates):
-            if cfg_switch != switch.name:
-                del scul.switch_config_updates[cfg_switch]
 
 
 class SwitchgroupsController(wsgi.Controller):
@@ -448,7 +408,7 @@ class SwitchgroupsController(wsgi.Controller):
         sg = self._get_switchgroup(kwargs.pop('id'))
 
         LOG.info("Got API request for syncing switchgroup %s (%s)", sg.name, ", ".join(sw.name for sw in sg.members))
-        scul = self._swctrl._make_switchgroup_config(request.context, sg)
+        scul = self.fabric_plugin.make_switchgroup_config(request.context, sg)
         try:
             config_generated = scul.execute(request.context)
         except RemoteError as e:
