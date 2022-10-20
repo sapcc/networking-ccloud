@@ -28,6 +28,7 @@ from networking_ccloud.db.db_plugin import CCDbPlugin
 from networking_ccloud.extensions import __path__ as fabric_ext_path
 from networking_ccloud.extensions import fabricoperations
 from networking_ccloud.ml2.agent.common.api import CCFabricSwitchAgentRPCClient
+from networking_ccloud.ml2.agent.common import messages as agent_msg
 from networking_ccloud.tests import base
 from networking_ccloud.tests.common import config_fixtures as cfix
 
@@ -83,8 +84,9 @@ class TestNetworkExtension(test_segment.SegmentTestCase, base.PortBindingHelper)
                                   switch_vars=dict(platform=cc_const.PLATFORM_EOS)),
         ]
         seagull_infra_nets = [
-            InfraNetwork(name="infra_net_l3", vlan=23, networks=["10.23.42.1/24"], vrf='PRIVATE-VRF', vni=6667),
-            InfraNetwork(name="infra_net_vlan", vlan=42, vni=14),
+            InfraNetwork(name="infra_net_l3", vlan=23, networks=["10.23.42.1/24", "10.42.42.1/24"],
+                         aggregates=["10.0.0.0/8"], vrf='PRIVATE-VRF', vni=6667),
+            InfraNetwork(name="infra_net_vlan", vlan=42, vni=14, networks=['10.100.1.1/24'], vrf='ANOTHER-VRF'),
         ]
         hg_seagull = cfix.make_metagroup("seagull", meta_kwargs={'infra_networks': seagull_infra_nets})
         hg_crow = cfix.make_metagroup("crow", meta_kwargs={'extra_vlans': [13, 37]})
@@ -129,6 +131,37 @@ class TestNetworkExtension(test_segment.SegmentTestCase, base.PortBindingHelper)
 
         self.ext_mgr = extensions.ExtensionManager(fabric_ext_path[0])
         self.app = webtest.TestApp(setup_extensions_middleware(self.ext_mgr))
+
+        # config snippets that we expect to appear (used inside the tests as a base for comparison)
+        self._infra_net_vifaces = [
+            agent_msg.VlanIface(vlan=23, vrf="PRIVATE-VRF", primary_ip="10.23.42.1/24",
+                                secondary_ips=["10.42.42.1/24"]),
+            agent_msg.VlanIface(vlan=42, vrf="ANOTHER-VRF", primary_ip="10.100.1.1/24", secondary_ips=[]),
+        ]
+        self._infra_net_bgp_vrfs = [
+            agent_msg.BGPVRF(name='ANOTHER-VRF', networks=[
+                agent_msg.BGPVRFNetwork(network="10.100.1.0/24", az_local=True, ext_announcable=False),
+            ],
+                aggregates=[]),
+            agent_msg.BGPVRF(name='PRIVATE-VRF', networks=[
+                agent_msg.BGPVRFNetwork(network="10.23.42.0/24", az_local=True, ext_announcable=False),
+                agent_msg.BGPVRFNetwork(network="10.42.42.0/24", az_local=True, ext_announcable=False),
+            ],
+                aggregates=[
+                    agent_msg.BGPVRFAggregate(network="10.0.0.0/8", az_local=True),
+            ]),
+        ]
+        self._seagull_vifaces = [
+            agent_msg.VlanIface(vlan=101, vrf="cc-seagull", primary_ip="1.1.1.1/24", secondary_ips=[]),
+        ]
+        self._seagull_bgpvrfs = [
+            agent_msg.BGPVRF(name='cc-seagull', networks=[
+                agent_msg.BGPVRFNetwork(network="1.1.1.0/24", az_local=False, ext_announcable=False),
+            ],
+                aggregates=[
+                    agent_msg.BGPVRFAggregate(network="1.1.0.0/16", az_local=False),
+            ]),
+        ]
 
     def test_network_get(self):
         resp = self.app.get(f"/cc-fabric/networks/{self._net_a['id']}")
@@ -209,7 +242,7 @@ class TestNetworkExtension(test_segment.SegmentTestCase, base.PortBindingHelper)
             self.assertTrue(switch['device_info']['found'])
             mock_gss.assert_called_once()
 
-    def test_switch_sync_vpod(self):
+    def test_switch_sync_vpod_with_l3(self):
         with mock.patch.object(CCFabricSwitchAgentRPCClient, 'apply_config_update') as mock_acu:
             resp = self.app.put("/cc-fabric/switches/seagull-sw1/sync")
             self.assertTrue(resp.json['sync_sent'])
@@ -221,8 +254,11 @@ class TestNetworkExtension(test_segment.SegmentTestCase, base.PortBindingHelper)
 
             # check that infra networks and portbindings are synced
             for swcfg in swcfgs:
+                swcfg.sort()
                 for iface in swcfg.ifaces:
-                    self.assertEqual({23, 42, 100}, set(iface.trunk_vlans))
+                    self.assertEqual({23, 42, 100, 101}, set(iface.trunk_vlans))
+                self.assertEqual(self._infra_net_vifaces + self._seagull_vifaces, swcfg.vlan_ifaces)
+                self.assertEqual(self._infra_net_bgp_vrfs + self._seagull_bgpvrfs, swcfg.bgp.vrfs)
 
     def test_switch_sync_vpod_extra_vlans(self):
         with mock.patch.object(CCFabricSwitchAgentRPCClient, 'apply_config_update') as mock_acu:
@@ -245,8 +281,11 @@ class TestNetworkExtension(test_segment.SegmentTestCase, base.PortBindingHelper)
             swcfgs = mock_acu.call_args[0][1]
             self.assertEqual({"seagull-sw1"}, set(s.switch_name for s in swcfgs))
             for swcfg in swcfgs:
+                swcfg.sort()
                 for iface in swcfg.ifaces:
                     self.assertEqual({23, 42}, set(iface.trunk_vlans))
+                self.assertEqual(swcfg.vlan_ifaces, self._infra_net_vifaces)
+                self.assertEqual(swcfg.bgp.vrfs, self._infra_net_bgp_vrfs)
 
     def test_switch_sync_vpod_infra_networks_with_extra_vlans(self):
         with mock.patch.object(CCFabricSwitchAgentRPCClient, 'apply_config_update') as mock_acu:
@@ -308,7 +347,7 @@ class TestNetworkExtension(test_segment.SegmentTestCase, base.PortBindingHelper)
         resp = self.app.get("/cc-fabric/switches/seagull-sw1/os_config")
         # just make sure it looks somewhat relatable to what we expect / have set in the db
         self.assertEqual(10, len(resp.json['config']['ifaces']))
-        self.assertEqual([23, 42, 100], resp.json['config']['ifaces'][0]['trunk_vlans'])
+        self.assertEqual([23, 42, 100, 101], resp.json['config']['ifaces'][0]['trunk_vlans'])
 
     def test_switchgroups(self):
         # index
@@ -359,7 +398,7 @@ class TestNetworkExtension(test_segment.SegmentTestCase, base.PortBindingHelper)
             # check that infra networks and portbindings are synced
             for swcfg in swcfgs:
                 for iface in swcfg.ifaces:
-                    self.assertEqual({23, 42, 100}, set(iface.trunk_vlans))
+                    self.assertEqual({23, 42, 100, 101}, set(iface.trunk_vlans))
 
     def test_switchgroup_sync_infra_networks(self):
         with mock.patch.object(CCFabricSwitchAgentRPCClient, 'apply_config_update') as mock_acu:
@@ -402,7 +441,7 @@ class TestNetworkExtension(test_segment.SegmentTestCase, base.PortBindingHelper)
             cfg = resp.json[switch]
             # just make sure it looks somewhat relatable to what we expect / have set in the db
             self.assertEqual(10, len(cfg['config']['ifaces']))
-            self.assertEqual([23, 42, 100], cfg['config']['ifaces'][0]['trunk_vlans'])
+            self.assertEqual([23, 42, 100, 101], cfg['config']['ifaces'][0]['trunk_vlans'])
 
     def test_create_all_portchannels(self):
         with mock.patch.object(CCFabricSwitchAgentRPCClient, 'apply_config_update') as mock_acu:

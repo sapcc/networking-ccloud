@@ -32,7 +32,7 @@ class TestEOSConfigUpdates(base.TestCase):
         cfg_switch = config_driver.Switch(name="seagull-sw1", host="127.0.0.1", platform=cc_const.PLATFORM_EOS,
                                           user="seagulladm", password="KRAKRAKRA", bgp_source_ip="1.1.1.1")
         with mock.patch.object(n_rpc, 'get_client'):
-            self.switch = EOSSwitch(cfg_switch, 65130, set([100]) | set(range(2000, 3000)))
+            self.switch = EOSSwitch(cfg_switch, 65130, 'a', set([100]) | set(range(2000, 3000)))
         self.switch._api = mock.Mock()
 
     def test_add_vlans(self):
@@ -49,12 +49,22 @@ class TestEOSConfigUpdates(base.TestCase):
         self.switch._api.set.assert_called_with(update=expected_update, delete=[], replace=[])
 
     def test_add_everything(self):
-        def _get(prefix):
+        def _get(prefix, unpack=True):
             if prefix == 'interfaces/interface[name=Vxlan1]/arista-exp-eos-vxlan:arista-vxlan/config/vlan-to-vnis':
                 return {'arista-exp-eos-vxlan:vlan-to-vni': [{'vlan': 1337, 'vni': 232323}]}
             elif prefix == 'interfaces':
                 return {
-                    'openconfig-interfaces:interface': []}
+                    'openconfig-interfaces:interface': [
+                        {'name': 'Vlan2337', 'config': {'name': 'Vlan2337', 'type': 'l3ipvlan'},
+                         'arista-varp': {'virtual-address': {'config': {'ip': '3.4.3.5/24', 'prefix-length': 24}}}},
+                    ]}
+            elif not unpack and prefix == 'eos_native:Sysdb/ip/config/ipIntfConfig':
+                return {'notification': [
+                    {'prefix': 'foo'},
+                    {'prefix': 'Sysdb/ip/config/ipIntfConfig/Vlan2337/virtualSecondaryWithMask',
+                     'update': [{'path': '1.1.1.1/24', 'val': True}, {'path': '2.2.2.2/24', 'val': True}]},
+                ]}
+            raise ValueError(f"unmapped command: {prefix}")
         self.switch._api.get.side_effect = _get
 
         expected_update_config = [
@@ -72,6 +82,31 @@ class TestEOSConfigUpdates(base.TestCase):
                                           'import': ['1:232323']}},
               'vlans': {'vlan': [{'config': {'vlan-id': 1000},
                                   'vlan-id': 1000}]}}),
+            ('network-instances/network-instance[name=CC-SEAGULL]/protocols/protocol[name=BGP]/bgp/global/'
+             'afi-safis/afi-safi[afi-safi-name=openconfig-bgp-types:IPV4_UNICAST]/aggregate-addresses', {
+                 'aggregate-address': [
+                     {'aggregate-address': '8.8.8.0/24',
+                      'config': {'aggregate-address': '8.8.8.0/24', 'attribute-map': 'RM-CC-SEAGULL-AGGREGATE'}},
+                     {'aggregate-address': '9.9.9.0/24',
+                      'config': {'aggregate-address': '9.9.9.0/24', 'attribute-map': 'RM-CC-SEAGULL-A-AGGREGATE'}}]}),
+            ('routing-policy/defined-sets/prefix-sets/prefix-set[name=PL-CC-SEAGULL]',
+             {'name': 'PL-CC-SEAGULL', 'config': {'name': 'PL-CC-SEAGULL'}, 'prefixes': {'prefix':
+              [{'ip-prefix': '4.4.4.0/24', 'masklength-range': 'exact',
+                'config': {'ip-prefix': '4.4.4.0/24', 'masklength-range': 'exact'}}]}}),
+            ('routing-policy/defined-sets/prefix-sets/prefix-set[name=PL-CC-SEAGULL-EXTERNAL]',
+             {'name': 'PL-CC-SEAGULL-EXTERNAL', 'config': {'name': 'PL-CC-SEAGULL-EXTERNAL'}, 'prefixes': {'prefix':
+              [{'ip-prefix': '5.5.5.0/24', 'masklength-range': 'exact',
+                'config': {'ip-prefix': '5.5.5.0/24', 'masklength-range': 'exact'}}]}}),
+            ('routing-policy/defined-sets/prefix-sets/prefix-set[name=PL-CC-SEAGULL-A]',
+             {'name': 'PL-CC-SEAGULL-A', 'config': {'name': 'PL-CC-SEAGULL-A'}, 'prefixes': {'prefix':
+              [{'ip-prefix': '6.6.6.0/24', 'masklength-range': 'exact',
+                'config': {'ip-prefix': '6.6.6.0/24', 'masklength-range': 'exact'}}]}}),
+            ('routing-policy/defined-sets/prefix-sets/prefix-set[name=PL-CC-SEAGULL-A-EXTERNAL]',
+             {'name': 'PL-CC-SEAGULL-A-EXTERNAL', 'config': {'name': 'PL-CC-SEAGULL-A-EXTERNAL'}, 'prefixes': {'prefix':
+              [{'ip-prefix': '7.7.7.0/24', 'masklength-range': 'exact',
+                'config': {'ip-prefix': '7.7.7.0/24', 'masklength-range': 'exact'}},
+               {'ip-prefix': '10.10.10.0/24', 'masklength-range': 'exact',
+                'config': {'ip-prefix': '10.10.10.0/24', 'masklength-range': 'exact'}}]}}),
             ('interfaces/interface[name=Port-Channel23]', {
                 'config': {
                     'name': 'Port-Channel23',
@@ -158,11 +193,27 @@ class TestEOSConfigUpdates(base.TestCase):
                                                                              'translation-key': 1337}]}}}}),
             ('interfaces/interface[name=Ethernet23/1]/ethernet',
              {'switched-vlan': {'config': {'interface-mode': 'TRUNK',
-                                           'trunk-vlans': ['1001']}}})]
+                                           'trunk-vlans': ['1001']}}}),
+            ('interfaces/interface[name=Vlan2337]',
+             {'name': 'Vlan2337', 'config': {'name': 'Vlan2337', 'type': 'l3ipvlan'},
+              'arista-varp': {'virtual-address': {'config': {'ip': '1.1.1.1', 'prefix-length': 24}}}}),
+            ('network-instances/network-instance[name=CC-SEAGULL]/interfaces',
+             {'interface': [{'id': 'Vlan2337', 'config': {'id': 'Vlan2337'}}]}),
+        ]
         expected_delete_config = [
             "interfaces/interface[name=Vxlan1]/arista-exp-eos-vxlan:arista-vxlan/config/vlan-to-vnis/"
             "vlan-to-vni[vlan=1337]"
         ]
+        expected_cli_config = {
+            'update': [
+                ('cli:', 'interface Vlan2337'),
+                ('cli:', 'no ip address virtual 1.1.1.1/24 secondary'),
+                ('cli:', 'ip address virtual 2.2.2.2/24 secondary'),
+                ('cli:', 'ip address virtual 3.3.3.3/24 secondary'),
+                ('cli:', 'exit'),
+            ],
+            'encoding': 'ascii'
+        }
 
         cu = messages.SwitchConfigUpdate(switch_name="seagull-sw1", operation=messages.OperationEnum.add)
         # vlans
@@ -190,12 +241,31 @@ class TestEOSConfigUpdates(base.TestCase):
         iface2.add_trunk_vlan(1001)
         cu.add_iface(iface2)
 
+        # vlan iface + vrf
+        cu.add_vlan_iface(vlan=2337, vrf="CC-SEAGULL", primary_ip="1.1.1.1/24",
+                          secondary_ips=["2.2.2.2/24", "3.3.3.3/24"])
+        vrf = cu.bgp.get_or_create_vrf("CC-SEAGULL")
+        vrf.add_networks([
+            messages.BGPVRFNetwork(network="4.4.4.0/24", az_local=False, ext_announcable=False),
+            messages.BGPVRFNetwork(network="5.5.5.0/24", az_local=False, ext_announcable=True),
+            messages.BGPVRFNetwork(network="6.6.6.0/24", az_local=True, ext_announcable=False),
+            messages.BGPVRFNetwork(network="7.7.7.0/24", az_local=True, ext_announcable=True),
+            messages.BGPVRFNetwork(network="10.10.10.0/24", az_local=True, ext_announcable=True),
+        ])
+        vrf.add_aggregates([
+            messages.BGPVRFAggregate(network="8.8.8.0/24", az_local=False),
+            messages.BGPVRFAggregate(network="9.9.9.0/24", az_local=True),
+        ])
+
         self.switch.apply_config_update(cu).result()
+        self.switch._api.set.assert_has_calls([
+            mock.call(**expected_cli_config),
+            mock.call(update=expected_update_config, replace=[], delete=expected_delete_config)])
         self.switch._api.set.assert_called_with(update=expected_update_config, replace=[],
                                                 delete=expected_delete_config)
 
     def test_remove_everything(self):
-        def _get(prefix):
+        def _get(prefix, unpack=True):
             if prefix == 'interfaces/interface[name=Vxlan1]/arista-exp-eos-vxlan:arista-vxlan/config/vlan-to-vnis':
                 return {'arista-exp-eos-vxlan:vlan-to-vni': [
                         {'vlan': 1000, 'vni': 171717},
@@ -206,22 +276,31 @@ class TestEOSConfigUpdates(base.TestCase):
             elif prefix == 'interfaces':
                 return {
                     'openconfig-interfaces:interface': [
-                        {'name': 'Port-Channel23', 'config': {'name': 'Port-Channel23'},
+                        {'name': 'Port-Channel23', 'config': {'name': 'Port-Channel23',
+                                                              'type': 'iana-if-type:ieee8023adLag'},
                          'openconfig-if-aggregate:aggregation': {
                             'openconfig-vlan:switched-vlan': {'config': {
                                 'interface-mode': 'TRUNK', 'native-vlan': 1,
                                 'trunk-vlans': [2000, 2002, 2005, '2323..2327']}}}},
-                        {'name': 'Ethernet4/1', 'config': {'name': 'Ethernet4/1'},
+                        {'name': 'Ethernet4/1', 'config': {'name': 'Ethernet4/1',
+                                                           'type': 'iana-if-type:ethernetCsmacd'},
                          'openconfig-if-ethernet:ethernet': {
                             'openconfig-vlan:switched-vlan': {'config': {
                                 'interface-mode': 'TRUNK', 'native-vlan': 1,
                                 'trunk-vlans': [2000, 2003]}}}},
-                        {'name': 'Ethernet23/1', 'config': {'name': 'Ethernet23/1'},
+                        {'name': 'Ethernet23/1', 'config': {'name': 'Ethernet23/1',
+                                                            'type': 'iana-if-type:ethernetCsmacd'},
                          'openconfig-if-ethernet:ethernet': {
                             'openconfig-vlan:switched-vlan': {'config': {
                                 'interface-mode': 'TRUNK', 'native-vlan': 1,
                                 'trunk-vlans': ['1999..2002']}}}},
                     ]}
+            elif not unpack and prefix == 'eos_native:Sysdb/ip/config/ipIntfConfig':
+                return {'notification': [
+                    {'prefix': 'foo'},
+                    {'prefix': 'Sysdb/ip/config/ipIntfConfig/Vlan2337/virtualSecondaryWithMask',
+                     'update': [{'path': '2.2.2.2/24', 'val': True}, {'path': '3.3.3.3/24', 'val': True}]},
+                ]}
             raise ValueError(f"unmapped command: {prefix}")
         self.switch._api.get.side_effect = _get
 
@@ -234,6 +313,22 @@ class TestEOSConfigUpdates(base.TestCase):
                 'interfaces/interface[name=Vxlan1]/arista-exp-eos-vxlan:arista-vxlan/config/vlan-to-vnis/'
                 'vlan-to-vni[vlan=2001]',
                 'arista/eos/arista-exp-eos-evpn:evpn/evpn-instances/evpn-instance[name=2000]',
+                'routing-policy/defined-sets/prefix-sets/prefix-set[name=PL-CC-SEAGULL]/'
+                'prefixes/prefix[ip-prefix=4.4.4.0/24]',
+                'routing-policy/defined-sets/prefix-sets/prefix-set[name=PL-CC-SEAGULL-EXTERNAL]/'
+                'prefixes/prefix[ip-prefix=5.5.5.0/24]',
+                'routing-policy/defined-sets/prefix-sets/prefix-set[name=PL-CC-SEAGULL-A]/'
+                'prefixes/prefix[ip-prefix=6.6.6.0/24]',
+                'routing-policy/defined-sets/prefix-sets/prefix-set[name=PL-CC-SEAGULL-A-EXTERNAL]/'
+                'prefixes/prefix[ip-prefix=7.7.7.0/24]',
+                'routing-policy/defined-sets/prefix-sets/prefix-set[name=PL-CC-SEAGULL-A-EXTERNAL]/'
+                'prefixes/prefix[ip-prefix=10.10.10.0/24]',
+                'network-instances/network-instance[name=CC-SEAGULL]/protocols/protocol[name=BGP]/bgp/global/'
+                'afi-safis/afi-safi[afi-safi-name=openconfig-bgp-types:IPV4_UNICAST]/'
+                'aggregate-addresses/aggregate-address[aggregate-address=8.8.8.0/24]',
+                'network-instances/network-instance[name=CC-SEAGULL]/protocols/protocol[name=BGP]/bgp/global/'
+                'afi-safis/afi-safi[afi-safi-name=openconfig-bgp-types:IPV4_UNICAST]/'
+                'aggregate-addresses/aggregate-address[aggregate-address=9.9.9.0/24]',
                 'interfaces/interface[name=Port-Channel23]/aggregation/switched-vlan/config/native-vlan',
                 'interfaces/interface[name=Port-Channel23]/aggregation/switched-vlan/vlan-translation/'
                 'egress[translation-key=2000]',
@@ -260,7 +355,8 @@ class TestEOSConfigUpdates(base.TestCase):
                 'interfaces/interface[name=Ethernet4/2]/ethernet/switched-vlan/vlan-translation/'
                 'egress[translation-key=2001]',
                 'interfaces/interface[name=Ethernet4/2]/ethernet/switched-vlan/vlan-translation/'
-                'ingress[translation-key=1337]'],
+                'ingress[translation-key=1337]',
+                'interfaces/interface[name=Vlan2337]'],
             'replace': [
                 ('interfaces/interface[name=Port-Channel23]/aggregation/switched-vlan/config/trunk-vlans',
                  ['2002', '2005', '2323..2327']),
@@ -296,6 +392,22 @@ class TestEOSConfigUpdates(base.TestCase):
         iface2 = messages.IfaceConfig(name="Ethernet23/1")
         iface2.add_trunk_vlan(2001)
         cu.add_iface(iface2)
+
+        # vlan iface + vrf
+        cu.add_vlan_iface(vlan=2337, vrf="CC-SEAGULL", primary_ip="1.1.1.1/24",
+                          secondary_ips=["2.2.2.2/24", "3.3.3.3/24"])
+        vrf = cu.bgp.get_or_create_vrf("CC-SEAGULL")
+        vrf.add_networks([
+            messages.BGPVRFNetwork(network="4.4.4.0/24", az_local=False, ext_announcable=False),
+            messages.BGPVRFNetwork(network="5.5.5.0/24", az_local=False, ext_announcable=True),
+            messages.BGPVRFNetwork(network="6.6.6.0/24", az_local=True, ext_announcable=False),
+            messages.BGPVRFNetwork(network="7.7.7.0/24", az_local=True, ext_announcable=True),
+            messages.BGPVRFNetwork(network="10.10.10.0/24", az_local=True, ext_announcable=True),
+        ])
+        vrf.add_aggregates([
+            messages.BGPVRFAggregate(network="8.8.8.0/24", az_local=False),
+            messages.BGPVRFAggregate(network="9.9.9.0/24", az_local=True),
+        ])
 
         self.switch.apply_config_update(cu).result()
         self.switch._api.set.assert_called_with(**expected_config)
@@ -425,6 +537,97 @@ class TestEOSConfigUpdates(base.TestCase):
         self.switch.apply_config_update(cu).result()
         self.switch._api.set.assert_called_with(**expected_config)
 
+    def test_replace_bgp_vrf_aggregates(self):
+        def _get(prefix):
+            if prefix == 'routing-policy/defined-sets/prefix-sets':
+                return {'openconfig-routing-policy:prefix-set': []}
+            elif prefix == 'network-instances':
+                return {'openconfig-network-instance:network-instance': [
+                    {'config': {'type': 'nesting-ground:seagull'}},
+                    {
+                        'config': {'type': 'openconfig-network-instance-types:L3VRF'},
+                        'name': 'CC-SEAGULL',
+                        'protocols': {'protocol': [
+                            {'name': 'TERN-TERN-TERN', 'config': {'name': 'TERN-TERN-TERN'}},
+                            {
+                                'config': {'identifier': 'openconfig-policy-types:BGP', 'name': 'BGP'},
+                                'name': 'BGP',
+                                'bgp': {'global': {'afi-safis': {'afi-safi': [
+                                    {'afi-safi-name': 'openconfig-bgp-types:IPV4_UNICAST',
+                                     'config': {'afi-safi-name': 'openconfig-bgp-types:IPV4_UNICAST', 'enabled': True}},
+                                    {'afi-safi-name': 'openconfig-bgp-types:IPV4_UNICAST',
+                                     'config': {'afi-safi-name': 'openconfig-bgp-types:IPV4_UNICAST', 'enabled': True},
+                                     'arista-bgp-augments:aggregate-addresses': {'aggregate-address': [
+                                         {'aggregate-address': '12.12.12.0/24', 'config': {
+                                             'aggregate-address': '12.12.12.0/24', 'attribute-map': 'TERN-TERN-TERN'}},
+                                         {'aggregate-address': '1.1.1.0/24', 'config': {
+                                             'aggregate-address': '1.1.1.0/24',
+                                             'attribute-map': 'RM-CC-SEAGULL-AGGREGATE'}},
+                                         {'aggregate-address': '2.2.2.0/24', 'config': {
+                                             'aggregate-address': '2.2.2.0/24',
+                                             'attribute-map': 'RM-CC-SEAGULL-AGGREGATE'}},
+                                         {'aggregate-address': '3.3.3.0/24', 'config': {
+                                             'aggregate-address': '3.3.3.0/24',
+                                             'attribute-map': 'TERN-TERN-TERN'}},
+                                         {'aggregate-address': '9.9.9.0/24', 'config': {
+                                             'aggregate-address': '9.9.9.0/24',
+                                             'attribute-map': 'RM-CC-SEAGULL-A-AGGREGATE'}},
+                                     ]}},
+                                ]}}}
+                            },
+                        ],
+                        }},
+                ]}
+            raise ValueError(f"unmapped command: {prefix}")
+        self.switch._api.get.side_effect = _get
+
+        expected_config = {
+            'delete': [
+                'network-instances/network-instance[name=CC-SEAGULL]/protocols/protocol[name=BGP]/bgp/global/'
+                'afi-safis/afi-safi[afi-safi-name=openconfig-bgp-types:IPV4_UNICAST]/'
+                'aggregate-addresses/aggregate-address[aggregate-address=1.1.1.0/24]',
+                'network-instances/network-instance[name=CC-SEAGULL]/protocols/protocol[name=BGP]/bgp/global/'
+                'afi-safis/afi-safi[afi-safi-name=openconfig-bgp-types:IPV4_UNICAST]/'
+                'aggregate-addresses/aggregate-address[aggregate-address=2.2.2.0/24]',
+            ],
+            'replace': [
+                ('routing-policy/defined-sets/prefix-sets/prefix-set[name=PL-CC-SEAGULL]',
+                 {'name': 'PL-CC-SEAGULL', 'config': {'name': 'PL-CC-SEAGULL'},
+                  'prefixes': {'prefix': []}}),
+                ('routing-policy/defined-sets/prefix-sets/prefix-set[name=PL-CC-SEAGULL-EXTERNAL]',
+                 {'name': 'PL-CC-SEAGULL-EXTERNAL', 'config': {'name': 'PL-CC-SEAGULL-EXTERNAL'},
+                  'prefixes': {'prefix': []}}),
+                ('routing-policy/defined-sets/prefix-sets/prefix-set[name=PL-CC-SEAGULL-A]',
+                 {'name': 'PL-CC-SEAGULL-A', 'config': {'name': 'PL-CC-SEAGULL-A'},
+                  'prefixes': {'prefix': []}}),
+                ('routing-policy/defined-sets/prefix-sets/prefix-set[name=PL-CC-SEAGULL-A-EXTERNAL]',
+                 {'name': 'PL-CC-SEAGULL-A-EXTERNAL', 'config': {'name': 'PL-CC-SEAGULL-A-EXTERNAL'},
+                  'prefixes': {'prefix': []}}),
+            ],
+            'update': [
+                ('network-instances/network-instance[name=CC-SEAGULL]/protocols/protocol[name=BGP]/bgp/global/'
+                 'afi-safis/afi-safi[afi-safi-name=openconfig-bgp-types:IPV4_UNICAST]/aggregate-addresses',
+                    {'aggregate-address': [
+                        {'aggregate-address': '8.8.8.0/24',
+                         'config': {'aggregate-address': '8.8.8.0/24', 'attribute-map': 'RM-CC-SEAGULL-AGGREGATE'}},
+                        {'aggregate-address': '9.9.9.0/24',
+                         'config': {'aggregate-address': '9.9.9.0/24', 'attribute-map': 'RM-CC-SEAGULL-A-AGGREGATE'}},
+                    ]}
+                 ),
+            ],
+        }
+
+        cu = messages.SwitchConfigUpdate(switch_name="seagull-sw1", operation=messages.OperationEnum.replace)
+        cu.bgp = messages.BGP(asn="65000", asn_region="65123", switchgroup_id=4223)
+        vrf = cu.bgp.get_or_create_vrf("CC-SEAGULL")
+        vrf.add_aggregates([
+            messages.BGPVRFAggregate(network="8.8.8.0/24", az_local=False),
+            messages.BGPVRFAggregate(network="9.9.9.0/24", az_local=True),
+        ])
+
+        self.switch.apply_config_update(cu).result()
+        self.switch._api.set.assert_called_with(**expected_config)
+
     def test_update_vlan_translations(self):
         def _get(prefix):
             if prefix == 'interfaces':
@@ -538,6 +741,46 @@ class TestEOSConfigUpdates(base.TestCase):
         self.switch.apply_config_update(cu).result()
         self.switch._api.set.assert_called_with(**expected_config)
         self.switch._api.set.reset_mock()
+
+    def test_replace_vlan_interfaces(self):
+        def _get(prefix, unpack=True):
+            if prefix == 'interfaces':
+                return {
+                    'openconfig-interfaces:interface': [
+                        {'name': 'Vlan1337', 'config': {'name': 'Vlan1337',
+                                                        'type': 'iana-if-type:l3ipvlan'},
+                         'arista-exp-eos-varp-intf:arista-varp': {
+                         'virtual-address': {'config': {'ip': '1.1.1.1', 'prefix-length': 24}}}},
+                        {'name': 'Vlan2001', 'config': {'name': 'Vlan2001',
+                                                        'type': 'iana-if-type:l3ipvlan'},
+                         'arista-exp-eos-varp-intf:arista-varp': {
+                         'virtual-address': {'config': {'ip': '1.1.1.1', 'prefix-length': 24}}}},
+                        {'name': 'Vlan2337', 'config': {'name': 'Vlan2337',
+                                                        'type': 'iana-if-type:l3ipvlan'},
+                         'arista-exp-eos-varp-intf:arista-varp': {
+                         'virtual-address': {'config': {'ip': '1.1.1.1', 'prefix-length': 24}}}},
+                    ]}
+            elif prefix == 'lacp':
+                return {'openconfig-lacp:interfaces': {'interface': []}}
+            elif not unpack and prefix == 'eos_native:Sysdb/ip/config/ipIntfConfig':
+                return {'notification': []}
+            raise ValueError(f"unmapped command: {prefix}")
+        self.switch._api.get.side_effect = _get
+        expected_config = {
+            'delete': ['interfaces/interface[name=Vlan2001]'],
+            'replace': [],
+            'update': [
+                ('interfaces/interface[name=Vlan2337]', {
+                    'name': 'Vlan2337', 'config': {'name': 'Vlan2337', 'type': 'l3ipvlan'},
+                    'arista-varp': {'virtual-address': {'config': {'ip': '1.1.1.1', 'prefix-length': 24}}}})
+            ],
+        }
+
+        cu = messages.SwitchConfigUpdate(switch_name="seagull-sw1", operation=messages.OperationEnum.replace)
+        cu.add_vlan_iface(vlan=2337, primary_ip="1.1.1.1/24")
+
+        self.switch.apply_config_update(cu).result()
+        self.switch._api.set.assert_called_with(**expected_config)
 
     def test_replace_bgp_vlans(self):
         def _get(prefix, unpack=True):
@@ -694,7 +937,7 @@ class TestEOSSwitch(base.TestCase):
         cfg_switch = config_driver.Switch(name="seagull-sw1", host="127.0.0.1", platform=cc_const.PLATFORM_EOS,
                                           user="seagulladm", password="KRAKRAKRA", bgp_source_ip="1.1.1.1")
         with mock.patch.object(n_rpc, 'get_client'):
-            self.switch = EOSSwitch(cfg_switch, 65130, set([100]) | set(range(2000, 3000)))
+            self.switch = EOSSwitch(cfg_switch, 65130, 'a', set([100]) | set(range(2000, 3000)))
         self.switch._api = mock.Mock()
         self.switch._api.execute.return_value = {'result': [{}]}
 
@@ -732,12 +975,18 @@ class TestEOSSwitch(base.TestCase):
             elif prefix == 'interfaces':
                 return {
                     'openconfig-interfaces:interface': [
-                        {'name': 'Port-Channel109', 'config': {'name': 'Port-Channel109'},
+                        {'name': 'Port-Channel109', 'config': {'name': 'Port-Channel109',
+                                                               'type': 'iana-if-type:ieee8023adLag'},
                          'openconfig-if-aggregate:aggregation': {
                             'openconfig-vlan:switched-vlan': {'config': {
                                 'interface-mode': 'TRUNK', 'native-vlan': 2121,
                                 'trunk-vlans': ['2000..2002']}}}},
-                        {'name': 'Ethernet1/1', 'config': {'name': 'Ethernet1/1'},
+                        {'name': 'Vlan2337', 'config': {'name': 'Vlan2337',
+                                                        'type': 'iana-if-type:l3ipvlan'},
+                         'arista-exp-eos-varp-intf:arista-varp': {
+                         'virtual-address': {'config': {'ip': '1.1.1.1', 'prefix-length': 24}}}},
+                        {'name': 'Ethernet1/1', 'config': {'name': 'Ethernet1/1',
+                                                           'type': 'iana-if-type:ethernetCsmacd'},
                          'openconfig-if-ethernet:ethernet': {
                             'openconfig-vlan:switched-vlan': {
                                 'config': {
@@ -759,6 +1008,83 @@ class TestEOSSwitch(base.TestCase):
                      'update': [{'path': '842681173632014', 'val': True}]},
                     {'prefix': 'Sysdb/routing/bgp/macvrf/config/vlan.2004/exportRemoteDomainRtList',
                      'update': [{'path': '842681173632014', 'val': True}]}]}
+            elif not unpack and prefix == 'eos_native:Sysdb/ip/config/ipIntfConfig':
+                return {'notification': [
+                    {'prefix': 'foo'},
+                    {'prefix': 'Sysdb/ip/config/ipIntfConfig/Vlan2337/virtualSecondaryWithMask',
+                     'update': [{'path': '2.2.2.2/24', 'val': True}, {'path': '3.3.3.3/24', 'val': True}]},
+                ]}
+            elif prefix == 'routing-policy/defined-sets/prefix-sets':
+                return {'openconfig-routing-policy:prefix-set': [
+                    {'name': 'PL-CC-TERN', 'config': {'mode': 'IPV4', 'name': 'PL-CC-TERN'},
+                     'prefixes': {'prefix': [
+                        {'ip-prefix': '10.100.1.0/24', 'masklength-range': 'exact',
+                         'config': {'ip-prefix': '10.100.1.0/24', 'masklength-range': 'exact'}},
+                        ]}},
+                    {'name': 'PL-CC-SEAGULL', 'config': {'mode': 'IPV4', 'name': 'PL-CC-SEAGULL'},
+                     'prefixes': {'prefix': [
+                         {'ip-prefix': '1.2.3.4/32', 'masklength-range': 'foo',
+                          'config': {'ip-prefix': '1.2.3.4/32', 'masklength-range': 'foo'}},
+                         {'ip-prefix': '4.4.4.0/24', 'masklength-range': 'exact',
+                          'config': {'ip-prefix': '4.4.4.0/24', 'masklength-range': 'exact'}},
+                         {'ip-prefix': '5.6.7.8/32', 'masklength-range': 'foo',
+                          'config': {'ip-prefix': '5.6.7.8/32', 'masklength-range': 'foo'}},
+                     ]}},
+                    {'name': 'PL-CC-SEAGULL-EXTERNAL', 'config': {'mode': 'IPV4', 'name': 'PL-CC-SEAGULL-EXTERNAL'},
+                     'prefixes': {'prefix': [
+                         {'ip-prefix': '5.5.5.0/24', 'masklength-range': 'exact',
+                          'config': {'ip-prefix': '5.5.5.0/24', 'masklength-range': 'exact'}},
+                     ]}},
+                    {'name': 'PL-CC-SEAGULL-A', 'config': {'mode': 'IPV4', 'name': 'PL-CC-SEAGULL-A'},
+                     'prefixes': {'prefix': [
+                         {'ip-prefix': '6.6.6.0/24', 'masklength-range': 'exact',
+                          'config': {'ip-prefix': '6.6.6.0/24', 'masklength-range': 'exact'}},
+                     ]}},
+                    {'name': 'PL-CC-SEAGULL-A-EXTERNAL', 'config': {'mode': 'IPV4', 'name': 'PL-CC-SEAGULL-A-EXTERNAL'},
+                     'prefixes': {'prefix': [
+                         {'ip-prefix': '7.7.7.0/24', 'masklength-range': 'exact',
+                          'config': {'ip-prefix': '7.7.7.0/24', 'masklength-range': 'exact'}},
+                         {'ip-prefix': '10.10.10.0/24', 'masklength-range': 'exact',
+                          'config': {'ip-prefix': '10.10.10.0/24', 'masklength-range': 'exact'}},
+                     ]}},
+                ]}
+            elif prefix == 'network-instances':
+                return {'openconfig-network-instance:network-instance': [
+                    {'config': {'type': 'nesting-ground:seagull'}},
+                    {
+                        'config': {'type': 'openconfig-network-instance-types:L3VRF'},
+                        'name': 'CC-SEAGULL',
+                        'interfaces': {'interface': [
+                            {'id': 'lolwat', 'config': {'id': 'lolwat', 'interface': 'lolwat'}},
+                            {'id': 'Vlan1337', 'config': {'id': 'Vlan1337', 'interface': 'Vlan1337'}},
+                            {'id': 'Vlan2337', 'config': {'id': 'Vlan2337', 'interface': 'Vlan2337'}},
+                        ]},
+                        'protocols': {'protocol': [
+                            {'name': 'TERN-TERN-TERN', 'config': {'name': 'TERN-TERN-TERN'}},
+                            {
+                                'config': {'identifier': 'openconfig-policy-types:BGP', 'name': 'BGP'},
+                                'name': 'BGP',
+                                'bgp': {'global': {'afi-safis': {'afi-safi': [
+                                    {'afi-safi-name': 'openconfig-bgp-types:IPV4_UNICAST',
+                                     'config': {'afi-safi-name': 'openconfig-bgp-types:IPV4_UNICAST', 'enabled': True}},
+                                    {'afi-safi-name': 'openconfig-bgp-types:IPV4_UNICAST',
+                                     'config': {'afi-safi-name': 'openconfig-bgp-types:IPV4_UNICAST', 'enabled': True},
+                                     'arista-bgp-augments:aggregate-addresses': {'aggregate-address': [
+                                         {'aggregate-address': '12.12.12.0/24', 'config': {
+                                             'aggregate-address': '12.12.12.0/24', 'attribute-map': 'TERN-TERN-TERN'}},
+                                         {'aggregate-address': '8.8.8.0/24', 'config': {
+                                             'aggregate-address': '8.8.8.0/24',
+                                             'attribute-map': 'RM-CC-SEAGULL-AGGREGATE'}},
+                                         {'aggregate-address': '9.9.9.0/24', 'config': {
+                                             'aggregate-address': '9.9.9.0/24',
+                                             'attribute-map': 'RM-CC-SEAGULL-A-AGGREGATE'}},
+                                     ]}},
+                                ]}}}
+                            },
+                        ],
+                        }},
+                ]}
+
             raise ValueError(f"unmapped command: {prefix}")
         self.switch._api.get.side_effect = _get
 
@@ -775,6 +1101,22 @@ class TestEOSSwitch(base.TestCase):
         iface = messages.IfaceConfig(name="Ethernet1/1")
         iface.add_vlan_translation(2000, 3001)
         cu.add_iface(iface)
+
+        cu.add_vlan_iface(vlan=2337, vrf="CC-SEAGULL", primary_ip="1.1.1.1/24",
+                          secondary_ips=["2.2.2.2/24", "3.3.3.3/24"])
+        vrf = cu.bgp.get_or_create_vrf("CC-SEAGULL")
+        vrf.add_networks([
+            messages.BGPVRFNetwork(network="4.4.4.0/24", az_local=False, ext_announcable=False),
+            messages.BGPVRFNetwork(network="5.5.5.0/24", az_local=False, ext_announcable=True),
+            messages.BGPVRFNetwork(network="6.6.6.0/24", az_local=True, ext_announcable=False),
+            messages.BGPVRFNetwork(network="7.7.7.0/24", az_local=True, ext_announcable=True),
+            messages.BGPVRFNetwork(network="10.10.10.0/24", az_local=True, ext_announcable=True),
+        ])
+        vrf.add_aggregates([
+            messages.BGPVRFAggregate(network="8.8.8.0/24", az_local=False),
+            messages.BGPVRFAggregate(network="9.9.9.0/24", az_local=True),
+        ])
+
         cu.sort()
 
         config = self.switch.get_config().result()

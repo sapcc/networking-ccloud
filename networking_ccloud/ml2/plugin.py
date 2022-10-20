@@ -11,6 +11,7 @@
 #    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
 #    License for the specific language governing permissions and limitations
 #    under the License.
+import ipaddress
 
 from neutron_lib.api.definitions import availability_zone as az_api
 from neutron_lib.callbacks import events
@@ -122,6 +123,35 @@ class FabricPlugin(CCDbPlugin):
 
         return new_allocation, errors_found
 
+    def get_gateways_with_vrfs_for_networks(self, context, network_ids, *args, **kwargs):
+        net_gws = self.get_gateways_for_networks(context, network_ids, *args, **kwargs)
+        result = {}
+        for network_id, gws in net_gws.items():
+            result[network_id] = net = {'vrf': None, 'ips': []}
+            for gw_ip, ascope in gws:
+                vrf = self.drv_conf.global_config.get_vrf_name_for_address_scope(ascope)
+                if not vrf:
+                    LOG.warning("Address scope %s has no matching VRF for network %s", ascope, network_id)
+                    continue
+                if net['vrf'] is None:
+                    net['vrf'] = vrf
+                if net['vrf'] != vrf:
+                    # "this should never happen"
+                    LOG.error("Network address scope misconfiguration: Network %s has networks in two VRFs: (%s, %s), "
+                              "therefore we are skipping l3 config of this network entirely",
+                              network_id, result[network_id]['vrf'], vrf)
+                    del result[network_id]
+                    break
+                net['ips'].append(gw_ip)
+            if network_id in result and not net['ips']:
+                del result[network_id]
+
+        return result
+
+    def get_gateways_with_vrfs_for_network(self, context, network_id, *args, **kwargs):
+        net_gws = self.get_gateways_with_vrfs_for_networks(context, [network_id], *args, **kwargs)
+        return net_gws.get(network_id)
+
     def make_switchgroup_config(self, context, sg):
         scul = agent_msg.SwitchConfigUpdateList(agent_msg.OperationEnum.replace, self.drv_conf)
 
@@ -130,15 +160,20 @@ class FabricPlugin(CCDbPlugin):
 
         # get all binding hosts bound onto that switch
         net_segments = self.get_hosts_on_segments(context, physical_networks=physnets)
-        top_segments = self.get_top_level_vxlan_segments(context, network_ids=list(net_segments.keys()))
-        scul.add_segments(net_segments, top_segments)
+        top_segments = self.get_top_level_vxlan_segments(context, network_ids=list(net_segments))
+        net_gateways = self.get_gateways_with_vrfs_for_networks(context, list(net_segments), external_only=True)
+        scul.add_segments(net_segments, top_segments, net_gateways)
+
+        # make sure bgp is configured for all external networks on this box
+        vrf_config = self.get_l3_network_config(context, list(net_segments))
+        for vrf_name, vrf in vrf_config.items():
+            scul.add_vrf_bgp_config([sw.name for sw in sg.members], vrf_name,
+                                    vrf['vrf_networks'], vrf['vrf_aggregates'])
 
         # add interconnects, infra networks and extra vlans
         for hg in self.drv_conf.get_hostgroups_by_switches([sw.name for sw in sg.members]):
             if hg.infra_networks:
-                for inet in hg.infra_networks:
-                    # FIXME: exclude hosts
-                    scul.add_binding_host_to_config(hg, inet.name, inet.vni, inet.vlan)
+                scul.add_infra_networks_from_hostgroup(hg, sg)
             if hg.extra_vlans:
                 scul.add_extra_vlans(hg)
             if hg.role:
@@ -153,3 +188,55 @@ class FabricPlugin(CCDbPlugin):
         scul = self.make_switchgroup_config(context, sg)
         scul.clean_switches([switch.name])
         return scul
+
+    def get_l3_network_config(self, context, network_ids):
+        subnetpool_cidrs = self.get_subnet_l3_config_for_networks(context, network_ids)
+        subnetpools = self.get_subnetpool_details(context, list(subnetpool_cidrs))
+
+        # sort subnet pools into vrfs
+        # note, that we are iterating over subnetpools and therefore only consider networks that
+        # have a valid address scope (as everything else will be omitted by the DB query)
+        vrfs = {}
+        for snp_id, snp_data in subnetpools.items():
+            vrf = self.drv_conf.global_config.get_vrf_name_for_address_scope(snp_data['address_scope'])
+            if not vrf:
+                LOG.warning("Address scope %s of subnet pool %s has no matching VRF in driver config, skipping it",
+                            snp_data['address_scope'], snp_id)
+                continue
+
+            vrf = vrfs.setdefault(vrf, {"subnet_cidrs": set(), "subnetpool_cidrs": set()})
+            vrf['subnetpool_cidrs'].update((cidr, snp_data['az']) for cidr in snp_data['cidrs'])
+            vrf['subnet_cidrs'].update(subnetpool_cidrs[snp_id])
+
+        # sort to network and aggregates
+        for vrf in vrfs.values():
+            vrf['vrf_aggregates'] = []
+
+            # networks
+            # every subnet cidr gets announced
+            #   az locality comes from network
+            #   externally announcable if there is a matching subnetpool cidr
+            subnetpool_cidrs = [cidr for cidr, _ in vrf['subnetpool_cidrs']]
+            vrf_networks = []
+            for subnet_cidr, az_data in vrf['subnet_cidrs']:
+                # cidr has to exist in list of subnetpool-cidrs (all subnet pools of this vrf)
+                az_local = bool(az_data)
+                ext_announcable = subnet_cidr in subnetpool_cidrs
+                vrf_networks.append((subnet_cidr, az_local, ext_announcable))
+            vrf['vrf_networks'] = vrf_networks
+
+            # aggregates
+            # subnetpool cidrs get announced if they aren't already announced as network via ext_announcable
+            #   az locality comes from subnetpool tag
+            subnet_cidrs = [cidr for cidr, _ in vrf['subnet_cidrs']]
+            vrf_aggregates = []
+            for snp_cidr, snp_az_local in vrf['subnetpool_cidrs']:
+                if snp_cidr in subnet_cidrs:
+                    continue
+                vrf_aggregates.append((snp_cidr, bool(snp_az_local)))
+            vrf['vrf_aggregates'] = vrf_aggregates
+
+            vrf['vrf_networks'].sort(key=lambda entry: ipaddress.ip_interface(entry[0]).ip)
+            vrf['vrf_aggregates'].sort(key=lambda entry: ipaddress.ip_interface(entry[0]).ip)
+
+        return vrfs

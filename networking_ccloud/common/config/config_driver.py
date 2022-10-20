@@ -452,6 +452,7 @@ class Hostgroup(pydantic.BaseModel):
 
 class VRF(pydantic.BaseModel):
     name: str
+    address_scopes: List[str] = []
 
     # magic number we use for vni, rt import/export calculation
     number: pydantic.conint(gt=0)
@@ -481,6 +482,16 @@ class GlobalConfig(pydantic.BaseModel):
     _normalize_vlan_ranges = pydantic.validator('default_vlan_ranges',
                                                 each_item=True, allow_reuse=True)(validate_vlan_ranges)
 
+    _availability_zone_map: Dict[str, AvailabilityZone] = pydantic.PrivateAttr()
+    _address_scopes_to_vrf_map: Dict[str, str] = pydantic.PrivateAttr()
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        # cache certain mappings that we need frequently
+        self._availability_zone_map = {az.name: az for az in self.availability_zones}
+        self._address_scopes_to_vrf_map = {ascope: vrf.name for vrf in self.vrfs for ascope in vrf.address_scopes}
+
     @pydantic.validator('vrfs')
     def check_vrf_name_unique(cls, values):
         names = set()
@@ -500,10 +511,10 @@ class GlobalConfig(pydantic.BaseModel):
         return values
 
     def get_availability_zone(self, az_name):
-        for az in self.availability_zones:
-            if az.name == az_name:
-                return az
-        return None
+        return self._availability_zone_map.get(az_name)
+
+    def get_vrf_name_for_address_scope(self, address_scope):
+        return self._address_scopes_to_vrf_map.get(address_scope)
 
 
 class DriverConfig(pydantic.BaseModel):

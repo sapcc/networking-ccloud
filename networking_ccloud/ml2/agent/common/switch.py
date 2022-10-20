@@ -119,9 +119,10 @@ def run_in_executor(type_, replacable_by_full_sync=False):
 
 
 class SwitchBase(abc.ABC):
-    def __init__(self, sw_conf, asn_region, managed_vlans, timeout=20, verify_ssl=False):
+    def __init__(self, sw_conf, asn_region, az_suffix, managed_vlans, timeout=20, verify_ssl=False):
         self.sw_conf = sw_conf
         self.asn_region = asn_region
+        self.az_suffix = az_suffix
         self.managed_vlans = managed_vlans
         self.name = sw_conf.name
         self.host = sw_conf.host
