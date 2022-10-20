@@ -452,6 +452,7 @@ class Hostgroup(pydantic.BaseModel):
 
 class VRF(pydantic.BaseModel):
     name: str
+    address_scopes: List[str] = []
 
     # magic number we use for vni, rt import/export calculation
     number: pydantic.conint(gt=0)
