@@ -240,14 +240,15 @@ class TestDriverConfig(base.TestCase):
         self.assertEqual(expected_groups, set(hg.binding_host_name for hg in hgs))
 
     def test_get_switchgroup_managed_vlans(self):
-        infra_net = config.InfraNetwork(name="infra_net_vlan", vlan=42, vni=14)
+        infra_net = config.InfraNetwork(name="infra_net_vlan", vlan=42, vni=14, vrf="CC-MGMT", networks=["1.2.3.1/24"])
         sgs = [
             cfix.make_switchgroup("seagull"),
             cfix.make_switchgroup("tern", vlan_ranges=["3333:3333", "1337:1339"]),
         ]
         hgs = cfix.make_metagroup("seagull", meta_kwargs={'infra_networks': [infra_net]})
         gconf = cfix.make_global_config(default_vlan_ranges=["2000:2002"],
-                                        availability_zones=cfix.make_azs_from_switchgroups(sgs))
+                                        availability_zones=cfix.make_azs_from_switchgroups(sgs),
+                                        vrfs=cfix.make_vrfs(["CC-MGMT"]))
         drv_conf = cfix.make_config(switchgroups=sgs, hostgroups=hgs, global_config=gconf)
 
         self.assertEqual({2000, 2001, 2002}, sgs[0].get_managed_vlans(drv_conf, with_infra_nets=False))

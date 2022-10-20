@@ -43,14 +43,29 @@ class EOSGNMIClient:
         VXMAPS = "interfaces/interface[name=Vxlan1]/arista-exp-eos-vxlan:arista-vxlan/config/vlan-to-vnis"
         VXMAP_VLAN = ("interfaces/interface[name=Vxlan1]/arista-exp-eos-vxlan:arista-vxlan/config/vlan-to-vnis"
                       "/vlan-to-vni[vlan={vlan}]")
+        VRF_VXMAPS = "interfaces/interface[name=Vxlan1]/arista-exp-eos-vxlan:arista-vxlan/config/vrf-to-vnis"
+        VRF_VXMAP_VRF = ("interfaces/interface[name=Vxlan1]/arista-exp-eos-vxlan:arista-vxlan/config/vrf-to-vnis/"
+                         "vrf-to-vni[vrf={vrf}]")
 
         EVPN_INSTANCES = "arista/eos/arista-exp-eos-evpn:evpn/evpn-instances"
         EVPN_INSTANCE = "arista/eos/arista-exp-eos-evpn:evpn/evpn-instances/evpn-instance[name={vlan}]"
         EVPN_INSTANCES_VIA_SYSDB = "eos_native:Sysdb/routing/bgp/macvrf/config"
         PROTO_BGP = "network-instances/network-instance[name=default]/protocols/protocol[name=BGP]"
+        NETWORK_INSTANCES = "network-instances"
+        NETWORK_INSTANCE_IFACES = "network-instances/network-instance[name={vrf}]/interfaces"
+        BGP_VRF_AGGREGATES = ("network-instances/network-instance[name={vrf}]/protocols/protocol[name=BGP]/"
+                              "bgp/global/afi-safis/afi-safi[afi-safi-name=openconfig-bgp-types:IPV4_UNICAST]/"
+                              "aggregate-addresses")
+        BGP_VRF_AGGREGATE_PREFIX = ("network-instances/network-instance[name={vrf}]/protocols/protocol[name=BGP]/"
+                                    "bgp/global/afi-safis/afi-safi[afi-safi-name=openconfig-bgp-types:IPV4_UNICAST]/"
+                                    "aggregate-addresses/aggregate-address[aggregate-address={prefix}]")
+        PREFIX_LISTS = "routing-policy/defined-sets/prefix-sets"
+        PREFIX_LIST = "routing-policy/defined-sets/prefix-sets/prefix-set[name={name}]"
+        PREFIX_LIST_PREFIX = ("routing-policy/defined-sets/prefix-sets/prefix-set[name={name}]/"
+                              "prefixes/prefix[ip-prefix={prefix}]")
 
         IFACES = "interfaces"
-        IFACE = "interfaces/interface[name={iface}]"
+        IFACE = "interfaces/interface[name={name}]"
         IFACE_ETH = "interfaces/interface[name={iface}]/ethernet"
         IFACE_VTRUNKS = "interfaces/interface[name={iface}]/ethernet/switched-vlan/config/trunk-vlans"
         IFACE_NATIVE_VLAN = "interfaces/interface[name={iface}]/ethernet/switched-vlan/config/native-vlan"
@@ -67,6 +82,8 @@ class EOSGNMIClient:
                                   "egress[translation-key={vlan}]")
         IFACE_PC_VTRANS_INGRESS = ("interfaces/interface[name={iface}]/aggregation/switched-vlan/vlan-translation/"
                                    "ingress[translation-key={vlan}]")
+        IFACE_IPS_VIA_SYSDB = "eos_native:Sysdb/ip/config/ipIntfConfig"
+        IFACE_VIRTUAL_ADDRESS = "interfaces/interface[name={name}]/arista-varp/virtual-address"
 
     def __init__(self, switch_name, *args, **kwargs):
         self._gnmi = gNMIclient(*args, **kwargs)
@@ -164,8 +181,8 @@ class EOSSetConfig:
 
 
 class EOSSwitch(SwitchBase):
-
-    CONFIGURE_ORDER = ['vlan', 'vxlan_mapping', 'bgp', 'ifaces']
+    # PL-CC-CLOUD02 | PL-CC-CLOUD02-A | PL-CC-CLOUD02-EXTERNAL | PL-CC-CLOUD02-A-EXTERNAL
+    PREFIX_LIST_RE = re.compile("PL-(?P<vrf>.*?)(?:-(?P<az>[A-Z]))?(?:-(?P<external>EXTERNAL))?$")
 
     @classmethod
     def get_platform(cls):
@@ -406,15 +423,161 @@ class EOSSwitch(SwitchBase):
             bgp_vlans.append(bv)
         return bgp_vlans
 
+    def get_vrf_prefix_lists(self):
+        """Get BGP VRF prefix lists, keyed by vrf and then (az_local, ext_announcable)"""
+        prefix_lists = {}
+        for pl in self.api.get(EOSGNMIClient.PATHS.PREFIX_LISTS)['openconfig-routing-policy:prefix-set']:
+            m = self.PREFIX_LIST_RE.match(pl['name'])
+            if not m:
+                continue
+
+            prefixes = []
+            for prefix in pl.get('prefixes', {}).get('prefix', []):
+                if prefix.get('masklength-range') != 'exact':
+                    # NOTE: we currently only handle entries that have an exact match
+                    continue
+                prefixes.append(prefix['ip-prefix'])
+
+            if prefixes:
+                vrf = prefix_lists.setdefault(m.group('vrf'), {})
+                vrf[(bool(m.group('az')), bool(m.group('external')))] = prefixes
+
+        return prefix_lists
+
+    def get_bgp_vrf_config(self) -> List[agent_msg.BGPVRF]:
+        bgp_vrfs = []
+
+        # get prefix lists and sort them by VRF
+        prefix_lists = self.get_vrf_prefix_lists()
+
+        for inst in self.api.get(EOSGNMIClient.PATHS.NETWORK_INSTANCES)['openconfig-network-instance:network-instance']:
+            if inst['config']['type'] != 'openconfig-network-instance-types:L3VRF':
+                continue
+            for inst_bgp in inst['protocols']['protocol']:
+                if inst_bgp['name'] == 'BGP':
+                    break
+            else:
+                # VRFs without BGP do not interest us
+                continue
+
+            # get aggregates
+            aggregates = []
+            agg_rm_az_local = self.gen_route_map_name(inst['name'], True)
+            agg_rm_regional = self.gen_route_map_name(inst['name'], False)
+            for afi_safi in inst_bgp['bgp']['global']['afi-safis']['afi-safi']:
+                if afi_safi['afi-safi-name'] == 'openconfig-bgp-types:IPV4_UNICAST':
+                    if 'arista-bgp-augments:aggregate-addresses' in afi_safi:
+                        for agg in afi_safi['arista-bgp-augments:aggregate-addresses']['aggregate-address']:
+                            if agg['config']['attribute-map'] not in (agg_rm_az_local, agg_rm_regional):
+                                continue
+
+                            az_local = agg['config']['attribute-map'] == agg_rm_az_local
+                            bgpvrfagg = agent_msg.BGPVRFAggregate(network=agg['aggregate-address'],
+                                                                  az_local=az_local)
+                            aggregates.append(bgpvrfagg)
+
+            # get networks from prefix lists
+            networks = []
+            for (az_local, ext_announcable), prefixes in prefix_lists.get(inst['name'], {}).items():
+                for prefix in prefixes:
+                    networks.append(agent_msg.BGPVRFNetwork(network=prefix, az_local=az_local,
+                                                            ext_announcable=ext_announcable))
+
+            bgpvrf = agent_msg.BGPVRF(name=inst['name'],
+                                      aggregates=aggregates, networks=networks)
+            bgp_vrfs.append(bgpvrf)
+        return bgp_vrfs
+
     def get_bgp_config(self) -> agent_msg.BGP:
         bgp_asn = self.api.get(f"{EOSGNMIClient.PATHS.PROTO_BGP}/bgp/global/config/as")
         bgp = agent_msg.BGP(asn=bgp_asn, asn_region=self.asn_region, vlans=self.get_bgp_vlan_config())
+        bgp.vrfs = self.get_bgp_vrf_config()
         return bgp
 
-    def _make_bgp_config(self, config_req: EOSSetConfig, bgp: Optional[agent_msg.BGP], operation: Op) -> None:
-        if not (bgp and bgp.vlans):
+    def gen_prefix_list_name(self, vrf_name, az_local, ext_announcable):
+        name = f"PL-{vrf_name}"
+        if az_local:
+            name += f"-{self.az_suffix.upper()}"
+        if ext_announcable:
+            name += "-EXTERNAL"
+        return name
+
+    def gen_route_map_name(self, vrf_name, az_local):
+        az_data = f"{self.az_suffix.upper()}-" if az_local else ""
+        return f"RM-{vrf_name}-{az_data}AGGREGATE"
+
+    def _make_bgp_vrf_config(self, config_req: EOSSetConfig, bgp_vrfs: Optional[List[agent_msg.BGPVRF]], operation: Op):
+        if bgp_vrfs is None:
             return
 
+        device_vrfs = None
+        if operation == Op.replace:
+            device_vrfs = self.get_bgp_vrf_config()
+
+        for bgp_vrf in bgp_vrfs:
+            if operation in (Op.add, Op.replace):
+                if operation == Op.replace:
+                    # remove all aggregates that are not required anymore
+                    for device_vrf in device_vrfs:
+                        if device_vrf.name == bgp_vrf.name:
+                            break
+                    else:
+                        device_vrf = None
+
+                    if device_vrf:
+                        cfg_aggs = [agg.network for agg in bgp_vrf.aggregates or []]
+                        for device_agg in device_vrf.aggregates or []:
+                            if device_agg.network not in cfg_aggs:
+                                delete_req = EOSGNMIClient.PATHS.BGP_VRF_AGGREGATE_PREFIX.format(
+                                    vrf=bgp_vrf.name, prefix=device_agg.network)
+                                config_req.delete.append(delete_req)
+
+                # add aggregates
+                aggregates = [{'aggregate-address': agg.network,
+                               'config': {'aggregate-address': agg.network,
+                                          'attribute-map': self.gen_route_map_name(bgp_vrf.name, agg.az_local)}}
+                              for agg in bgp_vrf.aggregates or []]
+                config_req.update.append((EOSGNMIClient.PATHS.BGP_VRF_AGGREGATES.format(vrf=bgp_vrf.name),
+                                          {'aggregate-address': aggregates}))
+
+                # manage prefix lists
+                # generate all prefix lists that we have, as on replace we'd clear all out that have no data
+                prefix_lists = {self.gen_prefix_list_name(bgp_vrf.name, az_local, ext_announcable): []
+                                for az_local, ext_announcable in [(False, False), (False, True),
+                                                                  (True, False), (True, True)]}
+                for net in bgp_vrf.networks or []:
+                    pl_name = self.gen_prefix_list_name(bgp_vrf.name, net.az_local, net.ext_announcable)
+                    prefix_lists[pl_name].append({'ip-prefix': net.network, 'masklength-range': 'exact',
+                                                  'config': {'ip-prefix': net.network, 'masklength-range': 'exact'}})
+                for pl_name, prefixes in prefix_lists.items():
+                    pl_config = {
+                        'name': pl_name,
+                        'config': {'name': pl_name},
+                        'prefixes': {'prefix': prefixes},
+                    }
+                    config_req.get_list(operation).append((EOSGNMIClient.PATHS.PREFIX_LIST.format(name=pl_name),
+                                                           pl_config))
+            else:
+                # delete
+                for net in bgp_vrf.networks:
+                    pl_name = self.gen_prefix_list_name(bgp_vrf.name, net.az_local, net.ext_announcable)
+                    delete_req = EOSGNMIClient.PATHS.PREFIX_LIST_PREFIX.format(name=pl_name, prefix=net.network)
+                    config_req.delete.append(delete_req)
+
+                for agg in bgp_vrf.aggregates:
+                    # NOTE: We're deleting regardless of route-map here
+                    delete_req = EOSGNMIClient.PATHS.BGP_VRF_AGGREGATE_PREFIX.format(vrf=bgp_vrf.name,
+                                                                                     prefix=agg.network)
+                    config_req.delete.append(delete_req)
+
+    def _make_bgp_config(self, config_req: EOSSetConfig, bgp: Optional[agent_msg.BGP], operation: Op) -> None:
+        if bgp:
+            if bgp.vlans:
+                self._make_bgp_vlans_config(config_req, bgp, operation)
+            if bgp.vrfs:
+                self._make_bgp_vrf_config(config_req, bgp.vrfs, operation)
+
+    def _make_bgp_vlans_config(self, config_req: EOSSetConfig, bgp: Optional[agent_msg.BGP], operation: Op):
         if operation in (Op.add, Op.replace):
             bgp_vlans_on_switch = None
             if operation == Op.replace:
@@ -492,19 +655,71 @@ class EOSSwitch(SwitchBase):
                 delete_req = EOSGNMIClient.PATHS.EVPN_INSTANCE.format(vlan=bgp_vlan.vlan)
                 config_req.delete.append(delete_req)
 
-    def get_ifaces_config(self, as_dict=False):
+    def get_iface_secondary_ips(self):
+        ifaces = {}
+
+        for entry in self.api.get(EOSGNMIClient.PATHS.IFACE_IPS_VIA_SYSDB, unpack=False)['notification']:
+            # Sysdb/ip/config/ipIntfConfig/Vlan1337/virtualSecondaryWithMask
+            if entry['prefix'].endswith("/virtualSecondaryWithMask"):
+                ifname = entry['prefix'].split("/")[-2]
+                ips = [u['path'] for u in entry['update']]
+                ifaces[ifname] = ips
+
+        return ifaces
+
+    def get_iface_vrf_map(self):
+        iface_vrf_map = {}
+        for inst in self.api.get(EOSGNMIClient.PATHS.NETWORK_INSTANCES)['openconfig-network-instance:network-instance']:
+            if 'interfaces' not in inst:
+                continue
+            for iface in inst['interfaces']['interface']:
+                iface_vrf_map[iface['config']['interface']] = inst['name']
+        return iface_vrf_map
+
+    def get_ifaces_config(self, as_dict=False, with_vrfs=True):
         ifaces = []
+        vlan_ifaces = []
 
         # get port-channel details
         pc_details = {}
         for pc in self.api.get("lacp")['openconfig-lacp:interfaces']['interface']:
             pc_details[pc['name']] = pc
 
+        # secondary ips are only available via extra sysdb request
+        all_secondary_ips = self.get_iface_secondary_ips()
+
+        # vrfs are available in the network instances tree and need to be fetched seperately
+        if with_vrfs:
+            iface_vrf_map = self.get_iface_vrf_map()
+        else:
+            iface_vrf_map = {}
+
         # iterate over all ifaces on switch
         for data in self.api.get(EOSGNMIClient.PATHS.IFACES)['openconfig-interfaces:interface']:
+            if data['config'].get('type') == 'iana-if-type:l3ipvlan':
+                # l3 ifaces are a special case, as they are handled by a different config object
+                vrf = iface_vrf_map.get(data['name'])
+                vlan_iface = agent_msg.VlanIface(vlan=data['name'][len("vlan"):], vrf=vrf)
+
+                # ip addresses
+                ip_config = (data.get('arista-exp-eos-varp-intf:arista-varp', {})
+                                 .get('virtual-address', {})
+                                 .get('config'))
+                if ip_config is not None:
+                    vlan_iface.primary_ip = f"{ip_config['ip']}/{ip_config['prefix-length']}"
+
+                if data['name'] in all_secondary_ips:
+                    vlan_iface.secondary_ips = list(all_secondary_ips[data['name']])
+
+                vlan_ifaces.append(vlan_iface)
+
+                # no further processing
+                continue
+
             iface = agent_msg.IfaceConfig(name=data['name'])
 
-            # port-channel or not?
+            # port-channel, normal iface or vlan iface?
+            data_vlans = None
             if 'openconfig-if-aggregate:aggregation' in data:
                 data_pc = data['openconfig-if-aggregate:aggregation']
                 data_pc_cfg = data_pc.get('config', {})
@@ -554,14 +769,18 @@ class EOSSwitch(SwitchBase):
 
                     for inside, outside in ingress_maps & egress_maps:
                         iface.add_vlan_translation(inside=inside, outside=outside)
-            ifaces.append(iface)
-        if as_dict:
-            iface_dict = {}
-            for iface in ifaces:
-                iface_dict[iface.name] = iface
-            return iface_dict
 
-        return sorted(ifaces, key=attrgetter('name'))
+            ifaces.append(iface)
+
+        ifaces.sort(key=attrgetter('name'))
+        vlan_ifaces.sort(key=attrgetter('vlan'))
+
+        if as_dict:
+            iface_dict = {iface.name: iface for iface in ifaces}
+            vlan_iface_dict = {viface.vlan: viface for viface in vlan_ifaces}
+            return iface_dict, vlan_iface_dict
+
+        return ifaces, vlan_ifaces
 
     def get_vlan_translations(self):
         """Get egress/ingress vlan translations from the device as a interface/bridging-vlan dict"""
@@ -588,7 +807,7 @@ class EOSSwitch(SwitchBase):
         return iface_map
 
     def _make_ifaces_config(self, config_req: EOSSetConfig, ifaces: Optional[List[agent_msg.IfaceConfig]],
-                            operation: Op) -> List[str]:
+                            operation: Op):
         if operation in (Op.add, Op.replace):
             existing_vtrans = None  # only needed in add case and when vlan translations exist in config_req
             for iface in ifaces or []:
@@ -662,7 +881,7 @@ class EOSSwitch(SwitchBase):
                     if iface.vlan_translations:
                         remove_stale_vlan_translations(iface.name, iface, is_pc=True)
 
-                    pc_cfg = (EOSGNMIClient.PATHS.IFACE.format(iface=iface.name), data)
+                    pc_cfg = (EOSGNMIClient.PATHS.IFACE.format(name=iface.name), data)
                     config_req.get_list(operation).append(pc_cfg)
                     normal_ifaces = iface.members or []
                 else:
@@ -686,7 +905,7 @@ class EOSSwitch(SwitchBase):
                 vlan_ints = list(set(all_ifaces[iface_name].trunk_vlans) - set(iface_cfg.trunk_vlans))
                 return self._compress_vlan_list(vlan_ints)
 
-            all_ifaces_cfg = self.get_ifaces_config(as_dict=True)
+            all_ifaces_cfg, _ = self.get_ifaces_config(as_dict=True, with_vrfs=False)
             for iface in ifaces or []:
                 normal_ifaces = []
                 if iface.portchannel_id is not None:
@@ -725,6 +944,58 @@ class EOSSwitch(SwitchBase):
                         config_req.delete.append(EOSGNMIClient.PATHS.IFACE_VTRANS_INGRESS
                                                  .format(iface=iface_name, vlan=vtrans.outside))
 
+    def _make_vlan_ifaces_config(self, config_req: EOSSetConfig, vlan_ifaces: Optional[List[agent_msg.VlanIface]],
+                                 operation: Op):
+        if vlan_ifaces is None:
+            return
+
+        if operation in (Op.add, Op.replace):
+            if operation == Op.replace:
+                # clean up vlan interfaces we no longer need
+                _, switch_vlan_ifaces = self.get_ifaces_config(with_vrfs=False)
+                wanted_vlans = [vif.vlan for vif in vlan_ifaces]
+                for switch_vif in switch_vlan_ifaces:
+                    if switch_vif.vlan in self.managed_vlans and switch_vif.vlan not in wanted_vlans:
+                        config_req.delete.append(EOSGNMIClient.PATHS.IFACE.format(name=f"Vlan{switch_vif.vlan}"))
+
+            all_secondary_ips = self.get_iface_secondary_ips()
+            for viface in vlan_ifaces:
+                vifname = f"Vlan{viface.vlan}"
+                vconfig = {"name": vifname, "config": {"name": vifname, "type": "l3ipvlan"}}
+
+                # for the provided IPs we are always in replace mode
+                # NOTE: having secondary IPs, but no primary IP will always remove all secondary IPs
+                if viface.primary_ip:
+                    vip, plen = viface.primary_ip.split("/", 2)
+                    vconfig["arista-varp"] = {"virtual-address": {"config": {"ip": vip, "prefix-length": int(plen)}}}
+                else:
+                    # remove address from interface
+                    config_req.delete.append(EOSGNMIClient.PATHS.IFACE_VIRTUAL_ADDRESS.format(name=vifname))
+
+                # handle secondary ips
+                secondary_ip_cmds = []
+                if all_secondary_ips.get(vifname):
+                    # clean unneeded secondary ips
+                    for ip in all_secondary_ips[vifname]:
+                        if ip not in (viface.secondary_ips or []):
+                            secondary_ip_cmds.append(("cli:", f"no ip address virtual {ip} secondary"))
+
+                for ip in viface.secondary_ips or []:
+                    secondary_ip_cmds.append(("cli:", f"ip address virtual {ip} secondary"))
+
+                if secondary_ip_cmds:
+                    secondary_ip_cmds = [("cli:", f"interface {vifname}")] + secondary_ip_cmds + [("cli:", "exit")]
+                    config_req.update_cli.extend(secondary_ip_cmds)
+
+                config_req.update.append((EOSGNMIClient.PATHS.IFACE.format(name=vifname), vconfig))
+
+                if viface.vrf:
+                    config_req.update.append((EOSGNMIClient.PATHS.NETWORK_INSTANCE_IFACES.format(vrf=viface.vrf),
+                                              {"interface": [{"id": vifname, "config": {"id": vifname}}]}))
+        else:
+            for viface in vlan_ifaces:
+                config_req.delete.append(EOSGNMIClient.PATHS.IFACE.format(name=f"Vlan{viface.vlan}"))
+
     def _make_config_from_update(self, config: agent_msg.SwitchConfigUpdate) -> EOSSetConfig:
         # build config
         config_req = EOSSetConfig()
@@ -732,6 +1003,7 @@ class EOSSwitch(SwitchBase):
         self._make_vxlan_mapping_config(config_req, config.vxlan_maps, config.operation)
         self._make_bgp_config(config_req, config.bgp, config.operation)
         self._make_ifaces_config(config_req, config.ifaces, config.operation)
+        self._make_vlan_ifaces_config(config_req, config.vlan_ifaces, config.operation)
 
         return config_req
 
@@ -741,7 +1013,7 @@ class EOSSwitch(SwitchBase):
         config.vlans = self.get_vlan_config()
         config.vxlan_maps = self.get_vxlan_mappings()
         config.bgp = self.get_bgp_config()
-        config.ifaces = self.get_ifaces_config()
+        config.ifaces, config.vlan_ifaces = self.get_ifaces_config()
         return config
 
     def _apply_config_update(self, config):

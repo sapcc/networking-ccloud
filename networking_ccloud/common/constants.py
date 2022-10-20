@@ -29,6 +29,8 @@ DEVICE_TYPE_BGW = 'bgw'
 
 AGENT_TYPE_CC_FABRIC = 'CC fabric agent'
 
+AZ_TAG_PREFIX = 'availability-zone::'
+
 # rpc topics
 CC_DRIVER_TOPIC = 'cc-fabric-driver'
 SWITCH_AGENT_EOS_TOPIC = 'cc-fabric-switch-agent-eos'

@@ -15,6 +15,7 @@ import time
 
 from neutron import service
 from neutron_lib.api.definitions import availability_zone as az_api
+from neutron_lib.api.definitions import external_net as extnet_api
 from neutron_lib.api.definitions import portbindings as pb_api
 from neutron_lib import constants as nl_const
 from neutron_lib.exceptions import availability_zone as az_exc
@@ -206,8 +207,9 @@ class CCFabricMechanismDriver(ml2_api.MechanismDriver, CCFabricDriverAPI):
         # config update (direct bindings are handled in the next step)
         if not hg_config.direct_binding:
             # send rpc call to agent
+            net_external = context.network.current[extnet_api.EXTERNAL]
             self.handle_binding_host_changed(context._plugin_context, context.current['network_id'],
-                                             binding_host, hg_config, segment, next_segment)
+                                             binding_host, hg_config, segment, next_segment, net_external=net_external)
 
         # binding
         LOG.info("Binding port %s to toplevel segment %s, next segment is %s physnet %s segmentation id %s",
@@ -229,8 +231,10 @@ class CCFabricMechanismDriver(ml2_api.MechanismDriver, CCFabricDriverAPI):
             return
 
         # FIXME: trunk ports
+        net_external = context.network.current[extnet_api.EXTERNAL]
         self.handle_binding_host_changed(context._plugin_context, context.current['network_id'], binding_host,
-                                         hg_config, context.binding_levels[0][ml2_api.BOUND_SEGMENT], segment)
+                                         hg_config, context.binding_levels[0][ml2_api.BOUND_SEGMENT], segment,
+                                         net_external=net_external)
 
         vif_details = {}  # no vif-details needed yet
         context.set_binding(segment['id'], cc_const.VIF_TYPE_CC_FABRIC, vif_details, nl_const.ACTIVE)
@@ -490,14 +494,17 @@ class CCFabricMechanismDriver(ml2_api.MechanismDriver, CCFabricDriverAPI):
 
         # 3. config updates
         # FIXME: trunk?
+        net_external = port_context.network.current[extnet_api.EXTERNAL]
         self.handle_binding_host_changed(context, network_id, binding_host, hg_config, segment_0, segment_1,
-                                         add=False, keep_mapping=keep_segment, exclude_hosts=hosts_on_network)
+                                         add=False, keep_mapping=keep_segment, exclude_hosts=hosts_on_network,
+                                         net_external=net_external)
 
     # ------------------ switch config snippet methods ------------------
     # FIXME: move this somewhere else
     def handle_binding_host_changed(self, context, network_id, binding_host, hg_config,
                                     segment_0, segment_1, trunk_vlan=None, force_update=False,
-                                    add=True, keep_mapping=False, exclude_hosts=None):
+                                    add=True, keep_mapping=False, exclude_hosts=None,
+                                    net_external=None):
         # FIXME: the logic of this method needs testing (i.e. written tests)
         LOG.debug("Handling config update (type %s) for binding host %s on %s",
                   "add" if add else "remove", binding_host, network_id)
@@ -520,11 +527,42 @@ class CCFabricMechanismDriver(ml2_api.MechanismDriver, CCFabricDriverAPI):
                           binding_host)
                 return
 
+        gateways = None
+        if net_external:
+            gateways = self.fabric_plugin.get_gateways_with_vrfs_for_network(context, network_id)
+            if not gateways:
+                LOG.warning("Network %s has no gateway IPs, l3 will not work (binding host %s)",
+                            network_id, binding_host)
+
         op = agent_msg.OperationEnum.add if add else agent_msg.OperationEnum.remove
         scul = agent_msg.SwitchConfigUpdateList(op, self.drv_conf)
         scul.add_binding_host_to_config(hg_config, network_id,
                                         segment_0[ml2_api.SEGMENTATION_ID], segment_1[ml2_api.SEGMENTATION_ID],
-                                        trunk_vlan, keep_mapping, exclude_hosts)
+                                        trunk_vlan, keep_mapping, exclude_hosts, gateways=gateways)
+
+        # handle l3 bgp config (per-network lifecycle)
+        if net_external:
+            add_l3_config = False
+            hg_physnet = hg_config.get_vlan_pool_name(self.drv_conf)
+            if add:
+                add_l3_config = force_update
+                if not add_l3_config:
+                    # only add if the network is not already scheduled
+                    switch_networks = self.fabric_plugin.get_networks_on_physnet(context, hg_physnet, in_use=True)
+                    add_l3_config = network_id not in switch_networks
+            else:
+                # only remove if we're the last port on the device
+                switch_net_ports = self.fabric_plugin.get_network_ports_on_physnet(context, network_id, hg_physnet)
+                if len(switch_net_ports) == 0 or \
+                        (len(switch_net_ports) == 1 and switch_net_ports[0] == context.current['id']):
+                    add_l3_config = True
+
+            if add_l3_config:
+                # add l3 network (this will have only one VRF entry)
+                vrf_config = self.fabric_plugin.get_l3_network_config(context, [network_id])
+                for vrf_name, vrf in vrf_config.items():
+                    scul.add_vrf_bgp_config([sw_name for sw_name, _ in hg_config.iter_switchports(self.drv_conf)],
+                                            vrf_name, vrf['vrf_networks'], vrf['vrf_aggregates'])
 
         if not scul.execute(context, synchronous=False):
             LOG.warning("Update for host %s on %s yielded no config updates! add=%s, keep=%s, excl=%s",

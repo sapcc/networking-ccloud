@@ -156,10 +156,10 @@ def make_vrfs_from_hostgroups(hostgroups):
 
 
 # whole config
-def make_config(switchgroups=None, hostgroups=None, global_config=None):
+def make_config(switchgroups=None, hostgroups=None, global_config=None, extra_vrfs=[]):
     if not global_config:
         global_config = make_global_config(availability_zones=make_azs_from_switchgroups(switchgroups),
-                                           vrfs=make_vrfs_from_hostgroups(hostgroups))
+                                           vrfs=make_vrfs_from_hostgroups(hostgroups) + extra_vrfs)
 
     return config_driver.DriverConfig(
         switchgroups=switchgroups or [],

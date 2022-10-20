@@ -193,7 +193,9 @@ class FabricNetworksController(wsgi.Controller):
         vni = top_segments[network_id]['segmentation_id']
 
         net_segments = self.fabric_plugin.get_hosts_on_segments(context, network_ids=[network_id])
+        net_gateways = self.fabric_plugin.get_gateways_with_vrfs_for_network(context, network_id, external_only=True)
 
+        net_switches = set()
         for binding_host, segment_1 in net_segments.get(network_id, {}).items():
             vlan = segment_1['segmentation_id']
             hg_config = self.drv_conf.get_hostgroup_by_host(binding_host)
@@ -204,7 +206,15 @@ class FabricNetworksController(wsgi.Controller):
             # FIXME: handle trunk_vlans
             # FIXME: exclude_hosts
             # FIXME: direct binding hosts? are they included?
-            scul.add_binding_host_to_config(hg_config, network_id, vni, vlan)
+            scul.add_binding_host_to_config(hg_config, network_id, vni, vlan, gateways=net_gateways)
+            net_switches |= {switch_name for switch_name, _ in hg_config.iter_switchports(self.drv_conf)}
+
+        # l3 / bgp vrf config
+        if net_gateways:
+            vrf_config = self.fabric_plugin.get_l3_network_config(context, [network_id])
+            for vrf_name, vrf in vrf_config.items():
+                scul.add_vrf_bgp_config(list(net_switches), vrf_name,
+                                        vrf['vrf_networks'], vrf['vrf_aggregates'])
 
         interconnects = self.fabric_plugin.get_interconnects(context, network_id=network_id)
         for device in interconnects:
@@ -315,9 +325,7 @@ class SwitchesController(wsgi.Controller):
         scul = agent_msg.SwitchConfigUpdateList(agent_msg.OperationEnum.replace, self.drv_conf)
         for hg in self.drv_conf.get_hostgroups_by_switches([switch.name]):
             if hg.infra_networks:
-                for inet in hg.infra_networks:
-                    # FIXME: exclude hosts
-                    scul.add_binding_host_to_config(hg, inet.name, inet.vni, inet.vlan)
+                scul.add_infra_networks_from_hostgroup(hg, sg)
             if hg.extra_vlans:
                 scul.add_extra_vlans(hg)
         scul.clean_switches(switch.name)
