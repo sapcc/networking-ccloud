@@ -77,3 +77,44 @@ Driver Responsible Ranges
 
 
 .. [1] Attributes of an `infra_network` are transitively assigned to the switchgroup by the hostgroups reference to a switchgroup
+
+
+Driver Managed Networks
+========================
+There are 2 ways in which the driver manages Networks, either wholistically or just in the allowed VLAN list. Please see :ref:`Infrastructure Network Config` and :ref:`extra VLAN Config` for details.
+
+The following list will provide an overview for driver managed Infrastructure Networks or extra VLANs in our Infrastructure. It does not aim to be complete or up-to-date. Authoritative data is found in the driver config or in Netbox. See :ref:`Infrastructure Networks from Netbox` and :ref:`extra VLANs from Netbox` for details
+
+.. list-table:: Driver Managed Networks
+   :header-rows: 1
+   :widths: 35, 35, 15, 15
+
+   * - Name
+     - Identified by
+     - Pod Roles
+     - Type of Management
+   
+   * - vPOD Infra Networks
+     - VID 101-107 in every vPOD
+     - vPOD
+     - Infrastructure Network
+
+   * - SWIFT Node MTU Replication Network
+     - VID 101 in `f'{region}-regional` VLAN group
+     - stPOD
+     - extra VLAN
+
+   * - SWIFT Node Infra Networks
+     - VID 754-756 in `f'{region}-cp` VLAN group
+     - stPOD
+     - extra VLAN
+
+   * - SWIFT Node K8S Peering Network
+     - VID 901 in `f'{region}-cp` VLAN group
+     - stPOD
+     - extra VLAN
+
+   * - Manila Replication Network
+     - global VID 981
+     - stPOD
+     - extra VLAN
