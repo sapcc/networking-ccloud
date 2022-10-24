@@ -331,6 +331,28 @@ bundles ports in LAG and MLAG logical interfaces. This section describes Netbox 
 <p>All cables must be modelled according to physical connections. Cables must be marked as <cite>installed</cite> when installed.
 This does also include Leaf to Spine links, which are necessary for diagnostic tooling.</p>
 </section>
+<section id="rules-for-driver-managed-interfaces">
+<h3>Rules for Driver Managed Interfaces<a class="headerlink" href="#rules-for-driver-managed-interfaces" title="Permalink to this heading">¶</a></h3>
+<p>All interfaces that have a connected endpooint which satisfies the following conditions will be picked up:</p>
+<ul class="simple">
+<li><p><em>connected device</em> -&gt; <em>device role</em> is one of <em>server</em>, <em>neutron-router</em>, <em>loadbalancer</em>, and</p></li>
+<li><p>the tenant is <em>Converged Cloud</em>, and</p></li>
+<li><p>the interface must be a member of a LAG in the driver managed LAG range, and</p></li>
+<li><p>there must not be a <code class="code docutils literal notranslate"><span class="pre">cc-net-driver-ignore</span></code> tag on the interface,</p></li>
+</ul>
+<p>or</p>
+<ul class="simple">
+<li><p><em>connected device</em> -&gt; <em>device role</em> is <em>filer</em>, and</p></li>
+<li><p>the <em>connected device</em> has a <em>parent device</em> (a chassis it resides in), and</p></li>
+<li><p>the interface must be a member of a LAG in the driver managed LAG range, and</p></li>
+<li><p>the <em>parent device</em> is tagged with <code class="code docutils literal notranslate"><span class="pre">manila</span></code>.</p></li>
+</ul>
+<p>If the one of the following conditions is met, the devices will also be gathered in a metagroup:</p>
+<ul class="simple">
+<li><p>the <em>connected device</em>’s cluster type is one of the following <em>cc-vsphere-prod</em>, <em>neutron-router-pair</em>, <em>cc-k8s-controlplane</em>, <em>cc-f5-vcmp</em>, or</p></li>
+<li><p>the <em>connected device</em>’s parent device is tagged with <code class="code docutils literal notranslate"><span class="pre">manila</span></code>.</p></li>
+</ul>
+</section>
 <section id="link-aggregation-groups">
 <h3>Link Aggregation Groups<a class="headerlink" href="#link-aggregation-groups" title="Permalink to this heading">¶</a></h3>
 <p>LAGs must be defined in Netbox by creating a new interface of type <em>LAG</em>, the interface must be <em>enabled</em>. A LAG interface’s
@@ -400,7 +422,7 @@ The LAG ID will then be calculated using <cite>slot_number * 100 + interface_ind
           
           </div>
           <div class="row docs-byline bottom">
-            <div class="docs-updated">this page last updated: 2022-10-13 17:20:57</div>
+            <div class="docs-updated">this page last updated: 2022-10-24 16:16:58</div>
           </div>
           <div class="row">
             <div class="col-lg-8 col-md-8 col-sm-8 docs-license">
@@ -468,6 +490,7 @@ The LAG ID will then be calculated using <cite>slot_number * 100 + interface_ind
 </li>
 <li><a class="reference internal" href="#ports-and-interfaces">Ports and Interfaces</a><ul>
 <li><a class="reference internal" href="#cables">Cables</a></li>
+<li><a class="reference internal" href="#rules-for-driver-managed-interfaces">Rules for Driver Managed Interfaces</a></li>
 <li><a class="reference internal" href="#link-aggregation-groups">Link Aggregation Groups</a></li>
 <li><a class="reference internal" href="#netbox-modeller-lag-id-generation">Netbox Modeller LAG ID Generation</a></li>
 </ul>
