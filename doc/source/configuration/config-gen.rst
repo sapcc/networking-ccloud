@@ -210,7 +210,27 @@ Cables
 All cables must be modelled according to physical connections. Cables must be marked as `installed` when installed.
 This does also include Leaf to Spine links, which are necessary for diagnostic tooling.
 
+Rules for Driver Managed Interfaces
+----------------------------------------
 
+All interfaces that have a connected endpooint which satisfies the following conditions will be picked up:
+
+* *connected device* -> *device role* is one of *server*, *neutron-router*, *loadbalancer*, and
+* the tenant is *Converged Cloud*, and
+* the interface must be a member of a LAG in the driver managed LAG range, and
+* there must not be a :code:`cc-net-driver-ignore` tag on the interface,
+
+or
+
+* *connected device* -> *device role* is *filer*, and
+* the *connected device* has a *parent device* (a chassis it resides in), and
+* the interface must be a member of a LAG in the driver managed LAG range, and
+* the *parent device* is tagged with :code:`manila`.
+
+If the one of the following conditions is met, the devices will also be gathered in a metagroup:
+
+* the *connected device*'s cluster type is one of the following *cc-vsphere-prod*, *neutron-router-pair*, *cc-k8s-controlplane*, *cc-f5-vcmp*, or
+* the *connected device*'s parent device is tagged with :code:`manila`.
 
 Link Aggregation Groups
 -----------------------
