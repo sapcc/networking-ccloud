@@ -17,8 +17,8 @@
     <script src="../_static/sphinx_highlight.js"></script>
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
-    <link rel="next" title="Generator Input" href="config-input.html" />
-    <link rel="prev" title="Oslo Config" href="config-oslo.html" />
+    <link rel="next" title="Oslo Config" href="config-oslo.html" />
+    <link rel="prev" title="Netbox Config Generator" href="config-gen.html" />
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <!-- Bootstrap CSS -->
 <link href="../_static/css/bootstrap.min.css" rel="stylesheet">
@@ -106,10 +106,10 @@ ga('send', 'pageview');
   </div>
   <div class="docs-actions">
     
-    <a href="config-oslo.html"><i class="fa fa-angle-double-left" data-toggle="tooltip" data-placement="top" title="Previous: Oslo Config"></i></a>
+    <a href="config-gen.html"><i class="fa fa-angle-double-left" data-toggle="tooltip" data-placement="top" title="Previous: Netbox Config Generator"></i></a>
     
     
-    <a href="config-input.html"><i class="fa fa-angle-double-right" data-toggle="tooltip" data-placement="top" title="Next: Generator Input"></i></a>
+    <a href="config-oslo.html"><i class="fa fa-angle-double-right" data-toggle="tooltip" data-placement="top" title="Next: Oslo Config"></i></a>
     
   </div>
 </div>
@@ -119,15 +119,148 @@ ga('send', 'pageview');
 
   <section id="driver-configuration">
 <h1>Driver Configuration<a class="headerlink" href="#driver-configuration" title="Permalink to this heading">¶</a></h1>
-<p>FIXME: Write down</p>
-<blockquote>
-<div><ul class="simple">
-<li><p>switches</p></li>
-<li><p>switchgroups</p></li>
-<li><p>hostgroups</p></li>
-</ul>
-</div></blockquote>
-<p>FIXME: Add config ER</p>
+<section id="example-configuration">
+<h2>Example Configuration<a class="headerlink" href="#example-configuration" title="Permalink to this heading">¶</a></h2>
+<p>The top level configuration looks as follows:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">global_config</span><span class="p">:</span> <span class="o">*</span><span class="k">global</span><span class="o">-</span><span class="n">config</span>
+<span class="n">hostgroups</span><span class="p">:</span> <span class="o">*</span><span class="n">hostgroups</span>
+<span class="n">switchgroups</span><span class="p">:</span> <span class="o">*</span><span class="n">switchgroups</span>
+</pre></div>
+</div>
+</section>
+<section id="global-config">
+<h2><code class="code docutils literal notranslate"><span class="pre">global_config</span></code><a class="headerlink" href="#global-config" title="Permalink to this heading">¶</a></h2>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">global_config</span><span class="p">:</span> <span class="o">&amp;</span><span class="k">global</span><span class="o">-</span><span class="n">config</span>
+  <span class="n">asn_region</span><span class="p">:</span> <span class="s1">&#39;65130&#39;</span>
+  <span class="n">availability_zones</span><span class="p">:</span>
+  <span class="o">-</span> <span class="n">name</span><span class="p">:</span> <span class="n">qa</span><span class="o">-</span><span class="n">de</span><span class="o">-</span><span class="mi">1</span><span class="n">d</span>
+    <span class="n">number</span><span class="p">:</span> <span class="mi">4</span>
+    <span class="n">suffix</span><span class="p">:</span> <span class="n">d</span>
+  <span class="n">vrfs</span><span class="p">:</span>
+  <span class="o">-</span> <span class="n">name</span><span class="p">:</span> <span class="n">CC</span><span class="o">-</span><span class="n">CLOUD02</span>
+    <span class="n">number</span><span class="p">:</span> <span class="mi">102</span>
+</pre></div>
+</div>
+</section>
+<section id="hostgroups">
+<h2><code class="code docutils literal notranslate"><span class="pre">hostgroups</span></code><a class="headerlink" href="#hostgroups" title="Permalink to this heading">¶</a></h2>
+<p>Hostgroups map multiple OpenStack binding hosts to a set of switch ports. A hostgroup may be a metagroup in which case its members are hostgroups again. This can be used to aggregate hosts to a group.
+A hostgroup may have the <cite>direct_binding: true</cite> property in which case no further driver will be called to bind the host.
+Members of a hostgroup that is not a metagroups must be references to a switchport.
+A hostgroup’s default physical network is the physical network of the switchgroup that is associated by its members.</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">hostgroups</span><span class="p">:</span> <span class="o">&amp;</span><span class="n">hostgroups</span>
+<span class="o">-</span> <span class="n">binding_hosts</span><span class="p">:</span>
+  <span class="o">-</span> <span class="n">node001</span><span class="o">-</span><span class="n">bb271</span>
+  <span class="n">direct_binding</span><span class="p">:</span> <span class="n">true</span>
+  <span class="n">members</span><span class="p">:</span>
+  <span class="o">-</span> <span class="n">lacp</span><span class="p">:</span> <span class="n">true</span>
+    <span class="n">members</span><span class="p">:</span>
+    <span class="o">-</span> <span class="n">Ethernet1</span><span class="o">/</span><span class="mi">1</span>
+    <span class="n">name</span><span class="p">:</span> <span class="n">Port</span><span class="o">-</span><span class="n">Channel101</span>
+    <span class="n">switch</span><span class="p">:</span> <span class="n">qa</span><span class="o">-</span><span class="n">de</span><span class="o">-</span><span class="mi">1</span><span class="o">-</span><span class="n">sw4113a</span><span class="o">-</span><span class="n">bb271</span>
+  <span class="o">-</span> <span class="n">lacp</span><span class="p">:</span> <span class="n">true</span>
+    <span class="n">members</span><span class="p">:</span>
+    <span class="o">-</span> <span class="n">Ethernet1</span><span class="o">/</span><span class="mi">1</span>
+    <span class="n">name</span><span class="p">:</span> <span class="n">Port</span><span class="o">-</span><span class="n">Channel101</span>
+    <span class="n">switch</span><span class="p">:</span> <span class="n">qa</span><span class="o">-</span><span class="n">de</span><span class="o">-</span><span class="mi">1</span><span class="o">-</span><span class="n">sw4113b</span><span class="o">-</span><span class="n">bb271</span>
+<span class="o">-</span> <span class="n">binding_hosts</span><span class="p">:</span>
+  <span class="o">-</span> <span class="n">node002</span><span class="o">-</span><span class="n">bb271</span>
+  <span class="n">direct_binding</span><span class="p">:</span> <span class="n">true</span>
+  <span class="n">members</span><span class="p">:</span>
+  <span class="o">-</span> <span class="n">lacp</span><span class="p">:</span> <span class="n">true</span>
+    <span class="n">members</span><span class="p">:</span>
+    <span class="o">-</span> <span class="n">Ethernet2</span><span class="o">/</span><span class="mi">1</span>
+    <span class="n">name</span><span class="p">:</span> <span class="n">Port</span><span class="o">-</span><span class="n">Channel102</span>
+    <span class="n">switch</span><span class="p">:</span> <span class="n">qa</span><span class="o">-</span><span class="n">de</span><span class="o">-</span><span class="mi">1</span><span class="o">-</span><span class="n">sw4113a</span><span class="o">-</span><span class="n">bb271</span>
+  <span class="o">-</span> <span class="n">lacp</span><span class="p">:</span> <span class="n">true</span>
+    <span class="n">members</span><span class="p">:</span>
+    <span class="o">-</span> <span class="n">Ethernet2</span><span class="o">/</span><span class="mi">1</span>
+    <span class="n">name</span><span class="p">:</span> <span class="n">Port</span><span class="o">-</span><span class="n">Channel102</span>
+    <span class="n">switch</span><span class="p">:</span> <span class="n">qa</span><span class="o">-</span><span class="n">de</span><span class="o">-</span><span class="mi">1</span><span class="o">-</span><span class="n">sw4113b</span><span class="o">-</span><span class="n">bb271</span>
+<span class="o">-</span> <span class="n">binding_hosts</span><span class="p">:</span>
+  <span class="o">-</span> <span class="n">nova</span><span class="o">-</span><span class="n">compute</span><span class="o">-</span><span class="n">bb271</span>
+  <span class="n">direct_binding</span><span class="p">:</span> <span class="n">false</span>
+  <span class="n">infra_networks</span><span class="p">:</span> <span class="o">*</span><span class="n">infra_networks</span>
+  <span class="n">extra_vlans</span><span class="p">:</span> <span class="o">*</span><span class="n">extra_vlans</span>
+  <span class="n">members</span><span class="p">:</span>
+  <span class="o">-</span> <span class="n">node001</span><span class="o">-</span><span class="n">bb271</span>
+  <span class="o">-</span> <span class="n">node002</span><span class="o">-</span><span class="n">bb271</span>
+  <span class="n">metagroup</span><span class="p">:</span> <span class="n">true</span>
+</pre></div>
+</div>
+</section>
+<section id="infra-networks">
+<span id="infrastructure-network-config"></span><h2><code class="code docutils literal notranslate"><span class="pre">infra_networks</span></code><a class="headerlink" href="#infra-networks" title="Permalink to this heading">¶</a></h2>
+<p>Infrastructure networks (<code class="code docutils literal notranslate"><span class="pre">infra_networks</span></code>) are required to deliver the platform’s control plane communication.
+They can be used for hypervisor specific purposes, management access or provisioning and can be pure layer 2 networks or routed layer 3 networks with an anycast gateway bound on the leaf switch.
+If the network is supposed to be layer 3, a network and VRF must be provided. BGP aggregates may also be provided and will additionally be sourced from all switches the hostgroup is a member of.
+Infrastructure Networks will be preconfigured by the driver without the presence of any OpenStack object.
+If an Infrastructure Network is defined on a metagroup, it will be configured on all members of that metagroups.</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">infra_networks</span><span class="p">:</span> <span class="o">&amp;</span><span class="n">infra_networks</span>
+<span class="o">-</span> <span class="n">name</span><span class="p">:</span> <span class="n">bb271</span><span class="o">-</span><span class="n">bb</span><span class="o">-</span><span class="n">console</span>
+  <span class="n">vlan</span><span class="p">:</span> <span class="mi">100</span>
+  <span class="n">vni</span><span class="p">:</span> <span class="mi">10271100</span>
+<span class="o">-</span> <span class="n">aggregates</span><span class="p">:</span>
+  <span class="o">-</span> <span class="mf">10.11.12.0</span><span class="o">/</span><span class="mi">24</span>
+  <span class="n">name</span><span class="p">:</span> <span class="n">bb271</span><span class="o">-</span><span class="n">bb</span><span class="o">-</span><span class="n">mgmt</span>
+  <span class="n">networks</span><span class="p">:</span>
+  <span class="o">-</span> <span class="mf">10.11.12.65</span><span class="o">/</span><span class="mi">26</span>
+  <span class="n">vlan</span><span class="p">:</span> <span class="mi">101</span>
+  <span class="n">vni</span><span class="p">:</span> <span class="mi">10271101</span>
+  <span class="n">vrf</span><span class="p">:</span> <span class="n">MGMT</span>
+<span class="o">-</span> <span class="n">aggregates</span><span class="p">:</span>
+  <span class="o">-</span> <span class="mf">10.11.12.0</span><span class="o">/</span><span class="mi">24</span>
+  <span class="n">name</span><span class="p">:</span> <span class="n">bb271</span><span class="o">-</span><span class="n">bb</span><span class="o">-</span><span class="n">vmotion</span>
+  <span class="n">networks</span><span class="p">:</span>
+  <span class="o">-</span> <span class="mf">10.11.12.193</span><span class="o">/</span><span class="mi">27</span>
+  <span class="n">vlan</span><span class="p">:</span> <span class="mi">104</span>
+  <span class="n">vni</span><span class="p">:</span> <span class="mi">10271104</span>
+  <span class="n">vrf</span><span class="p">:</span> <span class="n">MGMT</span>
+<span class="o">-</span> <span class="n">aggregates</span><span class="p">:</span>
+  <span class="o">-</span> <span class="mf">10.11.12.0</span><span class="o">/</span><span class="mi">24</span>
+  <span class="n">name</span><span class="p">:</span> <span class="n">bb271</span><span class="o">-</span><span class="n">bb</span><span class="o">-</span><span class="n">backdoor</span><span class="o">-</span><span class="n">management</span>
+  <span class="n">networks</span><span class="p">:</span>
+  <span class="o">-</span> <span class="mf">10.11.12.225</span><span class="o">/</span><span class="mi">27</span>
+  <span class="n">vlan</span><span class="p">:</span> <span class="mi">106</span>
+  <span class="n">vni</span><span class="p">:</span> <span class="mi">10271106</span>
+  <span class="n">vrf</span><span class="p">:</span> <span class="n">MGMT</span>
+</pre></div>
+</div>
+</section>
+<section id="extra-vlans">
+<span id="extra-vlan-config"></span><h2><code class="code docutils literal notranslate"><span class="pre">extra_vlans</span></code><a class="headerlink" href="#extra-vlans" title="Permalink to this heading">¶</a></h2>
+<p>The driver assumes full control over a managed interface’s allowed VLAN list. Hence any VLAN not known by the driver would be removed from the allowed VLAN list causing unwanted side effects. In the unfortunate case of VLANs that are not driver provisioned but still need to be on a driver managed port, the extra_vlans list comes into play. Extra VLANs on a metagroup will be programmed on all ports of metagroup memebers.</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">extra_vlans</span><span class="p">:</span> <span class="o">&amp;</span><span class="n">extra_vlans</span>
+<span class="o">-</span> <span class="mi">101</span>
+<span class="o">-</span> <span class="mi">202</span>
+<span class="o">-</span> <span class="mi">406</span>
+</pre></div>
+</div>
+</section>
+<section id="switchgroups">
+<h2><code class="code docutils literal notranslate"><span class="pre">switchgroups</span></code><a class="headerlink" href="#switchgroups" title="Permalink to this heading">¶</a></h2>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">switchgroups</span><span class="p">:</span> <span class="o">&amp;</span><span class="n">switchgroups</span>
+<span class="o">-</span> <span class="n">asn</span><span class="p">:</span> <span class="s1">&#39;65130.4113&#39;</span>
+  <span class="n">availability_zone</span><span class="p">:</span> <span class="n">qa</span><span class="o">-</span><span class="n">de</span><span class="o">-</span><span class="mi">1</span><span class="n">d</span>
+  <span class="n">group_id</span><span class="p">:</span> <span class="mi">4113</span>
+  <span class="n">members</span><span class="p">:</span>
+  <span class="o">-</span> <span class="n">bgp_source_ip</span><span class="p">:</span> <span class="mf">4.1.13.1</span>
+    <span class="n">host</span><span class="p">:</span> <span class="mf">192.168.1.146</span>
+    <span class="n">name</span><span class="p">:</span> <span class="n">qa</span><span class="o">-</span><span class="n">de</span><span class="o">-</span><span class="mi">1</span><span class="o">-</span><span class="n">sw4113a</span><span class="o">-</span><span class="n">bb271</span>
+    <span class="n">password</span><span class="p">:</span> <span class="n">ive</span><span class="o">-</span><span class="n">been</span><span class="o">-</span><span class="n">looking</span><span class="o">-</span><span class="k">for</span><span class="o">-</span><span class="n">vlans</span>
+    <span class="n">platform</span><span class="p">:</span> <span class="n">arista</span><span class="o">-</span><span class="n">eos</span>
+    <span class="n">user</span><span class="p">:</span> <span class="n">the_hoff</span>
+  <span class="o">-</span> <span class="n">bgp_source_ip</span><span class="p">:</span> <span class="mf">4.1.13.2</span>
+    <span class="n">host</span><span class="p">:</span> <span class="mf">192.168.1.147</span>
+    <span class="n">name</span><span class="p">:</span> <span class="n">qa</span><span class="o">-</span><span class="n">de</span><span class="o">-</span><span class="mi">1</span><span class="o">-</span><span class="n">sw4113b</span><span class="o">-</span><span class="n">bb271</span>
+    <span class="n">password</span><span class="p">:</span> <span class="n">ive</span><span class="o">-</span><span class="n">been</span><span class="o">-</span><span class="n">looking</span><span class="o">-</span><span class="k">for</span><span class="o">-</span><span class="n">vlans</span>
+    <span class="n">platform</span><span class="p">:</span> <span class="n">arista</span><span class="o">-</span><span class="n">eos</span>
+    <span class="n">user</span><span class="p">:</span> <span class="n">the_hoff</span>
+  <span class="n">name</span><span class="p">:</span> <span class="n">bb271</span>
+  <span class="n">vtep_ip</span><span class="p">:</span> <span class="mf">4.1.13.0</span>
+</pre></div>
+</div>
+</section>
 </section>
 
 
@@ -136,14 +269,14 @@ ga('send', 'pageview');
           </div>
           <div class="docs-actions">
           
-            <a href="config-oslo.html"><i class="fa fa-angle-double-left" data-toggle="tooltip" data-placement="top" title="Previous: Oslo Config"></i></a>
+            <a href="config-gen.html"><i class="fa fa-angle-double-left" data-toggle="tooltip" data-placement="top" title="Previous: Netbox Config Generator"></i></a>
           
           
-            <a href="config-input.html"><i class="fa fa-angle-double-right" data-toggle="tooltip" data-placement="top" title="Next: Generator Input"></i></a>
+            <a href="config-oslo.html"><i class="fa fa-angle-double-right" data-toggle="tooltip" data-placement="top" title="Next: Oslo Config"></i></a>
           
           </div>
           <div class="row docs-byline bottom">
-            <div class="docs-updated">this page last updated: 2022-10-11 13:19:07</div>
+            <div class="docs-updated">this page last updated: 2022-10-21 17:40:07</div>
           </div>
           <div class="row">
             <div class="col-lg-8 col-md-8 col-sm-8 docs-license">
@@ -170,9 +303,9 @@ ga('send', 'pageview');
 <li class="toctree-l1"><a class="reference internal" href="../install/index.html">Networking CCloud VXLAN Fabric service installation guide</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../contributor/index.html">Contributor Documentation</a></li>
 <li class="toctree-l1 current"><a class="reference internal" href="index.html">Configuration</a><ul class="current">
-<li class="toctree-l2"><a class="reference internal" href="config-oslo.html">Oslo Config</a></li>
+<li class="toctree-l2"><a class="reference internal" href="config-gen.html">Netbox Config Generator</a></li>
 <li class="toctree-l2 current"><a class="current reference internal" href="#">Driver Configuration</a></li>
-<li class="toctree-l2"><a class="reference internal" href="config-input.html">Generator Input</a></li>
+<li class="toctree-l2"><a class="reference internal" href="config-oslo.html">Oslo Config</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="../cli/index.html">Command line interface reference</a></li>
@@ -181,6 +314,23 @@ ga('send', 'pageview');
 
     </div>
 
+  <div class="docs-sidebar-toc">
+    <div class="docs-sidebar-section" id="local-table-of-contents">
+      <h4 class="docs-sidebar-section-title">Page Contents</h4>
+      <ul>
+<li><a class="reference internal" href="#">Driver Configuration</a><ul>
+<li><a class="reference internal" href="#example-configuration">Example Configuration</a></li>
+<li><a class="reference internal" href="#global-config"><code class="code docutils literal notranslate"><span class="pre">global_config</span></code></a></li>
+<li><a class="reference internal" href="#hostgroups"><code class="code docutils literal notranslate"><span class="pre">hostgroups</span></code></a></li>
+<li><a class="reference internal" href="#infra-networks"><code class="code docutils literal notranslate"><span class="pre">infra_networks</span></code></a></li>
+<li><a class="reference internal" href="#extra-vlans"><code class="code docutils literal notranslate"><span class="pre">extra_vlans</span></code></a></li>
+<li><a class="reference internal" href="#switchgroups"><code class="code docutils literal notranslate"><span class="pre">switchgroups</span></code></a></li>
+</ul>
+</li>
+</ul>
+
+    </div>
+  </div>
   </div>
 </div>
       </div>

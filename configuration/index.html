@@ -17,7 +17,7 @@
     <script src="../_static/sphinx_highlight.js"></script>
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
-    <link rel="next" title="Oslo Config" href="config-oslo.html" />
+    <link rel="next" title="Netbox Config Generator" href="config-gen.html" />
     <link rel="prev" title="So You Want to Contribute…" href="../contributor/contributing.html" />
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <!-- Bootstrap CSS -->
@@ -109,7 +109,7 @@ ga('send', 'pageview');
     <a href="../contributor/contributing.html"><i class="fa fa-angle-double-left" data-toggle="tooltip" data-placement="top" title="Previous: So You Want to Contribute…"></i></a>
     
     
-    <a href="config-oslo.html"><i class="fa fa-angle-double-right" data-toggle="tooltip" data-placement="top" title="Next: Oslo Config"></i></a>
+    <a href="config-gen.html"><i class="fa fa-angle-double-right" data-toggle="tooltip" data-placement="top" title="Next: Netbox Config Generator"></i></a>
     
   </div>
 </div>
@@ -119,17 +119,27 @@ ga('send', 'pageview');
 
   <section id="configuration">
 <h1>Configuration<a class="headerlink" href="#configuration" title="Permalink to this heading">¶</a></h1>
-<p>Configuration of networking-ccloud.</p>
+<p>The driver configuration consists of 2 configs. <a class="reference external" href="https://github.com/sapcc/networking-ccloud/blob/HEAD/networking_ccloud/common/config/config_oslo.py">Oslo Config</a> and <a class="reference external" href="https://github.com/sapcc/networking-ccloud/blob/HEAD/networking_ccloud/common/config/config_driver.py">Driver Config</a>. <cite>Oslo Config`</cite> focusses more around the runtime of the driver while <cite>Driver Config`</cite> focusses around the topology the driver manages.
+Because it would be cumbersome to generate a large topology’s <cite>Driver Config</cite> by hand we generate it from netbox using <a class="reference external" href="https://github.com/sapcc/networking-ccloud/blob/HEAD/networking_ccloud/tools/netbox_config_gen.py">Netbox Config Generator</a>. In this section we will document how these configs are structured and what prerequisites <cite>Netbox Config Generator</cite> expects.</p>
 <div class="toctree-wrapper compound">
 <ul>
-<li class="toctree-l1"><a class="reference internal" href="config-oslo.html">Oslo Config</a></li>
-<li class="toctree-l1"><a class="reference internal" href="config-driver.html">Driver Configuration</a></li>
-<li class="toctree-l1"><a class="reference internal" href="config-input.html">Generator Input</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="config-input.html#leaf-pair">Leaf Pair</a></li>
-<li class="toctree-l2"><a class="reference internal" href="config-input.html#l2-l3-networks">L2/L3 Networks</a></li>
-<li class="toctree-l2"><a class="reference internal" href="config-input.html#ports-and-interfaces">Ports and Interfaces</a></li>
+<li class="toctree-l1"><a class="reference internal" href="config-gen.html">Netbox Config Generator</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="config-gen.html#run">Run</a></li>
+<li class="toctree-l2"><a class="reference internal" href="config-gen.html#managed-devices">Managed Devices</a></li>
+<li class="toctree-l2"><a class="reference internal" href="config-gen.html#l2-l3-networks">L2/L3 Networks</a></li>
+<li class="toctree-l2"><a class="reference internal" href="config-gen.html#ports-and-interfaces">Ports and Interfaces</a></li>
 </ul>
 </li>
+<li class="toctree-l1"><a class="reference internal" href="config-driver.html">Driver Configuration</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="config-driver.html#example-configuration">Example Configuration</a></li>
+<li class="toctree-l2"><a class="reference internal" href="config-driver.html#global-config"><code class="code docutils literal notranslate"><span class="pre">global_config</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="config-driver.html#hostgroups"><code class="code docutils literal notranslate"><span class="pre">hostgroups</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="config-driver.html#infra-networks"><code class="code docutils literal notranslate"><span class="pre">infra_networks</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="config-driver.html#extra-vlans"><code class="code docutils literal notranslate"><span class="pre">extra_vlans</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="config-driver.html#switchgroups"><code class="code docutils literal notranslate"><span class="pre">switchgroups</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="config-oslo.html">Oslo Config</a></li>
 </ul>
 </div>
 </section>
@@ -143,11 +153,11 @@ ga('send', 'pageview');
             <a href="../contributor/contributing.html"><i class="fa fa-angle-double-left" data-toggle="tooltip" data-placement="top" title="Previous: So You Want to Contribute…"></i></a>
           
           
-            <a href="config-oslo.html"><i class="fa fa-angle-double-right" data-toggle="tooltip" data-placement="top" title="Next: Oslo Config"></i></a>
+            <a href="config-gen.html"><i class="fa fa-angle-double-right" data-toggle="tooltip" data-placement="top" title="Next: Netbox Config Generator"></i></a>
           
           </div>
           <div class="row docs-byline bottom">
-            <div class="docs-updated">this page last updated: 2022-10-11 13:19:07</div>
+            <div class="docs-updated">this page last updated: 2022-10-21 17:40:07</div>
           </div>
           <div class="row">
             <div class="col-lg-8 col-md-8 col-sm-8 docs-license">
@@ -174,9 +184,9 @@ ga('send', 'pageview');
 <li class="toctree-l1"><a class="reference internal" href="../install/index.html">Networking CCloud VXLAN Fabric service installation guide</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../contributor/index.html">Contributor Documentation</a></li>
 <li class="toctree-l1 current"><a class="current reference internal" href="#">Configuration</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="config-oslo.html">Oslo Config</a></li>
+<li class="toctree-l2"><a class="reference internal" href="config-gen.html">Netbox Config Generator</a></li>
 <li class="toctree-l2"><a class="reference internal" href="config-driver.html">Driver Configuration</a></li>
-<li class="toctree-l2"><a class="reference internal" href="config-input.html">Generator Input</a></li>
+<li class="toctree-l2"><a class="reference internal" href="config-oslo.html">Oslo Config</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="../cli/index.html">Command line interface reference</a></li>
