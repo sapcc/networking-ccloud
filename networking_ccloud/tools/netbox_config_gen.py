@@ -36,6 +36,7 @@ SWITCHGROUP_ROLE_STPOD = 'st'
 SWITCHGROUP_ROLE_APOD = 'ap'
 SWITCHGROUP_ROLE_NETPOD = 'np'
 
+RESPONSIBLE_LAG_RANGES = (101, 199)
 DEFAULT_VLAN_RANGES = ["2000:3750"]
 NETWORK_AGENTS_PER_APOD = 15
 
@@ -58,6 +59,7 @@ class ConfigGenerator:
     switch_name_re = re.compile(r"^(?P<region>\w{2}-\w{2}-\d)-sw(?P<switchgroup_id>(?P<az>\d)"
                                 r"(?P<pod>\d)(?P<switchgroup>\d{2}))"
                                 r"(?P<leaf>[ab])(?:-(?P<role>[a-z]+(?P<seq_no>[0-9]+)?))$")
+    lag_id_re = re.compile(r"^\S+?(?P<lag_id>\d+)$")
     apod_node_name_re = re.compile(r'^node\d+-ap(?P<apod_seq>\d+)$')
     filer_parent_name_re = re.compile(r'^stnpca(?P<cluster_seq>\d+)-st(?P<stpod_seq>\d+)$')
     loadbalancer_vm_name_re = re.compile(
@@ -528,6 +530,18 @@ class ConfigGenerator:
                 # Those that we find unbundled are probably not modelled correctly, so we exclude them.
                 if not iface.lag:
                     continue
+                m = self.lag_id_re.match(iface.lag.name)
+                if not m:
+                    print(f'Cannot parse LAG id on interface {switch.name}/{iface.name}, '
+                          f'bundled in {iface.lag.name}')
+                lag_id = int(m.group('lag_id'))
+
+                if not RESPONSIBLE_LAG_RANGES[0] <= lag_id <= RESPONSIBLE_LAG_RANGES[1]:
+                    if self.verbose:
+                        print(f'LAG id {lag_id} on {switch.name}/{iface.lag.name} is oustide of driver '
+                              f'responsible bounds [{RESPONSIBLE_LAG_RANGES[0]}, {RESPONSIBLE_LAG_RANGES[1]}]')
+                    continue
+
                 # FIXME: ignore management, peerlink (maybe), unconnected ports
                 if iface.connected_endpoint is None:
                     continue

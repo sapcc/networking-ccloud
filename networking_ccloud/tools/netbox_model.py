@@ -159,7 +159,8 @@ class CCFabricNetboxModeller():
 
     def find_and_bundle_mlag_ports(self, gr_number, leaf_group: List[NbRecord],
                                    remote_role: str,
-                                   enforce_cluster_member=True) -> List[Tuple[NBR_DICT_T, NBR_DICT_T]]:
+                                   enforce_cluster_member=True,
+                                   conform_regex: Optional[re.Pattern] = None) -> List[Tuple[NBR_DICT_T, NBR_DICT_T]]:
         interfaces = set()
         lags_members = []
         for leaf in leaf_group:
@@ -174,8 +175,11 @@ class CCFabricNetboxModeller():
             return x.connected_endpoint.device.name, lag
 
         interfaces = sorted(interfaces, key=sorter)
-        for (device, _), members_ifaces in groupby(interfaces, sorter):
+        for (device, lag_name), members_ifaces in groupby(interfaces, sorter):
             # ensure symmetric cabling
+            if conform_regex and not conform_regex.match(lag_name):
+                print(f'LAG Name {lag_name} on {device} feels like bad OpenStack chakra, skipping')
+                continue
             members_ifaces = list(members_ifaces)
             if any(y != 2 for y in Counter(x.name for x in members_ifaces).values()):
                 print(f'Asymmetric cabling in bb/np/st/{gr_number}, to {device}')
@@ -458,22 +462,8 @@ class CCFabricNetboxModeller():
             if not self.ensure_single_attribute(('site', 'slug'), gr):
                 print(f'Np{np} switches {gr} have different sites, skipping')
                 continue
-            lags = self.find_and_bundle_mlag_ports(np, gr, 'neutron-router')
-            for lag, members in lags:
-                for member in members:
-                    # We only care about port-channel 1 at the moment cause that's the one OS binds ports to
-                    ignore_tag = list(ConfigGenerator.ignore_tags)[0]
-                    if member.connected_endpoint.lag.name != 'Port-channel1':
-                        if isinstance(lag, dict):
-                            print(f'Adding ignore-tag to {lag["name"]} on {lag["device"]}.')
-                            break
-                        if ignore_tag in {x.slug for x in lag.tags}:
-                            break
-                        print(f'Adding ignore-tag to {lag.name} on {lag.device.name}.')
-                        if not self.dry_run:
-                            lag.tags.append({'slug': ignore_tag})
-                            lag.save()
-                    break
+            # We only care about port-channel 1 at the moment cause that's the one OS binds ports to
+            self.find_and_bundle_mlag_ports(np, gr, 'neutron-router', conform_regex=re.compile(r'^Port-channel1$'))
 
     def model_f5_loadbalancers(self, limit: Optional[Set[int]] = None):
         for np, gr in self.group_leaves_by(self.leaves_by_role[SWITCHGROUP_ROLE_NETPOD], 'seq_no'):
@@ -482,23 +472,8 @@ class CCFabricNetboxModeller():
             if not self.ensure_single_attribute(('site', 'slug'), gr):
                 print(f'Np{np} switches {gr} have different sites, skipping')
                 continue
-            lags = self.find_and_bundle_mlag_ports(np, gr, 'loadbalancer')
-            for lag, members in lags:
-                for member in members:
-                    # We only care about portchannel1 at the moment cause that's the one OS binds ports to
-                    ignore_tag = list(ConfigGenerator.ignore_tags)[0]
-                    if member.connected_endpoint.lag.name == 'portchannel1':
-                        continue
-                    if isinstance(lag, dict):
-                        print(f'Adding ignore-tag to {lag["name"]} on {lag["device"]}.')
-                        break
-                    if ignore_tag in {x.slug for x in lag.tags}:
-                        break
-                    print(f'Adding ignore-tag to {lag.name} on {lag.device.name}.')
-                    if not self.dry_run:
-                        lag.tags.append({'slug': ignore_tag})
-                        lag.save()
-                    break
+            # We only care about portchannel1 at the moment cause that's the one OS binds ports to
+            self.find_and_bundle_mlag_ports(np, gr, 'loadbalancer', conform_regex=re.compile(r'^portchannel1$'))
 
     def model_apods(self, limit: Optional[Set[int]] = None):
         for ap, gr in self.group_leaves_by(self.leaves_by_role[SWITCHGROUP_ROLE_APOD], 'seq_no'):
@@ -507,24 +482,10 @@ class CCFabricNetboxModeller():
             if not self.ensure_single_attribute(('site', 'slug'), gr):
                 print(f'ap{ap} switches {gr} have different sites, skipping')
                 continue
-            lags = self.find_and_bundle_mlag_ports(ap, gr, 'server')
-            for lag, members in lags:
-                for member in members:
-                    # We only care about LAG0 at the moment cause that's the one OS binds ports to
-                    # LAG1 carries BGP peerings and other apod backbone vlans that currently are not
-                    # configured by the driver
-                    ignore_tag = list(ConfigGenerator.ignore_tags)[0]
-                    if member.connected_endpoint.lag.name != 'LAG0':
-                        if isinstance(lag, dict):
-                            print(f'Adding ignore-tag to {lag["name"]} on {lag["device"]}.')
-                            break
-                        if ignore_tag in {x.slug for x in lag.tags}:
-                            break
-                        print(f'Adding ignore-tag to {lag.name} on {lag.device.name}.')
-                        if not self.dry_run:
-                            lag.tags.append({'slug': ignore_tag})
-                            lag.save()
-                    break
+            # We only care about LAG0 at the moment cause that's the one OS binds ports to
+            # LAG1 carries BGP peerings and other apod backbone vlans that currently are not
+            # configured by the driver
+            self.find_and_bundle_mlag_ports(ap, gr, 'server', conform_regex=re.compile(r'^LAG0$'))
 
     def model_swift_nodes(self, limit: Optional[Set[int]] = None):
         region = self.api.dcim.regions.get(slug=self.region)
