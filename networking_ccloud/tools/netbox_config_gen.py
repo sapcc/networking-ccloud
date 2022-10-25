@@ -807,9 +807,6 @@ def main():
     cfggen = ConfigGenerator(args.region, args, args.verbose)
     cfg = cfggen.generate_config()
 
-    from pprint import pprint
-    pprint(cfg)
-
     if args.output:
         conf_data = cfg.dict(exclude_unset=True, exclude_defaults=True, exclude_none=True)
 
