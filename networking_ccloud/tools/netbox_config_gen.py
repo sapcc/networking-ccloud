@@ -524,6 +524,10 @@ class ConfigGenerator:
             svi_vlan_ip_map = self.get_svi_ips_per_vlan(switch)
             ifaces = self._ignore_filter(self.netbox.dcim.interfaces.filter(device_id=switch.id))
             for iface in ifaces:
+                # For now, we decided there are no non-lag connected devices.
+                # Those that we find unbundled are probably not modelled correctly, so we exclude them.
+                if not iface.lag:
+                    continue
                 # FIXME: ignore management, peerlink (maybe), unconnected ports
                 if iface.connected_endpoint is None:
                     continue
