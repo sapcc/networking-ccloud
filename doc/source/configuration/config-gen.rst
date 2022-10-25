@@ -17,12 +17,15 @@ It does support nesting the configuration under certain YAML keys if the config 
 
 Vault references can also be injected instead of plain-text passwords using the :code:`--vault-ref` parameter.
 
+In our environment, we also need a mapping from OpenStack address-scopes to externally routable VRFs. We can supply that mapping using the :code:`--address-scope-vrf-map` parameter.
+Multiple mappings can be supplied. The Config Generator will check the YAML file for any top level key that is :code:`address_scopes`, :code:`local_address_scopes` or :code:`global_address_scopes` and will then try to parse a VRF and an address scope name out of it. For this to work, the list items must have a :code:`name` and :code:`vrf` key.
+
 Example
 --------
 
 ::
 
-   cc-netbox-config-gen -r $OS_REGION_NAME -u MYAPIUSER -V $OS_REGION_NAME/my/vault/path -w cc_fabric/driver_config -o $PATH_TO_HELM_VALUES/$OS_REGION_NAME/values/neutron-cc-fabric.yaml
+   cc-netbox-config-gen -r $OS_REGION_NAME -u MYAPIUSER -V $OS_REGION_NAME/my/vault/path -a $PYCCLOUD_SECRETS_REPO_PATH/global/values/neutron-networking-global.yaml -w cc_fabric/driver_config -o $PATH_TO_HELM_VALUES/$OS_REGION_NAME/values/neutron-cc-fabric.yaml
 
 
 

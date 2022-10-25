@@ -17,6 +17,7 @@ import ipaddress
 from itertools import chain, groupby
 import logging
 from operator import attrgetter, itemgetter
+from pathlib import Path
 import re
 import urllib3
 from typing import Any, Dict, Generator, Iterable, List, Optional, Set, Tuple, Union
@@ -213,13 +214,40 @@ class ConfigGenerator:
             azs.append(conf.AvailabilityZone(name=site.slug, suffix=suffix, number=number))
         return sorted(azs, key=attrgetter('number'))
 
-    def get_cloud_vrfs(self) -> List[conf.VRF]:
+    def get_address_scopes(self, address_scope_vrf_maps_path: List[Path]) -> Dict[str, List[str]]:
+        result = defaultdict(list)
+        for p in address_scope_vrf_maps_path:
+            with p.open('r') as f:
+                asvm = yaml.safe_load(f)
+                for k in ('address_scopes', 'local_address_scopes', 'global_address_scopes'):
+                    values = asvm.get(k)
+                    if not values:
+                        continue
+                    for i, item in enumerate(values):
+                        name = item.get('name')
+                        vrf = item.get('vrf')
+                        if not name:
+                            print(f'{p.as_posix()}, key {k}, item {i}, needs a "name" to be considered '
+                                  'a valid address-scope mapping')
+                            continue
+                        if not vrf:
+                            print(f'{p.as_posix()}, key {k}, item {i}, needs a "vrf" to be considered '
+                                  'a valid address-scope mapping')
+                            continue
+                        result[vrf.lower()].append(name)
+        return result
+
+    def get_cloud_vrfs(self, address_scope_vrf_maps_path) -> List[conf.VRF]:
         vrfs = list()
         search_strings = ['CC-CLOUD', 'CC-MGMT']
+        address_scopes = self.get_address_scopes(address_scope_vrf_maps_path)
         nb_return = chain(*(self.netbox.ipam.vrfs.filter(q=x, tenant=self.tenants) for x in search_strings))
         for vrf in nb_return:
             rd_suffix = int(vrf.rd[vrf.rd.find(':') + 1:])
-            vrfs.append(conf.VRF(name=vrf.name, number=rd_suffix))  # type: ignore
+            scopes = address_scopes.get(vrf.name.lower(), [])
+            if address_scope_vrf_maps_path and not scopes:
+                print(f'I could not find any addres-scopes for VRF {vrf.name}')
+            vrfs.append(conf.VRF(name=vrf.name, number=rd_suffix, address_scopes=scopes))  # type: ignore
         return sorted(vrfs, key=attrgetter('number'))
 
     @classmethod
@@ -724,6 +752,7 @@ class ConfigGenerator:
 
         switch_user = self.args.switch_user
         switch_password = self.args.switch_password
+        address_scope_vrf_maps_path = self.args.address_scope_vrf_map
 
         nb_switches = list(self.switch_filter(self.netbox.dcim.devices.filter(region=self.region, role=self.leaf_role,
                                                                               status='active')))
@@ -738,7 +767,8 @@ class ConfigGenerator:
         binding_host_hg_map = {hg.binding_hosts[0]: hg for hg in direct_hgs}
 
         global_config = conf.GlobalConfig(asn_region=asn_region, default_vlan_ranges=DEFAULT_VLAN_RANGES,
-                                          vrfs=self.get_cloud_vrfs(), availability_zones=self.get_azs())
+                                          vrfs=self.get_cloud_vrfs(address_scope_vrf_maps_path),
+                                          availability_zones=self.get_azs())
 
         # FIXME: meta hostgroups based on device-role
         # FIXME: check that no hostgroup has switches from two different switchgroups
@@ -781,6 +811,9 @@ def main():
 
     parser.add_argument('-w', '--wrap-in', help='Keys under which the generated config should be nested under. '
                                                 'Format should be: <key1>/<key2>...')
+    parser.add_argument("-a", "--address-scope-vrf-map", type=Path, nargs="+",
+                        help="Path to file containing a mapping of address scope names to VRFs. If this is omitted, "
+                             "no mapping will be generated.")
     parser.add_argument("-s", "--shell", action="store_true")
     parser.add_argument("-o", "--output")
 
