@@ -797,8 +797,8 @@ to tag a prefix as a supernet that should be announced towards upstream routers:
 <span class="n">ip</span> <span class="n">prefix</span><span class="o">-</span><span class="nb">list</span> <span class="n">PL</span><span class="o">-</span><span class="n">CC</span><span class="o">-</span><span class="n">CLOUD02</span><span class="o">-</span><span class="n">EXTERNAL</span>
 <span class="n">ip</span> <span class="n">prefix</span><span class="o">-</span><span class="nb">list</span> <span class="n">PL</span><span class="o">-</span><span class="n">CC</span><span class="o">-</span><span class="n">CLOUD02</span><span class="o">-</span><span class="n">A</span><span class="o">-</span><span class="n">EXTERNAL</span>
 
- <span class="n">interface</span> <span class="n">Vxlan1</span>
-    <span class="n">vxlan</span> <span class="n">vrf</span> <span class="n">CC</span><span class="o">-</span><span class="n">CLOUD02</span> <span class="n">vni</span> <span class="mi">102</span>
+<span class="n">interface</span> <span class="n">Vxlan1</span>
+  <span class="n">vxlan</span> <span class="n">vrf</span> <span class="n">CC</span><span class="o">-</span><span class="n">CLOUD02</span> <span class="n">vni</span> <span class="mi">102</span>
 
 <span class="n">router</span> <span class="n">bgp</span> <span class="mf">65130.1103</span>
   <span class="n">vrf</span> <span class="n">CC</span><span class="o">-</span><span class="n">CLOUD02</span>
@@ -810,6 +810,10 @@ to tag a prefix as a supernet that should be announced towards upstream routers:
     <span class="n">route</span><span class="o">-</span><span class="n">target</span> <span class="kn">import</span> <span class="nn">evpn</span> <span class="mi">65130</span><span class="p">:</span><span class="mi">4102</span>
     <span class="n">redistribute</span> <span class="n">connected</span> <span class="n">route</span><span class="o">-</span><span class="nb">map</span> <span class="n">RM</span><span class="o">-</span><span class="n">CC</span><span class="o">-</span><span class="n">CLOUD02</span><span class="o">-</span><span class="n">REDIST</span>
     <span class="n">redistribute</span> <span class="n">static</span> <span class="n">route</span><span class="o">-</span><span class="nb">map</span> <span class="n">RM</span><span class="o">-</span><span class="n">CC</span><span class="o">-</span><span class="n">CLOUD02</span><span class="o">-</span><span class="n">REDIST</span>
+
+<span class="c1"># Octa crashes when `redistribute static` is configured but no static route is present</span>
+<span class="c1"># Let us configure a dummy route from the zeroconf range to hackaround that problem</span>
+<span class="n">ip</span> <span class="n">route</span> <span class="n">vrf</span> <span class="n">CC</span><span class="o">-</span><span class="n">CLOUD02</span> <span class="mf">169.254.255.255</span> <span class="mf">255.255.255.255</span> <span class="n">null0</span>
 </pre></div>
 </div>
 <p>Driver controlled configuration:</p>
@@ -1350,7 +1354,7 @@ interface Port-Channel201
           
           </div>
           <div class="row docs-byline bottom">
-            <div class="docs-updated">this page last updated: 2022-10-20 13:33:27</div>
+            <div class="docs-updated">this page last updated: 2022-10-17 11:28:09</div>
           </div>
           <div class="row">
             <div class="col-lg-8 col-md-8 col-sm-8 docs-license">

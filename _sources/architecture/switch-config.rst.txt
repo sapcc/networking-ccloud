@@ -619,8 +619,8 @@ We assume the following L3 related config to be preconfigured on each device, ex
   ip prefix-list PL-CC-CLOUD02-EXTERNAL
   ip prefix-list PL-CC-CLOUD02-A-EXTERNAL
 
-   interface Vxlan1
-      vxlan vrf CC-CLOUD02 vni 102
+  interface Vxlan1
+    vxlan vrf CC-CLOUD02 vni 102
 
   router bgp 65130.1103
     vrf CC-CLOUD02
@@ -632,7 +632,10 @@ We assume the following L3 related config to be preconfigured on each device, ex
       route-target import evpn 65130:4102
       redistribute connected route-map RM-CC-CLOUD02-REDIST
       redistribute static route-map RM-CC-CLOUD02-REDIST
-   
+  
+  # Octa crashes when `redistribute static` is configured but no static route is present
+  # Let us configure a dummy route from the zeroconf range to hackaround that problem
+  ip route vrf CC-CLOUD02 169.254.255.255 255.255.255.255 null0   
 
 
 Driver controlled configuration:
