@@ -127,9 +127,11 @@ The driver configuration is generated based on input from external tooling (Netb
 <p>The config generator is available under <code class="code docutils literal notranslate"><span class="pre">networking_ccloud/tools/netbox_config_gen.py</span></code> using the entrypoint <code class="code docutils literal notranslate"><span class="pre">cc-netbox-config-gen</span></code>.</p>
 <p>It does support nesting the configuration under certain YAML keys if the config need to be picked up by helm. Use the <code class="code docutils literal notranslate"><span class="pre">--wrap-in</span></code> parameter for that.</p>
 <p>Vault references can also be injected instead of plain-text passwords using the <code class="code docutils literal notranslate"><span class="pre">--vault-ref</span></code> parameter.</p>
+<p>In our environment, we also need a mapping from OpenStack address-scopes to externally routable VRFs. We can supply that mapping using the <code class="code docutils literal notranslate"><span class="pre">--address-scope-vrf-map</span></code> parameter.
+Multiple mappings can be supplied. The Config Generator will check the YAML file for any top level key that is <code class="code docutils literal notranslate"><span class="pre">address_scopes</span></code>, <code class="code docutils literal notranslate"><span class="pre">local_address_scopes</span></code> or <code class="code docutils literal notranslate"><span class="pre">global_address_scopes</span></code> and will then try to parse a VRF and an address scope name out of it. For this to work, the list items must have a <code class="code docutils literal notranslate"><span class="pre">name</span></code> and <code class="code docutils literal notranslate"><span class="pre">vrf</span></code> key.</p>
 <section id="example">
 <h3>Example<a class="headerlink" href="#example" title="Permalink to this heading">¶</a></h3>
-<div class="highlight-default notranslate"><div class="highlight"><pre><span></span>cc-netbox-config-gen -r $OS_REGION_NAME -u MYAPIUSER -V $OS_REGION_NAME/my/vault/path -w cc_fabric/driver_config -o $PATH_TO_HELM_VALUES/$OS_REGION_NAME/values/neutron-cc-fabric.yaml
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span>cc-netbox-config-gen -r $OS_REGION_NAME -u MYAPIUSER -V $OS_REGION_NAME/my/vault/path -a $PYCCLOUD_SECRETS_REPO_PATH/global/values/neutron-networking-global.yaml -w cc_fabric/driver_config -o $PATH_TO_HELM_VALUES/$OS_REGION_NAME/values/neutron-cc-fabric.yaml
 </pre></div>
 </div>
 </section>
@@ -422,7 +424,7 @@ The LAG ID will then be calculated using <cite>slot_number * 100 + interface_ind
           
           </div>
           <div class="row docs-byline bottom">
-            <div class="docs-updated">this page last updated: 2022-10-25 16:52:29</div>
+            <div class="docs-updated">this page last updated: 2022-10-25 17:50:51</div>
           </div>
           <div class="row">
             <div class="col-lg-8 col-md-8 col-sm-8 docs-license">
