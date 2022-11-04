@@ -230,38 +230,6 @@ class TestDBPluginNetworkSyncData(test_segment.SegmentTestCase, base.PortBinding
             self.assertEqual(700, net_hosts[self._net_b['id']]['mew-compute']['segmentation_id'])
             self.assertEqual(800, net_hosts[self._net_b['id']]['caw-compute']['segmentation_id'])
 
-    def test_get_networks_on_physnet(self):
-        ctx = context.get_admin_context()
-        self.assertEqual({self._net_a['id'], self._net_b['id']}, set(self._db.get_networks_on_physnet(ctx, "foo")))
-        self.assertEqual({self._net_b['id']}, set(self._db.get_networks_on_physnet(ctx, "spam")))
-        self.assertEqual([], self._db.get_networks_on_physnet(ctx, "invalid_physnet"))
-
-    def test_get_networks_on_physnet_in_use(self):
-        ctx = context.get_admin_context()
-
-        # same as above, including in_use
-        self.assertEqual({self._net_a['id'], self._net_b['id']},
-                         set(self._db.get_networks_on_physnet(ctx, "foo", in_use=True)))
-
-        # with custom segment that has no bindings
-        with self.network() as net:
-            # I don't know why, but segment() is not a contextmanager.
-            self.segment(physical_network="tern", network_id=net['network']['id'], network_type='vlan')
-            self.assertEqual([],
-                             self._db.get_networks_on_physnet(ctx, "tern", in_use=True))
-            self.assertEqual([net['network']['id']],
-                             self._db.get_networks_on_physnet(ctx, "tern", in_use=False))
-
-    def test_get_network_ports_on_physnet(self):
-        ctx = context.get_admin_context()
-        self.assertEqual({self._port_a_1['id'], self._port_a_2['id']},
-                         set(self._db.get_network_ports_on_physnet(ctx, self._net_a['id'], "foo")))
-        self.assertEqual({self._port_b_1['id']},
-                         set(self._db.get_network_ports_on_physnet(ctx, self._net_b['id'], "foo")))
-        self.assertEqual({self._port_b_7b['id']},
-                         set(self._db.get_network_ports_on_physnet(ctx, self._net_b['id'], "caw")))
-        self.assertEqual([], self._db.get_network_ports_on_physnet(ctx, self._net_b['id'], "invalid_physnet"))
-
     def test_get_gateways_for_networks(self):
         ctx = context.get_admin_context()
 

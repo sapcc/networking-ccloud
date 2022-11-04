@@ -161,30 +161,6 @@ class CCDbPlugin(db_base_plugin_v2.NeutronDbPluginV2,
         return result
 
     @db_api.retry_if_session_inactive()
-    def get_networks_on_physnet(self, context, physnet, in_use=False):
-        query = context.session.query(segment_models.NetworkSegment.network_id)
-        # FIXME: only use networks with active port bindings? do we need this for bgws/segments without portbindings?
-        query = query.filter_by(physical_network=physnet)
-
-        if in_use:
-            query = query.join(ml2_models.PortBindingLevel,
-                               segment_models.NetworkSegment.id == ml2_models.PortBindingLevel.segment_id)
-
-        query = query.distinct()
-
-        return [entry[0] for entry in query.all()]
-
-    @db_api.retry_if_session_inactive()
-    def get_network_ports_on_physnet(self, context, network_id, physnet, level=1):
-        query = context.session.query(ml2_models.PortBindingLevel.port_id)
-        query = query.filter_by(level=level)
-        query = query.join(segment_models.NetworkSegment,
-                           ml2_models.PortBindingLevel.segment_id == segment_models.NetworkSegment.id)
-        query = query.filter_by(network_id=network_id, physical_network=physnet)
-
-        return [entry[0] for entry in query.all()]
-
-    @db_api.retry_if_session_inactive()
     def get_azs_for_network(self, context, network_id, extra_binding_hosts=None):
         """Get all AZs in this network bound on this driver"""
         # get binding hosts on network
