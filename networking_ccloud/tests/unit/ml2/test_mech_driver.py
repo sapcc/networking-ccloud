@@ -606,6 +606,60 @@ class TestCCFabricMechanismDriver(CCFabricMechanismDriverTestBase):
                                 ),
                             ], swcfg.bgp.vrfs)
 
+    def test_delete_port_external_network_segment_not_in_use(self):
+        net_kwargs = {'arg_list': (extnet_api.EXTERNAL,), extnet_api.EXTERNAL: True}
+        with self.network(**net_kwargs) as network:
+            # create existing binding, so we have something to delete
+            seg_0 = {'network_id': network['network']['id'], 'network_type': 'vxlan', 'segmentation_id': 232323}
+            seg_1 = {'network_id': network['network']['id'], 'network_type': 'vlan', 'physical_network': 'seagull',
+                     'segmentation_id': 1000}
+            segments_db.add_network_segment(self.context, network['network']['id'], seg_0)
+            segments_db.add_network_segment(self.context, network['network']['id'], seg_1, 1, True)
+            with self.subnetpool(["1.1.0.0/16", "1.2.0.0/24"], address_scope_id=self._address_scope.id, name="foo",
+                                 tenant_id="foo", admin=True) as snp:
+                with self.subnet(network=network, cidr="1.1.1.0/24", gateway_ip="1.1.1.1",
+                                 subnetpool_id=snp['subnetpool']['id']) as subnet:
+                    with self.port(subnet=subnet) as port:
+                        port['port']['binding:host_id'] = "nova-compute-seagull"
+                        with mock.patch('neutron.plugins.ml2.driver_context.PortContext.binding_levels',
+                                        new_callable=mock.PropertyMock) as bl_mock, \
+                                mock.patch.object(CCFabricSwitchAgentRPCClient, 'apply_config_update') as mock_acu:
+                            bindings = ml2_models.PortBinding()
+                            pc = driver_context.PortContext(self.plugin, self.context, port['port'], network['network'],
+                                                            bindings, binding_levels=None)
+                            bl_mock.return_value = [dict(bound_segment=seg_0), dict(bound_segment=seg_1)]
+
+                            pc.release_dynamic_segment = mock.Mock()
+                            pc._plugin_context = self.context
+                            self.mech_driver.delete_port_postcommit(pc)
+                            pc.release_dynamic_segment.assert_called()
+                            self.assertEqual(seg_1['id'], pc.release_dynamic_segment.call_args[0][0])
+                            mock_acu.assert_called()
+                            swcfgs = mock_acu.call_args[0][1]
+
+                            for swcfg in swcfgs:
+                                self.assertEqual(agent_msg.OperationEnum.remove, swcfg.operation)
+
+                                # check for vlan ids
+                                vlan_id = swcfg.bgp.vlans[0].vlan
+                                self.assertEqual([
+                                    agent_msg.VlanIface(vlan=vlan_id, vrf="cc-earth", primary_ip="1.1.1.1/24",
+                                                        secondary_ips=[]),
+                                ], swcfg.vlan_ifaces)
+
+                                # check bgp config
+                                self.assertEqual([
+                                    agent_msg.BGPVRF(
+                                        name="cc-earth",
+                                        networks=[
+                                            agent_msg.BGPVRFNetwork(network='1.1.1.0/24',
+                                                                    az_local=False, ext_announcable=False),
+                                        ],
+                                        # no aggregates on delete
+                                        aggregates=[],
+                                    ),
+                                ], swcfg.bgp.vrfs)
+
 
 class TestCCFabricMechanismDriverInterconnects(CCFabricMechanismDriverTestBase):
     def setUp(self):

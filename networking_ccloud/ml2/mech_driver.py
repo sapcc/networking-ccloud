@@ -540,29 +540,19 @@ class CCFabricMechanismDriver(ml2_api.MechanismDriver, CCFabricDriverAPI):
                                         segment_0[ml2_api.SEGMENTATION_ID], segment_1[ml2_api.SEGMENTATION_ID],
                                         trunk_vlan, keep_mapping, exclude_hosts, gateways=gateways)
 
-        # handle l3 bgp config (per-network lifecycle)
+        # handle l3 bgp config
         if net_external:
-            add_l3_config = False
-            hg_physnet = hg_config.get_vlan_pool_name(self.drv_conf)
-            if add:
-                add_l3_config = force_update
-                if not add_l3_config:
-                    # only add if the network is not already scheduled
-                    switch_networks = self.fabric_plugin.get_networks_on_physnet(context, hg_physnet, in_use=True)
-                    add_l3_config = network_id not in switch_networks
-            else:
-                # only remove if we're the last port on the device
-                switch_net_ports = self.fabric_plugin.get_network_ports_on_physnet(context, network_id, hg_physnet)
-                if len(switch_net_ports) == 0 or \
-                        (len(switch_net_ports) == 1 and switch_net_ports[0] == context.current['id']):
-                    add_l3_config = True
-
-            if add_l3_config:
-                # add l3 network (this will have only one VRF entry)
-                vrf_config = self.fabric_plugin.get_l3_network_config(context, [network_id])
-                for vrf_name, vrf in vrf_config.items():
-                    scul.add_vrf_bgp_config([sw_name for sw_name, _ in hg_config.iter_switchports(self.drv_conf)],
-                                            vrf_name, vrf['vrf_networks'], vrf['vrf_aggregates'])
+            # NOTE: For our l3 lifecycle the cidrs of subnets ("vrf_networks") join/leave the switch
+            #       together with the subnet. This is different for the aggregates, as an aggregate
+            #       might be in use by another network on the same subnet pool. Therefore the aggregate
+            #       lifecycle is "add on segment join" and we'll just leave them there on delete.
+            #       The syncloop will clean them up later and they don't do any harm in the meantime.
+            #       If this changes... we'll just fix the lifecycle here.
+            vrf_config = self.fabric_plugin.get_l3_network_config(context, [network_id])
+            for vrf_name, vrf in vrf_config.items():
+                vrf_aggregates = vrf['vrf_aggregates'] if add else []
+                scul.add_vrf_bgp_config([sw_name for sw_name, _ in hg_config.iter_switchports(self.drv_conf)],
+                                        vrf_name, vrf['vrf_networks'], vrf_aggregates)
 
         if not scul.execute(context, synchronous=False):
             LOG.warning("Update for host %s on %s yielded no config updates! add=%s, keep=%s, excl=%s",
