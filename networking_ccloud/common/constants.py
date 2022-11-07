@@ -23,6 +23,7 @@ CC_DRIVER_NAME = 'cc-fabric'
 VIF_TYPE_CC_FABRIC = 'cc-fabric'
 
 CC_TRANSIT = 'cc-fabric-transit'
+CC_NET_GW = 'cc-fabric-network-gateway'
 
 DEVICE_TYPE_TRANSIT = 'transit'
 DEVICE_TYPE_BGW = 'bgw'

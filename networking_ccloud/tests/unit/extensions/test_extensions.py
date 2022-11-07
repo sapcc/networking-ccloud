@@ -11,14 +11,24 @@
 #    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
 #    License for the specific language governing permissions and limitations
 #    under the License.
+import re
 from unittest import mock
 
 from neutron.api import extensions
+from neutron.db.models import address_scope as ascope_models
+from neutron.db.models import external_net as extnet_models
 from neutron.db.models import segment as segment_models
+from neutron.db import models_v2
+from neutron.extensions import tagging
+from neutron.services.tag import tag_plugin
 from neutron.tests.unit.api.test_extensions import setup_extensions_middleware
 from neutron.tests.unit.extensions import test_segment
+from neutron_lib.callbacks import events
+from neutron_lib.callbacks import registry
 from neutron_lib import context
+from neutron_lib.plugins import directory
 from neutron_lib.plugins.ml2 import api as ml2_api
+from oslo_config import cfg
 import webtest
 
 from networking_ccloud.common.config import _override_driver_config
@@ -69,6 +79,8 @@ class TestSyncExtension(base.TestCase):
 class TestNetworkExtension(test_segment.SegmentTestCase, base.PortBindingHelper):
     def setUp(self):
         super().setUp()
+        directory.add_plugin(tagging.TAG_PLUGIN_TYPE, tag_plugin.TagPlugin())
+        self.tag_plugin = directory.get_plugin(tagging.TAG_PLUGIN_TYPE)
 
         # make config
         switchgroups = [
@@ -98,7 +110,9 @@ class TestNetworkExtension(test_segment.SegmentTestCase, base.PortBindingHelper)
         ]
         hostgroups = hg_seagull + hg_crow + interconnects
 
-        self.conf_drv = cfix.make_config(switchgroups=switchgroups, hostgroups=hostgroups)
+        extra_vrfs = [{"name": "cc-seagull", "address_scopes": ["seagull"], "number": 23}]
+
+        self.conf_drv = cfix.make_config(switchgroups=switchgroups, hostgroups=hostgroups, extra_vrfs=extra_vrfs)
         _override_driver_config(self.conf_drv)
         self.db = CCDbPlugin()
         self.ctx = context.get_admin_context()
@@ -122,6 +136,31 @@ class TestNetworkExtension(test_segment.SegmentTestCase, base.PortBindingHelper)
         self._port_a_2 = self._make_port_with_binding(segments=[(self._seg_a[None], 'cc-fabric'),
                                                                 (self._seg_a['crow'], 'meow-ml2')],
                                                       host='nova-compute-crow')
+
+        self._net_b = self._make_network(name="b", admin_state_up=True, fmt='json')['network']
+        self._seg_b = {physnet: self._make_segment(network_id=self._net_b['id'], network_type='vlan',
+                       physical_network=physnet, segmentation_id=seg_id, tenant_id='test-tenant',
+                       fmt='json')['segment']
+                       for physnet, seg_id in (('seagull', 101),)}
+        self._seg_b[None] = self._make_segment(network_id=self._net_b['id'], network_type='vxlan',
+                                               segmentation_id=232324,
+                                               tenant_id="test-tenant", fmt='json')['segment']
+        self._port_b_1 = self._make_port_with_binding(segments=[(self._seg_b[None], 'cc-fabric'),
+                                                                (self._seg_b['seagull'], 'meow-ml2')],
+                                                      host='nova-compute-seagull')
+        self._snp_b = self._make_subnetpool("json", prefixes=["1.1.0.0/16"], tenant_id="foo", name="sp")['subnetpool']
+        self._subnet_b_1 = self._make_subnet("json", network={'network': self._net_b}, subnetpool_id=self._snp_b['id'],
+                                             cidr="1.1.1.0/24", gateway="1.1.1.1")
+
+        with self.ctx.session.begin():
+            self.ctx.session.add(extnet_models.ExternalNetwork(network_id=self._net_b['id']))
+            ascope = ascope_models.AddressScope(name="seagull", ip_version=4)
+            self.ctx.session.add(ascope)
+            spn = self.ctx.session.query(models_v2.SubnetPool).get(self._snp_b['id'])
+            spn.address_scope_id = ascope.id
+            objs = self.ctx.session.query(segment_models.NetworkSegment).filter_by(physical_network=None,
+                                                                                   network_type='vxlan')
+            objs.update({'segment_index': 0})
 
         # fix segment index
         with self.ctx.session.begin():
@@ -455,6 +494,54 @@ class TestNetworkExtension(test_segment.SegmentTestCase, base.PortBindingHelper)
                 for iface in swcfg.ifaces:
                     self.assertTrue(iface.portchannel_id)
                     self.assertEqual(iface.members, [])
+
+    def test_network_move_gateway_to_fabric(self):
+        cfg.CONF.set_override('handle_all_l3_gateways', False, group='ml2_cc_fabric')
+        with mock.patch.object(CCFabricSwitchAgentRPCClient, 'apply_config_update') as mock_acu:
+            fake_method = mock.Mock()
+            try:
+                registry.subscribe(fake_method, cc_const.CC_NET_GW, events.BEFORE_UPDATE)
+
+                resp = self.app.put(f"/cc-fabric/networks/{self._net_b['id']}/move_gateway_to_fabric")
+
+                # check that network now has the moved-to-fabric tag
+                self.assertIn(cc_const.L3_GATEWAY_TAG,
+                              self.tag_plugin.get_tags(self.ctx, 'networks', self._net_b['id'])['tags'])
+                # check that the event has been sent to other drivers
+                # check return value of API request
+                self.assertTrue(resp.json['sync_sent'])
+                mock_acu.assert_called()
+                swcfgs = mock_acu.call_args[0][1]
+                for swcfg in swcfgs:
+                    self.assertEqual(self._seagull_vifaces, swcfg.vlan_ifaces)
+                    self.assertEqual(self._seagull_bgpvrfs, swcfg.bgp.vrfs)
+            finally:
+                registry.unsubscribe(fake_method, cc_const.CC_NET_GW, events.BEFORE_UPDATE)
+
+    def test_network_move_gateway_to_fabric_no_move_if_already_moved(self):
+        cfg.CONF.set_override('handle_all_l3_gateways', False, group='ml2_cc_fabric')
+        with self.network() as net:
+            net_id = net['network']['id']
+            with self.ctx.session.begin():
+                self.ctx.session.add(extnet_models.ExternalNetwork(network_id=net_id))
+            self.tag_plugin.update_tag(self.ctx, "networks", net_id, cc_const.L3_GATEWAY_TAG)
+            resp = self.app.put(f"/cc-fabric/networks/{net_id}/move_gateway_to_fabric", expect_errors=True)
+            self.assertEqual(resp.status_code, 409)
+            self.assertTrue(re.search(f"Network {net_id} was already moved to fabric", resp.text))
+
+    def test_network_move_gateway_to_fabric_no_move_if_not_external(self):
+        cfg.CONF.set_override('handle_all_l3_gateways', False, group='ml2_cc_fabric')
+        with self.network() as net:
+            net_id = net['network']['id']
+            self.tag_plugin.update_tag(self.ctx, "networks", net_id, cc_const.L3_GATEWAY_TAG)
+            resp = self.app.put(f"/cc-fabric/networks/{net_id}/move_gateway_to_fabric", expect_errors=True)
+            self.assertEqual(resp.status_code, 409)
+            self.assertTrue(re.search(f"Network {net_id} is not an external network", resp.text))
+
+    def test_network_move_gateway_to_fabric_no_move_if_we_handle_all_gateways(self):
+        resp = self.app.put(f"/cc-fabric/networks/{self._net_a['id']}/move_gateway_to_fabric", expect_errors=True)
+        self.assertEqual(resp.status_code, 409)
+        self.assertTrue(re.search("currently handling all gateways by default", resp.text))
 
 
 class TestSyncloopExtension(base.TestCase):

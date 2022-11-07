@@ -18,13 +18,18 @@ from operator import itemgetter
 
 from neutron.api import extensions
 from neutron.api.v2.resource import Resource
+from neutron.extensions import tagging
 from neutron import policy
 from neutron import wsgi
+from neutron_lib.api.definitions import external_net as extnet_api
 from neutron_lib.api import extensions as api_extensions
 from neutron_lib.api import faults
+from neutron_lib.callbacks import events
+from neutron_lib.callbacks import registry
 from neutron_lib import exceptions as nl_exc
 from neutron_lib.plugins import directory
 from neutron_lib.plugins.ml2 import api as ml2_api
+from oslo_config import cfg
 from oslo_log import log as logging
 from oslo_messaging import RemoteError
 from webob import exc as web_exc
@@ -105,13 +110,14 @@ def register_api_extension():
 
 class FabricNetworksController(wsgi.Controller):
     """Show network info"""
-    MEMBER_ACTIONS = {'diff': 'GET', 'sync': 'PUT', 'ensure_interconnects': 'PUT'}
+    MEMBER_ACTIONS = {'diff': 'GET', 'sync': 'PUT', 'ensure_interconnects': 'PUT', 'move_gateway_to_fabric': 'PUT'}
 
     def __init__(self, fabric_plugin):
         super().__init__()
         self.fabric_plugin = fabric_plugin
         self.drv_conf = get_driver_config()
         self.plugin = directory.get_plugin()
+        self.tag_plugin = directory.get_plugin(tagging.TAG_PLUGIN_TYPE)
 
     @check_cloud_admin
     def index(self, request, **kwargs):
@@ -235,6 +241,46 @@ class FabricNetworksController(wsgi.Controller):
                                             is_bgw=device.device_type == cc_const.DEVICE_TYPE_BGW)
 
         return scul
+
+    @check_cloud_admin
+    def move_gateway_to_fabric(self, request, **kwargs):
+        if cfg.CONF.ml2_cc_fabric.handle_all_l3_gateways:
+            raise web_exc.HTTPConflict("Fabric driver is currently handling all gateways by default, "
+                                       "moving gateways is only available when 'ml2_cc_fabric.handle_all_l3_gateways' "
+                                       "is unset in config")
+        # make sure network exists
+        network_id = kwargs.pop('id')
+        network = self.plugin.get_network(request.context, network_id)
+
+        # ...and that it is an external network
+        if not network[extnet_api.EXTERNAL]:
+            raise web_exc.HTTPConflict(f"Network {network_id} is not an external network")
+
+        # ...and that it is not already on the fabric
+        if cc_const.L3_GATEWAY_TAG in network['tags']:
+            raise web_exc.HTTPConflict(f"Network {network_id} was already moved to fabric")
+
+        LOG.info("Starting move of l3 gateway for network %s to cc-fabric", network_id)
+
+        # send event to other drivers
+        payload_metadata = {
+            'network_id': network_id,
+            'move-to-cc-fabric': True,
+        }
+        payload = events.DBEventPayload(request.context, metadata=payload_metadata)
+        registry.publish(cc_const.CC_NET_GW, events.BEFORE_UPDATE, self, payload=payload)
+
+        # tag network
+        self.tag_plugin.update_tag(request.context, "networks", network_id, cc_const.L3_GATEWAY_TAG)
+
+        # send out network sync for this network (as now the tag has been set)
+        scul = self._make_config_from_network(request.context, network_id)
+        try:
+            config_generated = scul.execute(request.context)
+        except RemoteError as e:
+            raise web_exc.HTTPInternalServerError(f"{e.exc_type} {e.value}")
+
+        return {'sync_sent': config_generated}
 
 
 class SwitchesController(wsgi.Controller):
