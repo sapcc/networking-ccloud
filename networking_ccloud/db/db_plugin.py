@@ -28,6 +28,7 @@ from neutron.services.segments.db import SegmentDbMixin
 from neutron.services.trunk import models as trunk_models
 from neutron_lib import constants as nl_const
 from neutron_lib.db import api as db_api
+from oslo_config import cfg
 from oslo_log import log as logging
 import sqlalchemy as sa
 
@@ -296,6 +297,14 @@ class CCDbPlugin(db_base_plugin_v2.NeutronDbPluginV2,
         if external_only:
             query = query.join(extnet_models.ExternalNetwork,
                                models_v2.Subnet.network_id == extnet_models.ExternalNetwork.network_id)
+
+        if not cfg.CONF.ml2_cc_fabric.handle_all_l3_gateways:
+            # only handle tagged networks
+            query = query.join(models_v2.Network,
+                               models_v2.Subnet.network_id == models_v2.Network.id)
+            query = query.join(tag_models.Tag,
+                               models_v2.Network.standard_attr_id == tag_models.Tag.standard_attr_id)
+            query = query.filter(tag_models.Tag.tag == cc_const.L3_GATEWAY_TAG)
 
         result = {}
         for entry in query.all():
