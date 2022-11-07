@@ -22,6 +22,7 @@ from neutron_lib.exceptions import availability_zone as az_exc
 from neutron_lib.plugins import directory
 from neutron_lib.plugins.ml2 import api as ml2_api
 from neutron_lib import rpc as n_rpc
+from oslo_config import cfg
 from oslo_log import log as logging
 
 from networking_ccloud.common.config import get_driver_config, validate_ml2_vlan_ranges
@@ -530,7 +531,8 @@ class CCFabricMechanismDriver(ml2_api.MechanismDriver, CCFabricDriverAPI):
         gateways = None
         if net_external:
             gateways = self.fabric_plugin.get_gateways_with_vrfs_for_network(context, network_id)
-            if not gateways:
+            if not gateways and cfg.CONF.ml2_cc_fabric.handle_all_l3_gateways:
+                # only warn if we are responsible for all l3 gateways
                 LOG.warning("Network %s has no gateway IPs, l3 will not work (binding host %s)",
                             network_id, binding_host)
 
@@ -541,7 +543,7 @@ class CCFabricMechanismDriver(ml2_api.MechanismDriver, CCFabricDriverAPI):
                                         trunk_vlan, keep_mapping, exclude_hosts, gateways=gateways)
 
         # handle l3 bgp config
-        if net_external:
+        if net_external and gateways:
             # NOTE: For our l3 lifecycle the cidrs of subnets ("vrf_networks") join/leave the switch
             #       together with the subnet. This is different for the aggregates, as an aggregate
             #       might be in use by another network on the same subnet pool. Therefore the aggregate

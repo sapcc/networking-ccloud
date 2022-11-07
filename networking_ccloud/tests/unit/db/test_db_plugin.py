@@ -17,11 +17,14 @@ from neutron.db.models import external_net as extnet_models
 from neutron.db.models import segment as segment_models
 from neutron.db.models import tag as tag_models
 from neutron.db import models_v2
+from neutron.services.tag import tag_plugin
 from neutron.services.trunk import models as trunk_models
 from neutron.tests.unit.extensions import test_segment
 from neutron_lib import context
+from oslo_config import cfg
 
 from networking_ccloud.common.config import _override_driver_config, config_driver
+from networking_ccloud.common import constants as cc_const
 from networking_ccloud.db.db_plugin import CCDbPlugin
 from networking_ccloud.tests import base
 from networking_ccloud.tests.common import config_fixtures as cfix
@@ -240,6 +243,22 @@ class TestDBPluginNetworkSyncData(test_segment.SegmentTestCase, base.PortBinding
 
         # networks without subnetpool/address scope are not returned by this, so....
         self.assertEqual({}, self._db.get_gateways_for_networks(ctx, [self._net_a['id']], external_only=False))
+
+    def test_get_gateways_for_networks_when_not_handling_l3_gateways(self):
+        ctx = context.get_admin_context()
+        cfg.CONF.set_override('handle_all_l3_gateways', False, group='ml2_cc_fabric')
+        self.assertEqual({}, self._db.get_gateways_for_networks(ctx, [self._net_c['id']]))
+
+    def test_get_gateways_for_networks_when_not_handling_l3_gateways_but_net_is_tagged(self):
+        tp = tag_plugin.TagPlugin()
+        ctx = context.get_admin_context()
+        cfg.CONF.set_override('handle_all_l3_gateways', False, group='ml2_cc_fabric')
+        try:
+            tp.update_tag(ctx, "networks", self._net_c['id'], cc_const.L3_GATEWAY_TAG)
+            self.assertEqual({self._net_c['id']: [("1.1.1.1/24", "seagull"), ("2.2.2.2/24", "seagull")]},
+                             self._db.get_gateways_for_networks(ctx, [self._net_c['id']]))
+        finally:
+            tp.delete_tag(ctx, "networks", self._net_c['id'], cc_const.L3_GATEWAY_TAG)
 
     def test_get_gateways_for_network(self):
         ctx = context.get_admin_context()

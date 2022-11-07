@@ -21,6 +21,9 @@ LOG = logging.getLogger(__name__)
 cc_fabric_opts = [
     cfg.StrOpt("driver_config_path",
                help="Path to yaml config file"),
+    cfg.BoolOpt("handle_all_l3_gateways", default=True,
+                help="Spawn l3 gateways for all external networks. If this is disabled only networks with "
+                     "the tag 'gateway-host::cc-fabric' will be considered"),
 ]
 
 cc_fabric_agent_opts = [

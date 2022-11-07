@@ -30,6 +30,7 @@ DEVICE_TYPE_BGW = 'bgw'
 AGENT_TYPE_CC_FABRIC = 'CC fabric agent'
 
 AZ_TAG_PREFIX = 'availability-zone::'
+L3_GATEWAY_TAG = 'gateway-host::cc-fabric'
 
 # rpc topics
 CC_DRIVER_TOPIC = 'cc-fabric-driver'
