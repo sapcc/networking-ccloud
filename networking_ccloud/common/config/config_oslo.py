@@ -24,6 +24,9 @@ cc_fabric_opts = [
     cfg.BoolOpt("handle_all_l3_gateways", default=True,
                 help="Spawn l3 gateways for all external networks. If this is disabled only networks with "
                      "the tag 'gateway-host::cc-fabric' will be considered"),
+    cfg.BoolOpt("subnet_subnetpool_az_check_enabled", default=True,
+                help="Check if a subnet's network az hint matches the subnetpool's az hint (tag) on "
+                     "creation of an external subnet"),
 ]
 
 cc_fabric_agent_opts = [
