@@ -355,6 +355,49 @@ class CCFabricMechanismDriver(ml2_api.MechanismDriver, CCFabricDriverAPI):
         if not scul.execute(context._plugin_context, synchronous=False):
             LOG.warning("Deletion of network %s yielded no config updates!", network_id)
 
+    def create_subnet_precommit(self, context):
+        """Allocate resources for a new subnet.
+
+        :param context: SubnetContext instance describing the new
+            subnet.
+
+        Create a new subnet, allocating resources as necessary in the
+        database. Called inside transaction context on session. Call
+        cannot block.  Raising an exception will result in a rollback
+        of the current transaction.
+        """
+        self._check_subnet_and_subnetpool_az_match(context)
+
+    def _check_subnet_and_subnetpool_az_match(self, context):
+        if not cfg.CONF.ml2_cc_fabric.subnet_subnetpool_az_check_enabled:
+            return
+
+        # check if a subnet's subnetpool and a subnet's network are in the same AZ
+        # network needs to be external, subnet needs to have a subnetpool
+        snp_id = context.current['subnetpool_id']
+        net = context.network.current
+        if snp_id is None or not net[extnet_api.EXTERNAL]:
+            return
+
+        # network az hint must match subnetpool az tag
+        net_az_hints = net[az_api.AZ_HINTS]
+        net_az_hint = net_az_hints[0] if net_az_hints else None
+
+        snp_details = self.fabric_plugin.get_subnetpool_details(context._plugin_context,
+                                                                [context.current['subnetpool_id']])
+
+        # if the subnetpool has no address scope we ignore it
+        if snp_id not in snp_details:
+            return
+
+        snp_az = snp_details[snp_id]['az']
+
+        # net and snp az need to match. they need to either be None or an AZ
+        if net_az_hint != snp_az:
+            raise cc_exc.SubnetSubnetPoolAZAffinityError(network_id=net['id'], net_az_hint=net_az_hint,
+                                                         subnetpool_id=context.current['subnetpool_id'],
+                                                         subnetpool_az=snp_az)
+
     def create_port_precommit(self, context):
         """Allocate resources for a new port.
 

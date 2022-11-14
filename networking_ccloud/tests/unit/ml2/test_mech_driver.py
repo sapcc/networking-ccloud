@@ -14,6 +14,7 @@
 
 import copy
 from operator import itemgetter
+import re
 from unittest import mock
 
 from neutron.db.models import address_scope as ascope_models
@@ -492,6 +493,59 @@ class TestCCFabricMechanismDriver(CCFabricMechanismDriverTestBase):
                                             arg_list=('binding:host_id',), **{'binding:host_id': 'node001-seagull'})
                     acp.assert_called()
                     self.assertEqual(res.status_int, 201)
+
+    def test_create_subnet_az_hint_matches(self):
+        net_kwargs = {'arg_list': (extnet_api.EXTERNAL,), extnet_api.EXTERNAL: True}
+        with self.network(**net_kwargs) as network:
+            with self.subnetpool(["1.1.0.0/16", "1.2.0.0/24"], name="foo", tenant_id="foo", admin=True) as snp:
+                with self.subnet(network=network, cidr="1.1.1.0/24", gateway_ip="1.1.1.1",
+                                 subnetpool_id=snp['subnetpool']['id']) as subnet:
+                    self.assertIsNotNone(subnet)
+
+    def test_create_subnet_network_az_snp_no_az_fails(self):
+        net_kwargs = {'arg_list': (extnet_api.EXTERNAL,), extnet_api.EXTERNAL: True}
+        with self.network(availability_zone_hints=["qa-de-1a"], **net_kwargs) as network:
+            with self.subnetpool(["1.1.0.0/16", "1.2.0.0/24"], address_scope_id=self._address_scope['id'], name="foo",
+                                 tenant_id="foo", admin=True) as snp:
+                resp = self._create_subnet(self.fmt, cidr="1.1.1.0/24", gateway_ip="1.1.1.1",
+                                           name="foo",
+                                           net_id=network['network']['id'], tenant_id=network['network']['tenant_id'],
+                                           subnetpool_id=snp['subnetpool']['id'])
+                self.assertEqual(400, resp.status_code)
+                self.assertEqual("SubnetSubnetPoolAZAffinityError", resp.json['NeutronError']['type'])
+                self.assertIsNotNone(re.search(f"network {network['network']['id']} has AZ hint qa-de-1a,.*"
+                                               f"{snp['subnetpool']['id']} has AZ None set, which do not match",
+                                               resp.json['NeutronError']['message']))
+
+    def test_create_subnet_network_no_az_snp_az_fails(self):
+        net_kwargs = {'arg_list': (extnet_api.EXTERNAL,), extnet_api.EXTERNAL: True}
+        with self.network(**net_kwargs) as network:
+            with self.subnetpool(["1.1.0.0/16", "1.2.0.0/24"], address_scope_id=self._address_scope['id'], name="foo",
+                                 tenant_id="foo", admin=True) as snp:
+                ctx = context.get_admin_context()
+                with ctx.session.begin():
+                    snp_db = ctx.session.query(models_v2.SubnetPool).get(snp['subnetpool']['id'])
+                    ctx.session.add(tag_models.Tag(standard_attr_id=snp_db.standard_attr_id,
+                                    tag="availability-zone::qa-de-1a"))
+                resp = self._create_subnet(self.fmt, cidr="1.1.1.0/24", gateway_ip="1.1.1.1",
+                                           name="foo",
+                                           net_id=network['network']['id'], tenant_id=network['network']['tenant_id'],
+                                           subnetpool_id=snp['subnetpool']['id'])
+                self.assertEqual(400, resp.status_code)
+                self.assertEqual("SubnetSubnetPoolAZAffinityError", resp.json['NeutronError']['type'])
+                self.assertIsNotNone(re.search(f"network {network['network']['id']} has AZ hint None,.*"
+                                               f"{snp['subnetpool']['id']} has AZ qa-de-1a set, which do not match",
+                                               resp.json['NeutronError']['message']))
+
+    def test_create_subnet_network_snp_az_hint_works_when_turned_off(self):
+        cfg.CONF.set_override('subnet_subnetpool_az_check_enabled', False, group='ml2_cc_fabric')
+        net_kwargs = {'arg_list': (extnet_api.EXTERNAL,), extnet_api.EXTERNAL: True}
+        with self.network(availability_zone_hints=["qa-de-1a"], **net_kwargs) as network:
+            with self.subnetpool(["1.1.0.0/16", "1.2.0.0/24"], address_scope_id=self._address_scope['id'], name="foo",
+                                 tenant_id="foo", admin=True) as snp:
+                with self.subnet(network=network, cidr="1.1.1.0/24", gateway_ip="1.1.1.1",
+                                 subnetpool_id=snp['subnetpool']['id']) as subnet:
+                    self.assertIsNotNone(subnet)
 
     def test_bind_port_external_network(self):
         net_kwargs = {'arg_list': (extnet_api.EXTERNAL,), extnet_api.EXTERNAL: True}

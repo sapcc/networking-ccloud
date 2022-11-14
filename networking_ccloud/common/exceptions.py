@@ -46,3 +46,8 @@ class HostNetworkAZAffinityError(n_exc.BadRequest):
 
 class SwitchConnectionError(Exception):
     pass
+
+
+class SubnetSubnetPoolAZAffinityError(n_exc.BadRequest):
+    message = ("The subnet's network %(network_id)s has AZ hint %(net_az_hint)s, "
+               "the subnet's subnetpool %(subnetpool_id)s has AZ %(subnetpool_az)s set, which do not match")
