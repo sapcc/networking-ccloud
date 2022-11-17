@@ -410,6 +410,73 @@ class CCFabricMechanismDriver(ml2_api.MechanismDriver, CCFabricDriverAPI):
         """
         self._check_port_az_affinity(context.network.current, context.current)
 
+    def create_subnet_postcommit(self, context):
+        """Create a subnet.
+
+        :param context: SubnetContext instance describing the new
+            subnet.
+
+        Called after the transaction commits. Call can block, though
+        will block the entire process so care should be taken to not
+        drastically affect performance. Raising an exception will
+        cause the deletion of the resource.
+        """
+        net = context.network.current
+        if not net[extnet_api.EXTERNAL]:
+            return
+        self._sync_network(context._plugin_context, context.current['network_id'])
+
+    def update_subnet_postcommit(self, context):
+        """Update a subnet.
+
+        :param context: SubnetContext instance describing the new
+            state of the subnet, as well as the original state prior
+            to the update_subnet call.
+
+        Called after the transaction commits. Call can block, though
+        will block the entire process so care should be taken to not
+        drastically affect performance. Raising an exception will
+        cause the deletion of the resource.
+
+        update_subnet_postcommit is called for all changes to the
+        subnet state.  It is up to the mechanism driver to ignore
+        state or state changes that it does not know or care about.
+        """
+        net = context.network.current
+        if not net[extnet_api.EXTERNAL]:
+            return
+        if context.original['gateway_ip'] != context.current['gateway_ip']:
+            LOG.info("Subnet %s changed gateway from %s to %s, syncing network",
+                     context.current['id'], context.original['gateway_ip'], context.current['gateway_ip'])
+            self._sync_network(context._plugin_context, context.current['network_id'])
+
+    def delete_subnet_postcommit(self, context):
+        """Delete a subnet.
+
+        :param context: SubnetContext instance describing the current
+            state of the subnet, prior to the call to delete it.
+
+        Called after the transaction commits. Call can block, though
+        will block the entire process so care should be taken to not
+        drastically affect performance. Runtime errors are not
+        expected, and will not prevent the resource from being
+        deleted.
+        """
+        net = context.network.current
+        if not net[extnet_api.EXTERNAL]:
+            return
+        # FIXME: do we remove all subnets properly? We should on sync, but what if this
+        #        is the last subnet? do we need to explicitly remove the vlan iface then?
+        self._sync_network(context._plugin_context, context.current['network_id'])
+
+    def _sync_network(self, context, network_id):
+        LOG.debug("Syncing network %s from driver side due to update in network/subnet", network_id)
+        scul = self.fabric_plugin.make_network_config(context, network_id)
+        if scul is None:
+            LOG.error("Tried to sync network %s but no config could be generated for it", network_id)
+            return
+        scul.execute(context)
+
     def update_port_precommit(self, context):
         """Update resources of a port.
 
