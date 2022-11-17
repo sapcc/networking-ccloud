@@ -714,6 +714,57 @@ class TestCCFabricMechanismDriver(CCFabricMechanismDriverTestBase):
                                     ),
                                 ], swcfg.bgp.vrfs)
 
+    def test_on_subnet_crud_network_sync_if_external(self):
+        net_kwargs = {'arg_list': (extnet_api.EXTERNAL,), extnet_api.EXTERNAL: True}
+        with mock.patch.object(self.mech_driver, '_sync_network') as mock_sn, self.network(**net_kwargs) as network:
+            with self.subnet(network=network, cidr="1.1.1.0/24", gateway_ip="1.1.1.1",
+                             allocation_pools=[{'start': '1.1.1.2', 'end': '1.1.1.22'}]) as subnet:
+                subnet_id = subnet['subnet']['id']
+
+                # create call
+                mock_sn.assert_called()
+                mock_sn.reset_mock()
+
+                # modify name, nothing happens
+                req = self.new_update_request('subnets', {'subnet': {'name': 'tern'}}, subnet_id)
+                res = req.get_response(self.api)
+                self.assertEqual(200, res.status_code)
+                mock_sn.assert_not_called()
+
+                # modify gateway, sync happens
+                req = self.new_update_request('subnets', {'subnet': {'gateway_ip': '1.1.1.23'}}, subnet_id)
+                res = req.get_response(self.api)
+                self.assertEqual(200, res.status_code)
+                mock_sn.assert_called()
+                mock_sn.reset_mock()
+
+                # delete
+                req = self.new_delete_request('subnets', subnet_id)
+                res = req.get_response(self.api)
+                self.assertEqual(204, res.status_code)
+                mock_sn.assert_called()
+
+    def test_on_subnet_crud_no_network_sync_if_internal(self):
+        with mock.patch.object(self.mech_driver, '_sync_network') as mock_sn, self.network() as network:
+            with self.subnet(network=network, cidr="1.1.1.0/24", gateway_ip="1.1.1.1",
+                             allocation_pools=[{'start': '1.1.1.2', 'end': '1.1.1.22'}]) as subnet:
+                subnet_id = subnet['subnet']['id']
+
+                # create call
+                mock_sn.assert_not_called()
+
+                # modify gateway, sync happens
+                req = self.new_update_request('subnets', {'subnet': {'gateway_ip': '1.1.1.23'}}, subnet_id)
+                res = req.get_response(self.api)
+                self.assertEqual(200, res.status_code)
+                mock_sn.assert_not_called()
+
+                # delete
+                req = self.new_delete_request('subnets', subnet_id)
+                res = req.get_response(self.api)
+                self.assertEqual(204, res.status_code)
+                mock_sn.assert_not_called()
+
 
 class TestCCFabricMechanismDriverInterconnects(CCFabricMechanismDriverTestBase):
     def setUp(self):

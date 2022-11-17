@@ -28,7 +28,6 @@ from neutron_lib.callbacks import events
 from neutron_lib.callbacks import registry
 from neutron_lib import exceptions as nl_exc
 from neutron_lib.plugins import directory
-from neutron_lib.plugins.ml2 import api as ml2_api
 from oslo_config import cfg
 from oslo_log import log as logging
 from oslo_messaging import RemoteError
@@ -169,7 +168,7 @@ class FabricNetworksController(wsgi.Controller):
         self.plugin.get_network(request.context, network_id)
 
         LOG.info("Got API request for syncing network %s", network_id)
-        scul = self._make_config_from_network(request.context, network_id)
+        scul = self._make_network_config(request.context, network_id)
         try:
             config_generated = scul.execute(request.context)
         except RemoteError as e:
@@ -190,56 +189,11 @@ class FabricNetworksController(wsgi.Controller):
             'error_on_allocation': errors,
         }
 
-    def _make_config_from_network(self, context, network_id):
-        scul = agent_msg.SwitchConfigUpdateList(agent_msg.OperationEnum.add, self.drv_conf)
-
-        top_segments = self.fabric_plugin.get_top_level_vxlan_segments(context, network_ids=[network_id])
-        if network_id not in top_segments:
-            raise web_exc.HTTPInternalServerError(f"Network id {network_id} is missing its top level vxlan segment")
-        vni = top_segments[network_id]['segmentation_id']
-
-        net_segments = self.fabric_plugin.get_hosts_on_segments(context, network_ids=[network_id])
-        net_gateways = self.fabric_plugin.get_gateways_with_vrfs_for_network(context, network_id, external_only=True)
-
-        net_switches = set()
-        for binding_host, segment_1 in net_segments.get(network_id, {}).items():
-            vlan = segment_1['segmentation_id']
-            hg_config = self.drv_conf.get_hostgroup_by_host(binding_host)
-            if not hg_config:
-                LOG.error("Got a port binding for binding host %s in network %s, which was not found in config",
-                          binding_host, network_id)
-                continue
-            # FIXME: handle trunk_vlans
-            # FIXME: exclude_hosts
-            # FIXME: direct binding hosts? are they included?
-            scul.add_binding_host_to_config(hg_config, network_id, vni, vlan, gateways=net_gateways)
-            net_switches |= {switch_name for switch_name, _ in hg_config.iter_switchports(self.drv_conf)}
-
-        # l3 / bgp vrf config
-        if net_gateways:
-            vrf_config = self.fabric_plugin.get_l3_network_config(context, [network_id])
-            for vrf_name, vrf in vrf_config.items():
-                scul.add_vrf_bgp_config(list(net_switches), vrf_name,
-                                        vrf['vrf_networks'], vrf['vrf_aggregates'])
-
-        interconnects = self.fabric_plugin.get_interconnects(context, network_id=network_id)
-        for device in interconnects:
-            device_hg = self.drv_conf.get_hostgroup_by_host(device.host)
-            if not device_hg:
-                LOG.error("Could not bind device type %s host %s in network %s: Host not found in config",
-                          device.device_type, device.host, network_id)
-                continue
-
-            device_physnet = device_hg.get_vlan_pool_name(self.drv_conf)
-            device_segment = self.fabric_plugin.get_segment_by_host(context, network_id, device_physnet)
-            if not device_segment:
-                LOG.error("Missing network segment for interconnect %s physnet %s in network %s",
-                          device.host, device_physnet, network_id)
-                continue
-
-            scul.add_binding_host_to_config(device_hg, network_id, vni, device_segment[ml2_api.SEGMENTATION_ID],
-                                            is_bgw=device.device_type == cc_const.DEVICE_TYPE_BGW)
-
+    def _make_network_config(self, context, network_id):
+        scul = self.fabric_plugin.make_network_config(context, network_id)
+        if scul is None:
+            raise web_exc.HTTPInternalServerError(f"The config for network {network_id} could not be generated "
+                                                  "(see logs)")
         return scul
 
     @check_cloud_admin
@@ -274,7 +228,7 @@ class FabricNetworksController(wsgi.Controller):
         self.tag_plugin.update_tag(request.context, "networks", network_id, cc_const.L3_GATEWAY_TAG)
 
         # send out network sync for this network (as now the tag has been set)
-        scul = self._make_config_from_network(request.context, network_id)
+        scul = self._make_network_config(request.context, network_id)
         try:
             config_generated = scul.execute(request.context)
         except RemoteError as e:

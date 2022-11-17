@@ -189,6 +189,60 @@ class FabricPlugin(CCDbPlugin):
         scul.clean_switches([switch.name])
         return scul
 
+    def make_network_config(self, context, network_id):
+        scul = agent_msg.SwitchConfigUpdateList(agent_msg.OperationEnum.add, self.drv_conf)
+
+        top_segments = self.get_top_level_vxlan_segments(context, network_ids=[network_id])
+        if network_id not in top_segments:
+            LOG.error("Network %s has no top level segment (vxlan / physnet None), cannot create network config",
+                      network_id)
+            return None
+        vni = top_segments[network_id]['segmentation_id']
+
+        net_segments = self.get_hosts_on_segments(context, network_ids=[network_id])
+        net_gateways = self.get_gateways_with_vrfs_for_network(context, network_id, external_only=True)
+
+        net_switches = set()
+        for binding_host, segment_1 in net_segments.get(network_id, {}).items():
+            vlan = segment_1['segmentation_id']
+            hg_config = self.drv_conf.get_hostgroup_by_host(binding_host)
+            if not hg_config:
+                LOG.error("Got a port binding for binding host %s in network %s, which was not found in config",
+                          binding_host, network_id)
+                continue
+            # FIXME: handle trunk_vlans
+            # FIXME: exclude_hosts
+            # FIXME: direct binding hosts? are they included?
+            scul.add_binding_host_to_config(hg_config, network_id, vni, vlan, gateways=net_gateways)
+            net_switches |= {switch_name for switch_name, _ in hg_config.iter_switchports(self.drv_conf)}
+
+        # l3 / bgp vrf config
+        if net_gateways:
+            vrf_config = self.get_l3_network_config(context, [network_id])
+            for vrf_name, vrf in vrf_config.items():
+                scul.add_vrf_bgp_config(list(net_switches), vrf_name,
+                                        vrf['vrf_networks'], vrf['vrf_aggregates'])
+
+        interconnects = self.get_interconnects(context, network_id=network_id)
+        for device in interconnects:
+            device_hg = self.drv_conf.get_hostgroup_by_host(device.host)
+            if not device_hg:
+                LOG.error("Could not bind device type %s host %s in network %s: Host not found in config",
+                          device.device_type, device.host, network_id)
+                continue
+
+            device_physnet = device_hg.get_vlan_pool_name(self.drv_conf)
+            device_segment = self.get_segment_by_host(context, network_id, device_physnet)
+            if not device_segment:
+                LOG.error("Missing network segment for interconnect %s physnet %s in network %s",
+                          device.host, device_physnet, network_id)
+                continue
+
+            scul.add_binding_host_to_config(device_hg, network_id, vni, device_segment[ml2_api.SEGMENTATION_ID],
+                                            is_bgw=device.device_type == cc_const.DEVICE_TYPE_BGW)
+
+        return scul
+
     def get_l3_network_config(self, context, network_ids):
         subnetpool_cidrs = self.get_subnet_l3_config_for_networks(context, network_ids)
         subnetpools = self.get_subnetpool_details(context, list(subnetpool_cidrs))
