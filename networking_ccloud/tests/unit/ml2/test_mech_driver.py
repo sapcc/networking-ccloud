@@ -805,13 +805,19 @@ class TestCCFabricMechanismDriverInterconnects(CCFabricMechanismDriverTestBase):
 
         hostgroups = hg_seagull + hg_crow + hg_cat + interconnects
 
-        self.conf_drv = cfix.make_config(switchgroups=switchgroups, hostgroups=hostgroups)
+        extra_vrfs = [{"name": "cc-earth", "address_scopes": ["the-open-sea"], "number": 23}]
+        self.conf_drv = cfix.make_config(switchgroups=switchgroups, hostgroups=hostgroups, extra_vrfs=extra_vrfs)
         _override_driver_config(self.conf_drv)
 
         self.setup_parent()
         self._register_azs()
         self.plugin = directory.get_plugin()
         self.context = context.get_admin_context()
+
+        ctx = context.get_admin_context()
+        with ctx.session.begin(subtransactions=True):
+            self._address_scope = ascope_models.AddressScope(name="the-open-sea", ip_version=4)
+            ctx.session.add(self._address_scope)
 
         mm = directory.get_plugin().mechanism_manager
         self.mech_driver = mm.mech_drivers[cc_const.CC_DRIVER_NAME].obj
@@ -843,6 +849,45 @@ class TestCCFabricMechanismDriverInterconnects(CCFabricMechanismDriverTestBase):
                 # transits are currently marked as unmanaged by default
                 # --> both don't have any iface config attached
                 self.assertIsNone(s.ifaces)
+
+    def test_transit_bgw_allocated_on_network_create_for_external(self):
+        with mock.patch.object(CCFabricSwitchAgentRPCClient, 'apply_config_update') as mock_acu:
+            net_attrs = {pnet.NETWORK_TYPE: "vxlan", pnet.SEGMENTATION_ID: 23,
+                         extnet_api.EXTERNAL: True}
+            with self.network("net1", arg_list=(pnet.NETWORK_TYPE, pnet.SEGMENTATION_ID, extnet_api.EXTERNAL),
+                              **net_attrs) as network:
+                with self.subnetpool(["1.1.0.0/16", "1.2.0.0/24"], name="foo", tenant_id="foo", admin=True,
+                                     address_scope_id=self._address_scope.id) as snp:
+                    with self.subnet(network=network, cidr="1.1.1.0/24", gateway_ip="1.1.1.1",
+                                     subnetpool_id=snp['subnetpool']['id']):
+                        net = network['network']
+                        mock_acu.assert_called()
+
+                        # check DB
+                        interconnects = self.mech_driver.fabric_plugin.get_interconnects(self.context, net['id'])
+                        self.assertEqual(self._ic_hosts, sorted(d.host for d in interconnects))
+
+                        # check config
+                        swcfg = mock_acu.call_args[0][1]
+                        self.assertEqual(5, len(swcfg))
+                        self.assertEqual(sorted({f"{dev}-sw1" for dev in self._ic_devices}),
+                                         sorted([s.switch_name for s in swcfg]))
+                        for s in swcfg:
+                            self.assertEqual(agent_msg.OperationEnum.add, s.operation)
+                            self.assertEqual(1, len(s.vlans), "Only one VLAN config expected")
+                            self.assertEqual(1, len(s.bgp.vlans))
+                            if s.switch_name.startswith("bgw"):
+                                self.assertTrue(s.bgp.vlans[0].rd_evpn_domain_all)
+                            # bgws don't have any interfaces
+                            # transits are currently marked as unmanaged by default
+                            # --> both don't have any iface config attached
+                            self.assertIsNone(s.ifaces)
+
+                            # cheap l3 check
+                            self.assertIsNotNone(s.vlan_ifaces)
+                            self.assertEqual("cc-earth", s.bgp.vrfs[0].name)
+                            self.assertNotEqual(0, len(s.bgp.vrfs[0].networks))
+                            self.assertNotEqual(0, len(s.bgp.vrfs[0].aggregates))
 
     def test_transit_bgw_deallocation_on_network_delete(self):
         with mock.patch.object(CCFabricSwitchAgentRPCClient, 'apply_config_update') as mock_acu:
