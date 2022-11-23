@@ -107,7 +107,7 @@ class CCDbPlugin(db_base_plugin_v2.NeutronDbPluginV2,
                 #        or alternatively from the port's binding profile?
                 hosts[host] = dict(segment_id=segment_id, network_id=network_id, segmentation_id=segmentation_id,
                                    physical_network=physnet, driver=driver, level=level,
-                                   trunk_segmentation_id=trunk_seg_id)
+                                   trunk_segmentation_id=trunk_seg_id, is_bgw=False)
             else:
                 if hosts[host]['segment_id'] != segment_id:
                     LOG.error("Host %s found on two segments! seg1 %s net1 %s seg2 %s net2 %s",

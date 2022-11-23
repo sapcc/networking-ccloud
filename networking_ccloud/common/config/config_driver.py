@@ -437,6 +437,13 @@ class Hostgroup(pydantic.BaseModel):
 
         return groupby(sorted(ifaces, key=attrgetter('switch')), key=attrgetter('switch'))
 
+    def get_switch_names(self, driver_config, exclude_hosts=None):
+        switches = [switch_name for switch_name, _ in
+                    self.iter_switchports(driver_config, exclude_hosts=exclude_hosts)]
+        switches.sort()
+
+        return switches
+
     def has_switches_as_member(self, drv_conf, switch_names):
         if self.metagroup:
             for member in self.members:

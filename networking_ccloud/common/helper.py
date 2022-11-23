@@ -77,3 +77,12 @@ def get_binding_host_from_port(port):
     if profile_host:
         return profile_host
     return port[pb_api.HOST_ID]
+
+
+def merge_segment_dicts(segments_a, segments_b):
+    """Do an in-place merge of the second segments dict into the first segments dict"""
+    for network_id, hosts in segments_b.items():
+        segments_a.setdefault(network_id, {}).update(hosts)
+
+    # we only return this for convenience, update is done in-place
+    return segments_a

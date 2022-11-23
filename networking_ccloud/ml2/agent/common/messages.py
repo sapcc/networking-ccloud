@@ -17,12 +17,10 @@ import ipaddress
 import re
 from typing import List
 
-from neutron_lib.plugins.ml2 import api as ml2_api
 from oslo_log import log as logging
 import pydantic
 
 from networking_ccloud.common.config.config_driver import validate_asn
-from networking_ccloud.common import constants as cc_const
 from networking_ccloud.ml2.agent.common.api import CCFabricSwitchAgentRPCClient
 
 LOG = logging.getLogger(__name__)
@@ -429,77 +427,23 @@ class SwitchConfigUpdateList:
                         else:
                             iface.native_vlan = seg_vlan
 
-    def add_segments(self, net_segments, top_segments, net_gateways):
-        for network_id, segments in net_segments.items():
-            if network_id not in top_segments:
-                # FIXME: maybe don't use a value error
-                raise ValueError(f"Network id {network_id} is missing its top level vxlan segment")
-
-            segment_0 = top_segments[network_id]
-            vni = segment_0['segmentation_id']
-
-            for binding_host, segment_1 in segments.items():
-                vlan = segment_1['segmentation_id']
-                hg_config = self.drv_conf.get_hostgroup_by_host(binding_host)
-                if not hg_config:
-                    LOG.error("Got a port binding for binding host %s in network %s, which was not found in config",
-                              binding_host, network_id)
-                    continue
-                # FIXME: handle trunk_vlans
-                # FIXME: exclude_hosts
-                # FIXME: direct binding hosts? are they included?
-                self.add_binding_host_to_config(hg_config, network_id, vni, vlan,
-                                                gateways=net_gateways.get(network_id))
-
-    def add_interconnects(self, context, fabric_plugin, interconnects):
-        network_ids = set(ic.network_id for ic in interconnects)
-        top_segments = fabric_plugin.get_top_level_vxlan_segments(context, network_ids=network_ids)
-
-        # get list of physnets/networks to just query the DB once for everything we need
-        physnet_network_devices = {}
-        for device in interconnects:
-            if device.network_id not in top_segments:
-                # this is an error and not an exception, because the method is used by the switch sync
-                # and I didn't want that a broken network could prevent the sync of a while switch
-                LOG.error("Could not create config for interconnect of network %s: Missing top segment",
-                          device.network_id)
-                continue
-
-            device_hg = self.drv_conf.get_hostgroup_by_host(device.host)
-            if not device_hg:
-                LOG.error("Could not bind device type %s host %s in network %s: Host not found in config",
-                          device.device_type, device.host, device.network_id)
-                continue
-
-            device_physnet = device_hg.get_vlan_pool_name(self.drv_conf)
-            physnet_network_devices[(device_physnet, device.network_id)] = device
-
-        db_segments = fabric_plugin.get_segments_by_physnet_network_tuples(context, set(physnet_network_devices.keys()))
-
-        for physnet_network, device in physnet_network_devices.items():
-            vni = top_segments[device.network_id]['segmentation_id']
-            device_segment = db_segments.get(physnet_network)
-            if device_segment is None:
-                LOG.error("Missing network segment for interconnect %s physnet %s in network %s",
-                          device.host, device_physnet, device.network_id)
-                continue
-
-            self.add_binding_host_to_config(device_hg, device.network_id, vni, device_segment[ml2_api.SEGMENTATION_ID],
-                                            is_bgw=device.device_type == cc_const.DEVICE_TYPE_BGW)
-
     def add_vrf_bgp_config(self, switch_names, vrf_name, vrf_networks, vrf_aggregates):
         for switch_name in switch_names:
             scu = self.get_or_create_switch(switch_name)
             vrf = scu.bgp.get_or_create_vrf(vrf_name)
 
             networks = []
+            curr_networks = [(net.network, net.az_local, net.ext_announcable) for net in (vrf.networks or [])]
             for network, az_local, ext_announcable in vrf_networks:
-                networks.append(BGPVRFNetwork(network=network, az_local=az_local, ext_announcable=ext_announcable))
+                if (network, az_local, ext_announcable) not in curr_networks:
+                    networks.append(BGPVRFNetwork(network=network, az_local=az_local, ext_announcable=ext_announcable))
             vrf.add_networks(networks)
 
             aggregates = []
+            curr_aggregates = [(agg.network, agg.az_local) for agg in (vrf.aggregates or [])]
             for network, az_local in vrf_aggregates:
-                aggregates.append(BGPVRFAggregate(network=network, az_local=az_local))
+                if (network, az_local) not in curr_aggregates:
+                    aggregates.append(BGPVRFAggregate(network=network, az_local=az_local))
             vrf.add_aggregates(aggregates)
 
     def add_infra_networks_from_hostgroup(self, hg_config, sg):
@@ -514,20 +458,14 @@ class SwitchConfigUpdateList:
 
             if inet.vrf:
                 # get network address from network (clear host bits); they are az-local and non-ext-announcable
-                nets = [BGPVRFNetwork(network=str(ipaddress.ip_network(net, strict=False)),
-                                      az_local=True, ext_announcable=False)
+                # add_vrf_bgp_config() network inputs: (network, az_local, ext_announcable)
+                nets = [(str(ipaddress.ip_network(net, strict=False)), True, False)
                         for net in inet.networks]
                 # aggregates are az-local
-                aggs = [BGPVRFAggregate(network=agg, az_local=True) for agg in inet.aggregates]
+                # add_vrf_bgp_config() network inputs: (network, az_local)
+                aggs = [(agg, True) for agg in inet.aggregates]
 
-                for switch_name, _ in hg_config.iter_switchports(self.drv_conf):
-                    scu = self.get_or_create_switch(switch_name)
-                    if not scu.bgp:
-                        scu.bgp = BGP(asn=sg.asn, asn_region=self.drv_conf.global_config.asn_region,
-                                      switchgroup_id=sg.group_id)
-                    vrf = scu.bgp.get_or_create_vrf(inet.vrf)
-                    vrf.add_networks(nets)
-                    vrf.add_aggregates(aggs)
+                self.add_vrf_bgp_config(hg_config.get_switch_names(self.drv_conf), inet.vrf, nets, aggs)
 
     def add_extra_vlans(self, hg_config, exclude_hosts=None):
         """Add extra vlans to interfaces, which only appear in the 'allowed trunk vlans' list"""

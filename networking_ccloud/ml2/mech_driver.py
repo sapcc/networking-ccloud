@@ -348,6 +348,8 @@ class CCFabricMechanismDriver(ml2_api.MechanismDriver, CCFabricDriverAPI):
                 LOG.warning("Tried to remove device %s host %s on network delete for %s, but is not present in config",
                             device_type, device_host, network_id)
                 continue
+            # we don't need to do a per-subnet l3 cleanup, as each subnet's delete hook should have been called
+            # we also don't need to remove the segment, as it is deleted together with the network
             scul.add_binding_host_to_config(device_hg, network_id, net_data['segment_0_vni'], device_vlan,
                                             is_bgw=device_type == cc_const.DEVICE_TYPE_BGW)
             LOG.debug("Removing config for %s %s on network delete of %s", device_type, device_host, network_id)
