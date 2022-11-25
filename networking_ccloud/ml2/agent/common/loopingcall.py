@@ -43,6 +43,9 @@ class ThreadedLoopingCallBase(loopingcall.LoopingCallBase):
         super().__init__(*args, **kwargs)
         self._abort = threading.Event()
 
+    def _on_done(self, *args, **kwargs):
+        self._thread = None
+
     def _start(self, idle_for, initial_delay=None, stop_on_exception=True):
         """Start the looping
 
