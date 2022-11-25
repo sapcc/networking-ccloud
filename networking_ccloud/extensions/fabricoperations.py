@@ -109,7 +109,8 @@ def register_api_extension():
 
 class FabricNetworksController(wsgi.Controller):
     """Show network info"""
-    MEMBER_ACTIONS = {'diff': 'GET', 'sync': 'PUT', 'ensure_interconnects': 'PUT', 'move_gateway_to_fabric': 'PUT'}
+    MEMBER_ACTIONS = {'diff': 'GET', 'sync': 'PUT', 'ensure_interconnects': 'PUT', 'os_config': 'GET',
+                      'move_gateway_to_fabric': 'PUT'}
 
     def __init__(self, fabric_plugin):
         super().__init__()
@@ -195,6 +196,23 @@ class FabricNetworksController(wsgi.Controller):
             raise web_exc.HTTPInternalServerError(f"The config for network {network_id} could not be generated "
                                                   "(see logs)")
         return scul
+
+    @check_cloud_admin
+    def os_config(self, request, **kwargs):
+        network_id = kwargs.pop('id')
+        self.plugin.get_network(request.context, network_id)
+
+        scul = self.fabric_plugin.make_network_config(request.context, network_id)
+        if not scul:
+            return None
+
+        configs = {}
+        for switch_name, scu in scul.switch_config_updates.items():
+            config = scu.dict(exclude_unset=True, exclude_defaults=True)
+            del config['operation']
+            configs[switch_name] = config
+
+        return configs
 
     @check_cloud_admin
     def move_gateway_to_fabric(self, request, **kwargs):

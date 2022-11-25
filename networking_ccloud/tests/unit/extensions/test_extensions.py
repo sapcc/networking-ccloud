@@ -243,6 +243,13 @@ class TestNetworkExtension(test_segment.SegmentTestCase, base.PortBindingHelper)
 
             # FIXME: check that all necessary switches are synced
 
+    def test_network_os_config(self):
+        resp = self.app.get(f"/cc-fabric/networks/{self._net_a['id']}/os_config")
+        swcfgs = resp.json
+        self.assertEqual({"seagull-sw1", "seagull-sw2", "crow-sw1", "crow-sw2",
+                          "transit1-sw1", "transit2-sw1", "bgw1-sw1", "bgw2-sw1"},
+                         set(swcfgs.keys()))
+
     def test_switches(self):
         # index
         resp = self.app.get("/cc-fabric/switches")
