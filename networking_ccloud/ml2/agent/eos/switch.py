@@ -733,7 +733,7 @@ class EOSSwitch(SwitchBase):
                     iface.portchannel_id = int(iface.portchannel_id)
                 if data['name'] in pc_details:
                     pc = pc_details[data['name']]
-                    iface.members = [p['interface'] for p in pc['members']['member']]
+                    iface.members = [p['interface'] for p in pc.get('members', {}).get('member', [])]
                 data_vlans = data_pc.get('openconfig-vlan:switched-vlan')
             elif 'openconfig-if-ethernet:ethernet' in data:
                 data_if = data['openconfig-if-ethernet:ethernet']
