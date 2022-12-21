@@ -22,6 +22,7 @@ from neutron import manager
 from oslo_config import cfg
 from oslo_log import log as logging
 from oslo_service import periodic_task
+from prometheus_client import Histogram, start_http_server
 
 from networking_ccloud.common.config import get_driver_config
 from networking_ccloud.common import constants as cc_const
@@ -45,6 +46,19 @@ class CCFabricSwitchAgent(manager.Manager, cc_agent_api.CCFabricSwitchAgentAPI):
 
     This base class implements basic switch abstraction via the CCSwitch model.
     """
+
+    metrics_namespace = 'networking_ccloud_switch_agent'
+
+    metric_switch_syncloop = Histogram(
+        'syncloop', 'Switch syncloop duration',
+        ['agent'], namespace=metrics_namespace)
+    metric_persist_configs_loop = Histogram(
+        'persist_configs_loop', 'Persist configs duration',
+        ['agent'], namespace=metrics_namespace)
+    metric_apply_config_update = Histogram(
+        'apply_config_update', 'Apply config update duration (on agent)',
+        ['agent'], namespace=metrics_namespace)
+
     @classmethod
     def get_binary_name(cls):
         raise NotImplementedError
@@ -53,6 +67,7 @@ class CCFabricSwitchAgent(manager.Manager, cc_agent_api.CCFabricSwitchAgentAPI):
     def get_agent_topic(cls):
         raise NotImplementedError
 
+    @classmethod
     def get_switch_class(cls):
         raise NotImplementedError
 
@@ -65,6 +80,10 @@ class CCFabricSwitchAgent(manager.Manager, cc_agent_api.CCFabricSwitchAgentAPI):
         self._syncloop_enabled = True
         self.drv_conf = get_driver_config()
 
+        self._def_labels = {
+            'agent': self.get_binary_name(),
+        }
+
     def _init_switches(self):
         """Init all switches the agent manages"""
         for sg_conf in self.drv_conf.switchgroups:
@@ -74,7 +93,7 @@ class CCFabricSwitchAgent(manager.Manager, cc_agent_api.CCFabricSwitchAgentAPI):
                 if switch_conf.platform != self.get_switch_class().get_platform():
                     continue
                 switch = self.get_switch_class()(switch_conf, self.drv_conf.global_config.asn_region, az_suffix,
-                                                 managed_vlans)
+                                                 managed_vlans, self.get_binary_name())
                 LOG.debug("Adding switch %s with user %s to switchpool", switch, switch.user)
                 self._switches.append(switch)
 
@@ -84,10 +103,17 @@ class CCFabricSwitchAgent(manager.Manager, cc_agent_api.CCFabricSwitchAgentAPI):
                 return switch
         return None
 
+    def _start_prometheus(self):
+        if not cfg.CONF.ml2_cc_fabric_agent.prometheus_enabled:
+            return
+        start_http_server(cfg.CONF.ml2_cc_fabric_agent.prometheus_listen_port,
+                          cfg.CONF.ml2_cc_fabric_agent.prometheus_listen_address)
+
     def init_host(self):
         # usually called by neutron.service.Service at begin of start()
         LOG.info("Initializing agent %s with topic %s", self.get_binary_name(), self.get_agent_topic())
         self._init_switches()
+        self._start_prometheus()
 
     def after_start(self):
         # usually called by neutron.service.Service at end of start()
@@ -165,6 +191,7 @@ class CCFabricSwitchAgent(manager.Manager, cc_agent_api.CCFabricSwitchAgentAPI):
         return result
 
     def apply_config_update(self, context, config):
+        start_time = time.time()
         result = {}
         futures = []
         for update in config:
@@ -183,6 +210,9 @@ class CCFabricSwitchAgent(manager.Manager, cc_agent_api.CCFabricSwitchAgentAPI):
                 result[switch_name] = future.result()
             except FullSyncScheduled as e:
                 result[switch_name] = e.future.result()
+
+        time_taken = time.time() - start_time
+        self.metric_apply_config_update.labels(**self._def_labels).observe(time_taken)
 
         return result
 
@@ -203,7 +233,9 @@ class CCFabricSwitchAgent(manager.Manager, cc_agent_api.CCFabricSwitchAgentAPI):
             futures.append(switch.persist_config())
         for future in futures:
             future.result()
-        LOG.info("Persisting of all configs done in %.2fs", time.time() - start_time)
+        time_taken = time.time() - start_time
+        self.metric_persist_configs_loop.labels(**self._def_labels).observe(time_taken)
+        LOG.info("Persisting of all configs done in %.2fs", time_taken)
 
     @periodic_task.periodic_task(spacing=cfg.CONF.ml2_cc_fabric_agent.switch_syncloop_interval,
                                  run_immediately=False)
@@ -218,7 +250,14 @@ class CCFabricSwitchAgent(manager.Manager, cc_agent_api.CCFabricSwitchAgentAPI):
             futures.append(switch.run_full_sync(context))
         for future in futures:
             future.result()
-        LOG.info("Syncing all switches done in %.2fs", time.time() - start_time)
+        time_taken = time.time() - start_time
+        self.metric_switch_syncloop.labels(**self._def_labels).observe(time_taken)
+        LOG.info("Syncing all switches done in %.2fs", time_taken)
+
+    @periodic_task.periodic_task(spacing=60, enabled=cfg.CONF.ml2_cc_fabric_agent.prometheus_enabled)
+    def collect_switch_metrics(self, context):
+        for switch in self._switches:
+            switch.collect_metrics(context)
 
     def backdoor_locals(self):
 

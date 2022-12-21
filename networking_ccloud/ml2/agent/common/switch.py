@@ -23,6 +23,7 @@ from neutron_lib.context import get_admin_context
 from oslo_concurrency import lockutils
 from oslo_context import context
 from oslo_log import log as logging
+from prometheus_client import Counter, Gauge, Histogram
 
 from networking_ccloud.ml2.driver_rpc_api import CCFabricDriverRPCClient
 
@@ -79,6 +80,7 @@ def run_in_executor(type_, replacable_by_full_sync=False):
                 if qsize * avg_runtime > full_sync_threshold:
                     LOG.warning("Scheduling full-sync on %s for queue_size %s and avg runtime %s as the threshold "
                                 "of %s is reached", self, qsize, avg_runtime, full_sync_threshold)
+                    self.metric_full_sync_scheduled.labels(**self._def_labels).inc()
                     return self.run_full_sync(current_context.elevated() if current_context else get_admin_context())
 
                 # if there's currently a full-sync scheduled and not started,
@@ -87,6 +89,7 @@ def run_in_executor(type_, replacable_by_full_sync=False):
                 full_sync_future = self.get_full_sync_future()
                 if full_sync_future is not None:
                     LOG.debug("Found scheduled full-sync on %s. Returning full-sync's Future instead", self)
+                    self.metric_replaced_by_full_sync.labels(**self._def_labels).inc()
                     return full_sync_future
 
             @wraps(fn)
@@ -119,7 +122,44 @@ def run_in_executor(type_, replacable_by_full_sync=False):
 
 
 class SwitchBase(abc.ABC):
-    def __init__(self, sw_conf, asn_region, az_suffix, managed_vlans, timeout=20, verify_ssl=False):
+    metrics_namespace = 'networking_ccloud_switch_agent_switch'
+
+    DEFAULT_LABELS = [
+        'agent', 'switch_platform', 'switch_host', 'switch_name'
+    ]
+
+    metric_apply_config_update = Histogram(
+        'apply_config_update', 'Apply config update duration (on switch)',
+        DEFAULT_LABELS, namespace=metrics_namespace)
+    metric_apply_config_update_lock = Histogram(
+        'apply_config_update_lock', 'Time waited for apply_config_update lock',
+        DEFAULT_LABELS, namespace=metrics_namespace)
+    metric_apply_config_update_success = Counter(
+        'apply_config_update_success', 'Apply config update success counter',
+        DEFAULT_LABELS, namespace=metrics_namespace)
+    metric_apply_config_update_error = Counter(
+        'apply_config_update_error', 'Apply config update error counter',
+        DEFAULT_LABELS + ['exc_class'], namespace=metrics_namespace)
+    metric_full_sync_scheduled = Counter(
+        'full_sync_scheduled', 'Number of full syncs scheduled',
+        DEFAULT_LABELS, namespace=metrics_namespace)
+    metric_replaced_by_full_sync = Counter(
+        'replaced_by_full_sync', 'Number of requests replaced by scheduled full sync',
+        DEFAULT_LABELS, namespace=metrics_namespace)
+    metric_persist_config = Histogram(
+        'persist_config', 'Apply config update duration (on switch)',
+        DEFAULT_LABELS, namespace=metrics_namespace)
+    metric_persist_config_success = Counter(
+        'persist_config_success', 'Persist config success (on switch)',
+        DEFAULT_LABELS, namespace=metrics_namespace)
+    metric_persist_config_error = Counter(
+        'persist_config_error', 'Persist config error (on switch)',
+        DEFAULT_LABELS + ['exc_class'], namespace=metrics_namespace)
+    metric_task_queue_size = Gauge(
+        'task_queue_size', 'Tasks in queue',
+        DEFAULT_LABELS + ['queue_type'], namespace=metrics_namespace)
+
+    def __init__(self, sw_conf, asn_region, az_suffix, managed_vlans, agent_name, timeout=20, verify_ssl=False):
         self.sw_conf = sw_conf
         self.asn_region = asn_region
         self.az_suffix = az_suffix
@@ -128,6 +168,7 @@ class SwitchBase(abc.ABC):
         self.host = sw_conf.host
         self.user = sw_conf.user
         self._password = sw_conf.password
+        self._agent_name = agent_name
         self.timeout = timeout
         self._verify_ssl = verify_ssl
         self._api = None
@@ -139,6 +180,13 @@ class SwitchBase(abc.ABC):
         self._rpc_client = CCFabricDriverRPCClient()
 
         self._last_sync_time = None
+
+        self._def_labels = {
+            'switch_name': self.name,
+            'switch_host': self.host,
+            'switch_platform': self.get_platform(),
+            'agent': self._agent_name,
+        }
 
     @classmethod
     @abc.abstractmethod
@@ -163,6 +211,12 @@ class SwitchBase(abc.ABC):
     def __str__(self):
         return f"{self.name} ({self.host})"
 
+    def collect_metrics(self, context):
+        read_queue_size = self._read_executor._work_queue.qsize()
+        self.metric_task_queue_size.labels(queue_type='read', **self._def_labels).set(read_queue_size)
+        write_queue_size = self._read_executor._work_queue.qsize()
+        self.metric_task_queue_size.labels(queue_type='write', **self._def_labels).set(write_queue_size)
+
     def get_full_sync_future(self):
         with self._full_sync_future_lock:
             return self._full_sync_future
@@ -183,8 +237,11 @@ class SwitchBase(abc.ABC):
 
     @run_in_executor('write', replacable_by_full_sync=True)
     def apply_config_update(self, config):
+        lock_start_time = time.time()
         with lockutils.lock(name=f"apply-config-update-{self.name}"):
-            return self._apply_config_update(config)
+            self.metric_apply_config_update_lock.labels(**self._def_labels).observe(time.time() - lock_start_time)
+            with self.metric_apply_config_update.labels(**self._def_labels).time():
+                return self._apply_config_update(config)
 
     def _apply_config_update(self, config):
         raise NotImplementedError
@@ -195,8 +252,11 @@ class SwitchBase(abc.ABC):
         try:
             self._persist_config()
             LOG.debug("Switch config of %s saved in %.2f", self, time.time() - start_time)
+            self.metric_persist_config_success.labels(**self._def_labels).inc()
         except Exception as e:
+            self.metric_persist_config_error.labels(exc_class=e.__class__.__name__, **self._def_labels).inc()
             LOG.error("Saving switch config of %s failed in %.2f: %s", self, time.time() - start_time, e)
+        self.metric_persist_config.labels(**self._def_labels).observe(time.time() - start_time)
 
     def _persist_config(self):
         raise NotImplementedError

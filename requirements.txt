@@ -14,6 +14,7 @@ futurist
 manhole
 neutron-lib
 neutron
+prometheus_client
 
 # arista agent
 pygnmi==0.8.3
