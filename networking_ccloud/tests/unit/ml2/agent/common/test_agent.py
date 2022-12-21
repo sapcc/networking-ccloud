@@ -16,6 +16,7 @@ from unittest import mock
 
 from neutron_lib import context
 from neutron_lib import rpc as n_rpc
+from oslo_config import cfg
 
 from networking_ccloud.common.config import _override_driver_config
 from networking_ccloud.ml2.agent.test.agent import CCFabricTestSwitchAgent
@@ -38,6 +39,7 @@ class TestAgent(base.TestCase):
 
         self.ctx = context.get_admin_context_without_session()
 
+        cfg.CONF.set_override('prometheus_enabled', False, group='ml2_cc_fabric_agent')
         with mock.patch.object(n_rpc, 'get_client'):
             self.agent = CCFabricTestSwitchAgent()
             self.agent.init_host()

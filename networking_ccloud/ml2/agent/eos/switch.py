@@ -1030,7 +1030,9 @@ class EOSSwitch(SwitchBase):
                 # FIXME: this is not part of a transaction, it will not be reverted when the subsequent set() fails
                 self.api.set(update=config_req.update_cli, encoding="ascii")
             self.api.set(delete=config_req.delete, replace=config_req.replace, update=config_req.update)
+            self.metric_apply_config_update_success.labels(**self._def_labels).inc()
         except Exception as e:
+            self.metric_apply_config_update_error.labels(exc_class=e.__class__.__name__, **self._def_labels).inc()
             LOG.error("Could not send config update to switch %s: %s %s",
                       self.name, e.__class__.__name__, e)
             raise

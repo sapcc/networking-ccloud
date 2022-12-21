@@ -34,6 +34,13 @@ cc_fabric_agent_opts = [
                help="Interval between config persists (use -1 to disable)"),
     cfg.IntOpt('switch_syncloop_interval', default=15 * 60,
                help="How often to run a full sync of all switches in the fabric (use -1 to disable)"),
+
+    cfg.BoolOpt('prometheus_enabled', default=True,
+                help='Enable internal Prometheus metric exporter'),
+    cfg.IPOpt('prometheus_listen_address', default='0.0.0.0',
+              help='Address to listen on for internal Prometheus metric exporter'),
+    cfg.PortOpt('prometheus_listen_port', default=9090,
+                help='Port to listen on for internal Prometheus metric exporter'),
 ]
 
 # make sure we have ml2 vlan opts available before this option is parsed

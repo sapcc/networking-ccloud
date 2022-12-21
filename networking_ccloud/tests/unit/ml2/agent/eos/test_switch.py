@@ -15,6 +15,7 @@
 from unittest import mock
 
 from neutron_lib import rpc as n_rpc
+from oslo_config import cfg
 
 from networking_ccloud.common.config import config_driver, _override_driver_config
 from networking_ccloud.common import constants as cc_const
@@ -31,8 +32,10 @@ class TestEOSConfigUpdates(base.TestCase):
         _override_driver_config(drv_conf)
         cfg_switch = config_driver.Switch(name="seagull-sw1", host="127.0.0.1", platform=cc_const.PLATFORM_EOS,
                                           user="seagulladm", password="KRAKRAKRA", bgp_source_ip="1.1.1.1")
+
+        cfg.CONF.set_override('prometheus_enabled', False, group='ml2_cc_fabric_agent')
         with mock.patch.object(n_rpc, 'get_client'):
-            self.switch = EOSSwitch(cfg_switch, 65130, 'a', set([100]) | set(range(2000, 3000)))
+            self.switch = EOSSwitch(cfg_switch, 65130, 'a', set([100]) | set(range(2000, 3000)), 'cc-eos-switch-agent')
         self.switch._api = mock.Mock()
 
     def test_add_vlans(self):
@@ -936,8 +939,9 @@ class TestEOSSwitch(base.TestCase):
         _override_driver_config(drv_conf)
         cfg_switch = config_driver.Switch(name="seagull-sw1", host="127.0.0.1", platform=cc_const.PLATFORM_EOS,
                                           user="seagulladm", password="KRAKRAKRA", bgp_source_ip="1.1.1.1")
+        cfg.CONF.set_override('prometheus_enabled', False, group='ml2_cc_fabric_agent')
         with mock.patch.object(n_rpc, 'get_client'):
-            self.switch = EOSSwitch(cfg_switch, 65130, 'a', set([100]) | set(range(2000, 3000)))
+            self.switch = EOSSwitch(cfg_switch, 65130, 'a', set([100]) | set(range(2000, 3000)), 'cc-eos-switch-agent')
         self.switch._api = mock.Mock()
         self.switch._api.execute.return_value = {'result': [{}]}
 
