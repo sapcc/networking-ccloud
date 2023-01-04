@@ -10,9 +10,6 @@
     <link rel="stylesheet" type="text/css" href="../_static/pygments.css" />
     <link rel="stylesheet" type="text/css" href="../_static/css/basic.css" />
     <script data-url_root="../" id="documentation_options" src="../_static/documentation_options.js"></script>
-    <script src="../_static/jquery.js"></script>
-    <script src="../_static/underscore.js"></script>
-    <script src="../_static/_sphinx_javascript_frameworks_compat.js"></script>
     <script src="../_static/doctools.js"></script>
     <script src="../_static/sphinx_highlight.js"></script>
     <link rel="index" title="Index" href="../genindex.html" />
@@ -125,7 +122,7 @@ Networking CCloud VXLAN Fabric service, code-named networking_ccloud, on the con
 <h2>Installation<a class="headerlink" href="#installation" title="Permalink to this heading">¶</a></h2>
 <p>Install the driver via pip into your system:</p>
 <blockquote>
-<div><div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp"># </span>pip install https://github.com/sapcc/networking-ccloud/
+<div><div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp"># </span>pip<span class="w"> </span>install<span class="w"> </span>https://github.com/sapcc/networking-ccloud/
 </pre></div>
 </div>
 </div></blockquote>
@@ -136,8 +133,8 @@ Networking CCloud VXLAN Fabric service, code-named networking_ccloud, on the con
 the driver is configured to be at the beginning of your drivers, else this might
 cause problems with the hierarchical portbinding.</p>
 <blockquote>
-<div><div class="highlight-ini notranslate"><div class="highlight"><pre><span></span><span class="k">[ml2]</span><span class="w"></span>
-<span class="na">mechanism_drivers</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">cc-fabric,...</span><span class="w"></span>
+<div><div class="highlight-ini notranslate"><div class="highlight"><pre><span></span><span class="k">[ml2]</span>
+<span class="na">mechanism_drivers</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">cc-fabric,...</span>
 </pre></div>
 </div>
 </div></blockquote>
@@ -183,7 +180,7 @@ access to the switches, all other information is ignored.</p>
           
           </div>
           <div class="row docs-byline bottom">
-            <div class="docs-updated">this page last updated: 2022-12-21 17:40:07</div>
+            <div class="docs-updated">this page last updated: 2022-11-28 15:06:14</div>
           </div>
           <div class="row">
             <div class="col-lg-8 col-md-8 col-sm-8 docs-license">
