@@ -19,6 +19,7 @@ import time
 from typing import List, Optional
 
 from oslo_log import log as logging
+from prometheus_client import Counter, Histogram
 from pygnmi.client import gNMIclient, gNMIException
 
 from networking_ccloud.common import constants as cc_const
@@ -85,9 +86,28 @@ class EOSGNMIClient:
         IFACE_IPS_VIA_SYSDB = "eos_native:Sysdb/ip/config/ipIntfConfig"
         IFACE_VIRTUAL_ADDRESS = "interfaces/interface[name={name}]/arista-varp/virtual-address"
 
-    def __init__(self, switch_name, *args, **kwargs):
-        self._gnmi = gNMIclient(*args, **kwargs)
-        self._switch_name = switch_name
+    metrics_namespace = 'networking_ccloud_switch_agent_switch_gnmi'
+
+    DEFAULT_LABELS = ['switch_name', 'switch_host', 'method']
+
+    metric_api_action = Histogram(
+        'api_action', 'GNMI API action duration',
+        DEFAULT_LABELS + ['success'], namespace=metrics_namespace)
+    metric_api_retry = Counter(
+        'api_retry', 'GNMI API retry count',
+        DEFAULT_LABELS, namespace=metrics_namespace)
+    metric_api_retries_exhausted = Counter(
+        'api_retries_exhausted', 'GNMI API retries exhausted count',
+        DEFAULT_LABELS, namespace=metrics_namespace)
+
+    def __init__(self, switch_name, host, port, **kwargs):
+        self._gnmi = gNMIclient(target=(host, port), **kwargs)
+        self._switch_name = f"{switch_name} ({host})"
+
+        self._def_labels = {
+            'switch_name': switch_name,
+            'switch_host': host,
+        }
 
     def __repr__(self):
         return f"<{self.__class__.__name__} to {self._switch_name}>"
@@ -111,12 +131,16 @@ class EOSGNMIClient:
         try:
             start_time = time.time()
             data = getattr(self._gnmi, method)(*args, **kwargs)
-            LOG.debug("Command %s() succeeded on %s in %.2fs", method, self._switch_name, time.time() - start_time)
+            time_taken = time.time() - start_time
+            LOG.debug("Command %s() succeeded on %s in %.2fs", method, self._switch_name, time_taken)
+            self.metric_api_action.labels(method=method, success=True, **self._def_labels).observe(time_taken)
             return data
         except gNMIException as e:
+            time_taken = time.time() - start_time
             log_method = LOG.warning if retries > 0 else LOG.exception
             log_method("Command %s() failed on %s in %.2fs (retries left: %s): %s %s",
-                       method, self._switch_name, time.time() - start_time, retries, e.__class__.__name__, str(e))
+                       method, self._switch_name, time_taken, retries, e.__class__.__name__, str(e))
+            self.metric_api_action.labels(method=method, success=False, **self._def_labels).observe(time_taken)
 
             cmd = [f"{method}("]
             if args:
@@ -134,8 +158,11 @@ class EOSGNMIClient:
                 LOG.info("Reconnecting %s because of %s %s", self._switch_name, e.__class__.__name__, str(e))
                 self.connect()
             if retries > 0:
+                self.metric_api_retry.labels(method=method, **self._def_labels).inc()
                 time.sleep(0.5)
                 return self._run_method(method, *args, retries=retries - 1, **kwargs)
+
+            self.metric_api_retries_exhausted.labels(method=method, **self._def_labels).inc()
             raise cc_exc.SwitchConnectionError(f"{self._switch_name} {method}() {e.__class__.__name__} {e}")
 
     def get(self, prefix="", path=None, *args, unpack=True, single=True, **kwargs):
@@ -189,9 +216,8 @@ class EOSSwitch(SwitchBase):
         return cc_const.PLATFORM_EOS
 
     def login(self):
-        self._api = EOSGNMIClient(f"{self.name} ({self.host})",
-                                  target=(self.host, 6030), username=self.user, password=self._password,
-                                  insecure=False, skip_verify=True)
+        self._api = EOSGNMIClient(switch_name=self.name, host=self.host, port=6030,
+                                  username=self.user, password=self._password, insecure=False, skip_verify=True)
         self._api.connect()
 
     @staticmethod
