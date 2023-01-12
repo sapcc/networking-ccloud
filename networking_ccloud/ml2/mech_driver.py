@@ -477,7 +477,7 @@ class CCFabricMechanismDriver(ml2_api.MechanismDriver, CCFabricDriverAPI):
         if scul is None:
             LOG.error("Tried to sync network %s but no config could be generated for it", network_id)
             return
-        scul.execute(context)
+        scul.execute(context, synchronous=False)
 
     def update_port_precommit(self, context):
         """Update resources of a port.
