@@ -23,6 +23,7 @@ from oslo_config import cfg
 from oslo_log import log as logging
 from oslo_service import periodic_task
 from prometheus_client import Histogram, start_http_server
+from prometheus_client.utils import INF
 
 from networking_ccloud.common.config import get_driver_config
 from networking_ccloud.common import constants as cc_const
@@ -51,13 +52,16 @@ class CCFabricSwitchAgent(manager.Manager, cc_agent_api.CCFabricSwitchAgentAPI):
 
     metric_switch_syncloop = Histogram(
         'syncloop', 'Switch syncloop duration',
-        ['agent'], namespace=metrics_namespace)
+        ['agent'], namespace=metrics_namespace,
+        buckets=[round(30 + x ** 2.8) for x in range(12)] + [INF])
     metric_persist_configs_loop = Histogram(
         'persist_configs_loop', 'Persist configs duration',
-        ['agent'], namespace=metrics_namespace)
+        ['agent'], namespace=metrics_namespace,
+        buckets=[round(10 + x ** 2) for x in range(12)] + [INF])
     metric_apply_config_update = Histogram(
         'apply_config_update', 'Apply config update duration (on agent)',
-        ['agent'], namespace=metrics_namespace)
+        ['agent'], namespace=metrics_namespace,
+        buckets=[round(20 + x ** 2) for x in range(12)] + [INF])
 
     @classmethod
     def get_binary_name(cls):
