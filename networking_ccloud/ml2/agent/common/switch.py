@@ -24,6 +24,7 @@ from oslo_concurrency import lockutils
 from oslo_context import context
 from oslo_log import log as logging
 from prometheus_client import Counter, Gauge, Histogram
+from prometheus_client.utils import INF
 
 from networking_ccloud.ml2.driver_rpc_api import CCFabricDriverRPCClient
 
@@ -130,10 +131,12 @@ class SwitchBase(abc.ABC):
 
     metric_apply_config_update = Histogram(
         'apply_config_update', 'Apply config update duration (on switch)',
-        DEFAULT_LABELS, namespace=metrics_namespace)
+        DEFAULT_LABELS, namespace=metrics_namespace,
+        buckets=[5 + 10 * x for x in range(12)] + [INF])
     metric_apply_config_update_lock = Histogram(
         'apply_config_update_lock', 'Time waited for apply_config_update lock',
-        DEFAULT_LABELS, namespace=metrics_namespace)
+        DEFAULT_LABELS, namespace=metrics_namespace,
+        buckets=[(5 + x ** 6) / 1e6 for x in range(12)] + [INF])
     metric_apply_config_update_success = Counter(
         'apply_config_update_success', 'Apply config update success counter',
         DEFAULT_LABELS, namespace=metrics_namespace)
@@ -148,7 +151,8 @@ class SwitchBase(abc.ABC):
         DEFAULT_LABELS, namespace=metrics_namespace)
     metric_persist_config = Histogram(
         'persist_config', 'Apply config update duration (on switch)',
-        DEFAULT_LABELS, namespace=metrics_namespace)
+        DEFAULT_LABELS, namespace=metrics_namespace,
+        buckets=[2 + x * 5 for x in range(12)] + [INF])
     metric_persist_config_success = Counter(
         'persist_config_success', 'Persist config success (on switch)',
         DEFAULT_LABELS, namespace=metrics_namespace)
