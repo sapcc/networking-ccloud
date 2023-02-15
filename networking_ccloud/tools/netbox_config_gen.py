@@ -591,7 +591,8 @@ class ConfigGenerator:
                     print(f"Device {switch.name} port {iface.name} is connected to "
                           f"device {far_device.name} port {iface.connected_endpoint.name} "
                           f"role {far_device.device_role.name}")
-
+                if far_device.name == "qa-de-1-rt415b":
+                    print
                 ports_to_device = device_ports_map.get(far_device, [])
                 # ensure InfraNetworks are symmetric
                 infra_nets_and_extra_vlans = self.make_infra_networks_and_extra_vlans(iface, svi_vlan_ip_map)
@@ -834,7 +835,7 @@ def main():
                                                 'Format should be: <key1>/<key2>...')
     parser.add_argument("-a", "--address-scope-vrf-map", type=Path, nargs="+",
                         help="Path to file containing a mapping of address scope names to VRFs. If this is omitted, "
-                             "no mapping will be generated.")
+                             "no mapping will be generated.", default=[])
     parser.add_argument("-s", "--shell", action="store_true")
     parser.add_argument("-o", "--output")
 
