@@ -180,7 +180,10 @@ class ConfigGenerator:
     @classmethod
     def _ignore_filter(cls, items: Iterable[NbRecord]) -> Generator[NbRecord, None, None]:
         for item in items:
-            if any(x.slug in cls.ignore_tags for x in getattr(item, 'tags', list())):
+            if hasattr(item, 'lag') and item.lag and \
+                    any(x.slug in cls.ignore_tags for x in getattr(item.lag, 'tags', list())):
+                print(f'LAG of interface {item.url} has ignore tag set')
+            elif any(x.slug in cls.ignore_tags for x in getattr(item, 'tags', list())):
                 print(f'Item {item.url} has ignore tag set')
             else:
                 yield item
