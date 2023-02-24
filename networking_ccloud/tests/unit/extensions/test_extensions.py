@@ -117,6 +117,16 @@ class TestNetworkExtension(test_segment.SegmentTestCase, base.PortBindingHelper)
         self.db = CCDbPlugin()
         self.ctx = context.get_admin_context()
 
+        cfg.CONF.set_override('global_physnet_mtu', 9000)
+        cfg.CONF.set_override('path_mtu', 9000, group='ml2')
+        cfg.CONF.set_override('network_vlan_ranges', ['seagull:100:1010', 'crow:200:210', 'bgw1:234:244',
+                                                      'bgw2:345:355', 'transit1:111:121', 'transit2:222:233'],
+                              group='ml2_type_vlan')
+        plugin = directory.get_plugin()
+        vlan_type_driver = plugin.type_manager.drivers['vlan'].obj
+        vlan_type_driver._parse_network_vlan_ranges()
+        vlan_type_driver.update_network_segment_range_allocations()
+
         self._net_a = self._make_network(name="a", admin_state_up=True, fmt='json')['network']
         for az in ('a', 'b'):
             self.db.ensure_bgw_for_network(self.ctx, self._net_a['id'], f"qa-de-1{az}")
@@ -158,12 +168,6 @@ class TestNetworkExtension(test_segment.SegmentTestCase, base.PortBindingHelper)
             self.ctx.session.add(ascope)
             spn = self.ctx.session.query(models_v2.SubnetPool).get(self._snp_b['id'])
             spn.address_scope_id = ascope.id
-            objs = self.ctx.session.query(segment_models.NetworkSegment).filter_by(physical_network=None,
-                                                                                   network_type='vxlan')
-            objs.update({'segment_index': 0})
-
-        # fix segment index
-        with self.ctx.session.begin():
             objs = self.ctx.session.query(segment_models.NetworkSegment).filter_by(physical_network=None,
                                                                                    network_type='vxlan')
             objs.update({'segment_index': 0})
@@ -215,13 +219,17 @@ class TestNetworkExtension(test_segment.SegmentTestCase, base.PortBindingHelper)
             self._make_segment(network_id=network_id, network_type='vxlan',
                                segmentation_id=424242,
                                tenant_id="test-tenant", fmt='json')['segment']
+            objs = self.ctx.session.query(segment_models.NetworkSegment).filter_by(physical_network=None,
+                                                                                   network_type='vxlan')
+            objs.update({'segment_index': 0})
 
             # make sure nothing is allocated
             self.assertEqual([], self.db.get_interconnects(self.ctx, network_id))
 
             # make apicall
             fake_new_segment = {'id': 'my-uuid', ml2_api.SEGMENTATION_ID: 1234}
-            with mock.patch.object(test_segment.SegmentTestPlugin, 'type_manager', create=True) as mock_tm, \
+            plugin = directory.get_plugin()
+            with mock.patch.object(plugin, 'type_manager', create=True) as mock_tm, \
                     mock.patch.object(CCFabricSwitchAgentRPCClient, 'apply_config_update') as mock_acu:
                 mock_tm.allocate_dynamic_segment.return_value = fake_new_segment
                 self.app.put(f"/cc-fabric/networks/{network_id}/ensure_interconnects")

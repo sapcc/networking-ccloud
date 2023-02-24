@@ -21,6 +21,7 @@ from neutron.services.tag import tag_plugin
 from neutron.services.trunk import models as trunk_models
 from neutron.tests.unit.extensions import test_segment
 from neutron_lib import context
+from neutron_lib.plugins import directory
 from oslo_config import cfg
 
 from networking_ccloud.common.config import _override_driver_config, config_driver
@@ -33,6 +34,17 @@ from networking_ccloud.tests.common import config_fixtures as cfix
 class TestDBPluginNetworkSyncData(test_segment.SegmentTestCase, base.PortBindingHelper):
     def setUp(self):
         super().setUp()
+
+        cfg.CONF.set_override('global_physnet_mtu', 9000)
+        cfg.CONF.set_override('path_mtu', 9000, group='ml2')
+        cfg.CONF.set_override('network_vlan_ranges', ['foo:100:410', 'bar:200:210', 'baz:300:310',
+                                                      'spam:500:510', 'ham:600:610', 'mew:700:710',
+                                                      'caw:800:810'],
+                              group='ml2_type_vlan')
+        plugin = directory.get_plugin()
+        vlan_type_driver = plugin.type_manager.drivers['vlan'].obj
+        vlan_type_driver._parse_network_vlan_ranges()
+        vlan_type_driver.update_network_segment_range_allocations()
 
         # network a, segments foo bar baz
         #   ports 1(foo), 2(foo), 3-bm(bar)
