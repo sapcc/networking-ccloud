@@ -122,12 +122,6 @@ class TestNetworkExtension(test_segment.SegmentTestCase, base.PortBindingHelper)
         cfg.CONF.set_override('network_vlan_ranges', ['seagull:100:1010', 'crow:200:210', 'bgw1:234:244',
                                                       'bgw2:345:355', 'transit1:111:121', 'transit2:222:233'],
                               group='ml2_type_vlan')
-        cfg.CONF.set_override('network_vlan_ranges', ['seagull:100:1010', 'crow:200:210', 'bgw1:234:244',
-                                                      'bgw2:345:355', 'transit1:111:121', 'transit2:222:233',
-                                                      'foo:100:410', 'bar:200:210', 'baz:300:310',
-                                                      'spam:500:510', 'ham:600:610', 'mew:700:710',
-                                                      'caw:800:810'],
-                              group='ml2_type_vlan')
         plugin = directory.get_plugin()
         vlan_type_driver = plugin.type_manager.drivers['vlan'].obj
         vlan_type_driver._parse_network_vlan_ranges()
