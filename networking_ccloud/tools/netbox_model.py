@@ -25,7 +25,7 @@ from pynetbox.core.response import Record as NbRecord
 from pynetbox.core.response import RecordSet as NbRecordSet
 
 from networking_ccloud.tools.netbox_config_gen import ConfigGenerator, SWITCHGROUP_ROLE_VPOD, SWITCHGROUP_ROLE_NETPOD, \
-    SWITCHGROUP_ROLE_APOD, SWITCHGROUP_ROLE_STPOD
+    SWITCHGROUP_ROLE_APOD, SWITCHGROUP_ROLE_STPOD, ConfigSchemeException
 
 NBR_DICT_T = Union[Dict[str, Any], NbRecord]
 
@@ -103,10 +103,14 @@ class CCFabricNetboxModeller():
         result = defaultdict(list)
         for device in self.api.dcim.devices.filter(region=self.region, role=leaf_role, status='active'):
             roles = {pod_roles.get(t.slug) for t in getattr(device, 'tags', [])}
-            seq_no = ConfigGenerator.parse_ccloud_switch_number_resources(device.name)['seq_no']
-            if roles and seq_no and len(roles.intersection(self.SUPPORTED_ROLES)) == 1:
-                role = roles.intersection(self.SUPPORTED_ROLES).pop()
-                result[role].append(device)
+            try:
+                seq_no = ConfigGenerator.parse_ccloud_switch_number_resources(device.name)['seq_no']
+                if roles and seq_no and len(roles.intersection(self.SUPPORTED_ROLES)) == 1:
+                    role = roles.intersection(self.SUPPORTED_ROLES).pop()
+                    result[role].append(device)
+            except ConfigSchemeException as e:
+                print(f'Ignoring device {device.name}: {e}')
+
         return result
 
     def get_role_facing_interfaces(self, ifaces: NbRecordSet, role_slug: str,
