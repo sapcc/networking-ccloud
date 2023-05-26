@@ -86,8 +86,10 @@ class CCFabricMechanismDriverTestBase(test_plugin.Ml2PluginV2TestCase, base.Port
 class TestCCFabricMechanismDriver(CCFabricMechanismDriverTestBase):
     def setUp(self):
         cfg.CONF.set_override('driver_config_path', 'invalid/path/to/conf.yaml', group='ml2_cc_fabric')
-        cfg.CONF.set_override('network_vlan_ranges', ['seagull:23:42', 'cat:53:1337', 'crow:200:300', 'squirrel:17:17'],
-                              group='ml2_type_vlan')
+        #cfg.CONF.set_override('network_vlan_ranges', ['seagull:23:42', 'cat:53:1337', 'crow:200:300', 'squirrel:17:17'],
+        #                      group='ml2_type_vlan')
+        from networking_ccloud.tests.common.segments import ALL_SEGMENTS, configure_segments
+        cfg.CONF.set_override('network_vlan_ranges', ALL_SEGMENTS, group='ml2_type_vlan')
         cfg.CONF.set_override('mechanism_drivers', self._mechanism_drivers, group='ml2')
         cc_const.SWITCH_AGENT_TOPIC_MAP['test'] = 'cc-fabric-switch-agent-test'
 

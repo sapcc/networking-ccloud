@@ -41,6 +41,7 @@ from networking_ccloud.ml2.agent.common.api import CCFabricSwitchAgentRPCClient
 from networking_ccloud.ml2.agent.common import messages as agent_msg
 from networking_ccloud.tests import base
 from networking_ccloud.tests.common import config_fixtures as cfix
+from networking_ccloud.tests.common.segments import ALL_SEGMENTS, configure_segments
 
 
 class TestCustomExtension(base.TestCase):
@@ -76,7 +77,7 @@ class TestSyncExtension(base.TestCase):
         self.assertEqual({'driver_reached': True}, resp.json)
 
 
-class TestNetworkExtension(test_segment.SegmentTestCase, base.PortBindingHelper):
+class TestNetworkExtension(test_segment.SegmentTestCase, base.PortBindingHelper, base.TestCase):
     def setUp(self):
         super().setUp()
         directory.add_plugin(tagging.TAG_PLUGIN_TYPE, tag_plugin.TagPlugin())
@@ -119,19 +120,12 @@ class TestNetworkExtension(test_segment.SegmentTestCase, base.PortBindingHelper)
 
         cfg.CONF.set_override('global_physnet_mtu', 9000)
         cfg.CONF.set_override('path_mtu', 9000, group='ml2')
-        cfg.CONF.set_override('network_vlan_ranges', ['seagull:100:1010', 'crow:200:210', 'bgw1:234:244',
-                                                      'bgw2:345:355', 'transit1:111:121', 'transit2:222:233'],
-                              group='ml2_type_vlan')
-        cfg.CONF.set_override('network_vlan_ranges', ['seagull:100:1010', 'crow:200:210', 'bgw1:234:244',
-                                                      'bgw2:345:355', 'transit1:111:121', 'transit2:222:233',
-                                                      'foo:100:410', 'bar:200:210', 'baz:300:310',
-                                                      'spam:500:510', 'ham:600:610', 'mew:700:710',
-                                                      'caw:800:810'],
-                              group='ml2_type_vlan')
+        #cfg.CONF.set_override('network_vlan_ranges', ALL_SEGMENTS.copy(), group='ml2_type_vlan')
         plugin = directory.get_plugin()
-        vlan_type_driver = plugin.type_manager.drivers['vlan'].obj
-        vlan_type_driver._parse_network_vlan_ranges()
-        vlan_type_driver.update_network_segment_range_allocations()
+        #vlan_type_driver = plugin.type_manager.drivers['vlan'].obj
+        #vlan_type_driver._parse_network_vlan_ranges()
+        #vlan_type_driver.update_network_segment_range_allocations()
+        configure_segments()
 
         self._net_a = self._make_network(name="a", admin_state_up=True, fmt='json')['network']
         print(plugin.get_network(self.ctx, self._net_a['id']))

@@ -829,7 +829,7 @@ def main():
 
     parser.add_argument('-w', '--wrap-in', help='Keys under which the generated config should be nested under. '
                                                 'Format should be: <key1>/<key2>...')
-    parser.add_argument("-a", "--address-scope-vrf-map", type=Path, nargs="+",
+    parser.add_argument("-a", "--address-scope-vrf-map", type=Path, nargs="+", required=True,
                         help="Path to file containing a mapping of address scope names to VRFs. If this is omitted, "
                              "no mapping will be generated.")
     parser.add_argument("-s", "--shell", action="store_true")

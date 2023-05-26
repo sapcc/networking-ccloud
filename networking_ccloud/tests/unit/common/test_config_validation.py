@@ -29,13 +29,13 @@ class TestConfigValidation(base.TestCase):
         super().setUp()
 
     def test_validate_ml2_vlan_ranges_success(self):
-        cfg.CONF.set_override('tenant_network_types', ['vxlan', 'vlan'], group='ml2')
+        #cfg.CONF.set_override('tenant_network_types', ['vxlan', 'vlan'], group='ml2')
         cfg.CONF.set_override('network_vlan_ranges', ['seagull:23:42', 'cat:53:1337'], group='ml2_type_vlan')
         cfg.CONF.set_override('driver_config_path', 'invalid/path/to/conf.yaml', group='ml2_cc_fabric')
         validate_ml2_vlan_ranges(self.conf_drv)
 
     def test_validate_ml2_vlan_ranges_failure(self):
-        cfg.CONF.set_override('tenant_network_types', ['vxlan', 'vlan'], group='ml2')
+        #cfg.CONF.set_override('tenant_network_types', ['vxlan', 'vlan'], group='ml2')
         cfg.CONF.set_override('network_vlan_ranges', ['cat:53:1337'], group='ml2_type_vlan')
         cfg.CONF.set_override('driver_config_path', 'invalid/path/to/conf.yaml', group='ml2_cc_fabric')
         self.assertRaisesRegex(cc_exc.MissingPhysnetsInNeutronConfig, ".*seagull.*",
