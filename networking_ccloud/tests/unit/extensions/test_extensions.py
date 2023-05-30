@@ -76,7 +76,7 @@ class TestSyncExtension(base.TestCase):
         self.assertEqual({'driver_reached': True}, resp.json)
 
 
-class TestNetworkExtension(test_segment.SegmentTestCase, base.PortBindingHelper):
+class TestNetworkExtension(test_segment.SegmentTestCase, base.PortBindingHelper, base.TestCase):
     def setUp(self):
         super().setUp()
         directory.add_plugin(tagging.TAG_PLUGIN_TYPE, tag_plugin.TagPlugin())
