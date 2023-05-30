@@ -34,7 +34,7 @@ class TestCase(base.BaseTestCase):
         config.setup_logging()
 
 
-class PortBindingHelper():
+class PortBindingHelper:
     def _make_port_with_binding(self, segments, host, **kwargs):
         kwargs['binding:host_id'] = host
         profile = kwargs.pop('profile', None)

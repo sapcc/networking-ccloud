@@ -31,7 +31,7 @@ from networking_ccloud.tests import base
 from networking_ccloud.tests.common import config_fixtures as cfix
 
 
-class TestDBPluginNetworkSyncData(test_segment.SegmentTestCase, base.PortBindingHelper):
+class TestDBPluginNetworkSyncData(test_segment.SegmentTestCase, base.PortBindingHelper, base.TestCase):
     def setUp(self):
         super().setUp()
 
@@ -301,7 +301,7 @@ class TestDBPluginNetworkSyncData(test_segment.SegmentTestCase, base.PortBinding
             self._db.get_subnetpool_details(ctx, [self._subnetpool_reg['id'], self._subnetpool_az['id']]))
 
 
-class TestNetworkInterconnectAllocation(test_segment.SegmentTestCase, base.PortBindingHelper):
+class TestNetworkInterconnectAllocation(test_segment.SegmentTestCase, base.PortBindingHelper, base.TestCase):
     def setUp(self):
         super().setUp()
 
