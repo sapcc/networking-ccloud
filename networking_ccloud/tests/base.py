@@ -19,7 +19,7 @@ import json
 from neutron.common import config
 from neutron.plugins.ml2 import models as ml2_models
 from neutron_lib import context
-from oslo_config import cfg
+from oslo_config import cfg, fixture as config_fixture
 from oslotest import base
 
 
@@ -27,6 +27,8 @@ class TestCase(base.BaseTestCase):
     """Test case base class for all unit tests."""
 
     def setUp(self):
+        self.useFixture(config_fixture.Config())
+
         super().setUp()
 
         # configure debug logging (see also neutron.tests.base setup_test_logging())
