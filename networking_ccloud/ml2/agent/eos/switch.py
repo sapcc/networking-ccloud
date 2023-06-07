@@ -12,18 +12,14 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
-import json
 from operator import attrgetter
 import re
-import time
 from typing import List, Optional
 
 from oslo_log import log as logging
-from prometheus_client import Counter, Histogram
-from pygnmi.client import gNMIclient, gNMIException
 
 from networking_ccloud.common import constants as cc_const
-from networking_ccloud.common import exceptions as cc_exc
+from networking_ccloud.ml2.agent.common.gnmi import CCGNMIClient
 from networking_ccloud.ml2.agent.common import messages as agent_msg
 from networking_ccloud.ml2.agent.common.messages import OperationEnum as Op
 from networking_ccloud.ml2.agent.common.switch import SwitchBase
@@ -32,163 +28,59 @@ from networking_ccloud.ml2.agent.common.switch import SwitchBase
 LOG = logging.getLogger(__name__)
 
 
-class EOSGNMIClient:
-    # Sysdb/routing/bgp/macvrf/config/vlan.3087 or
-    # Sysdb/routing/bgp/macvrf/config/vlan.3087/importRemoteDomainRtList
-    evpn_prefix_re = re.compile(r"^Sysdb/routing/bgp/macvrf/config/vlan\.(?P<vlan>\d+)(:?/(?P<suffix>[^/]+))?$")
+# Sysdb/routing/bgp/macvrf/config/vlan.3087 or
+# Sysdb/routing/bgp/macvrf/config/vlan.3087/importRemoteDomainRtList
+EVPN_PREFIX_RE = re.compile(r"^Sysdb/routing/bgp/macvrf/config/vlan\.(?P<vlan>\d+)(:?/(?P<suffix>[^/]+))?$")
 
-    class PATHS:
-        VLANS = "network-instances/network-instance[name=default]/vlans"
-        VLAN = "network-instances/network-instance[name=default]/vlans/vlan[vlan-id={vlan}]"
 
-        VXMAPS = "interfaces/interface[name=Vxlan1]/arista-exp-eos-vxlan:arista-vxlan/config/vlan-to-vnis"
-        VXMAP_VLAN = ("interfaces/interface[name=Vxlan1]/arista-exp-eos-vxlan:arista-vxlan/config/vlan-to-vnis"
-                      "/vlan-to-vni[vlan={vlan}]")
-        VRF_VXMAPS = "interfaces/interface[name=Vxlan1]/arista-exp-eos-vxlan:arista-vxlan/config/vrf-to-vnis"
-        VRF_VXMAP_VRF = ("interfaces/interface[name=Vxlan1]/arista-exp-eos-vxlan:arista-vxlan/config/vrf-to-vnis/"
-                         "vrf-to-vni[vrf={vrf}]")
+class EOSGNMIPaths:
+    VLANS = "network-instances/network-instance[name=default]/vlans"
+    VLAN = "network-instances/network-instance[name=default]/vlans/vlan[vlan-id={vlan}]"
 
-        EVPN_INSTANCES = "arista/eos/arista-exp-eos-evpn:evpn/evpn-instances"
-        EVPN_INSTANCE = "arista/eos/arista-exp-eos-evpn:evpn/evpn-instances/evpn-instance[name={vlan}]"
-        EVPN_INSTANCES_VIA_SYSDB = "eos_native:Sysdb/routing/bgp/macvrf/config"
-        PROTO_BGP = "network-instances/network-instance[name=default]/protocols/protocol[name=BGP]"
-        NETWORK_INSTANCES = "network-instances"
-        NETWORK_INSTANCE_IFACES = "network-instances/network-instance[name={vrf}]/interfaces"
-        BGP_VRF_AGGREGATES = ("network-instances/network-instance[name={vrf}]/protocols/protocol[name=BGP]/"
-                              "bgp/global/afi-safis/afi-safi[afi-safi-name=openconfig-bgp-types:IPV4_UNICAST]/"
-                              "aggregate-addresses")
-        BGP_VRF_AGGREGATE_PREFIX = ("network-instances/network-instance[name={vrf}]/protocols/protocol[name=BGP]/"
-                                    "bgp/global/afi-safis/afi-safi[afi-safi-name=openconfig-bgp-types:IPV4_UNICAST]/"
-                                    "aggregate-addresses/aggregate-address[aggregate-address={prefix}]")
-        PREFIX_LISTS = "routing-policy/defined-sets/prefix-sets"
-        PREFIX_LIST = "routing-policy/defined-sets/prefix-sets/prefix-set[name={name}]"
-        PREFIX_LIST_PREFIX = ("routing-policy/defined-sets/prefix-sets/prefix-set[name={name}]/"
-                              "prefixes/prefix[ip-prefix={prefix}]")
+    VXMAPS = "interfaces/interface[name=Vxlan1]/arista-exp-eos-vxlan:arista-vxlan/config/vlan-to-vnis"
+    VXMAP_VLAN = ("interfaces/interface[name=Vxlan1]/arista-exp-eos-vxlan:arista-vxlan/config/vlan-to-vnis"
+                  "/vlan-to-vni[vlan={vlan}]")
+    VRF_VXMAPS = "interfaces/interface[name=Vxlan1]/arista-exp-eos-vxlan:arista-vxlan/config/vrf-to-vnis"
+    VRF_VXMAP_VRF = ("interfaces/interface[name=Vxlan1]/arista-exp-eos-vxlan:arista-vxlan/config/vrf-to-vnis/"
+                     "vrf-to-vni[vrf={vrf}]")
 
-        IFACES = "interfaces"
-        IFACE = "interfaces/interface[name={name}]"
-        IFACE_ETH = "interfaces/interface[name={iface}]/ethernet"
-        IFACE_VTRUNKS = "interfaces/interface[name={iface}]/ethernet/switched-vlan/config/trunk-vlans"
-        IFACE_NATIVE_VLAN = "interfaces/interface[name={iface}]/ethernet/switched-vlan/config/native-vlan"
-        IFACE_VTRANS = "interfaces/interface[name={iface}]/ethernet/switched-vlan/vlan-translation"
-        IFACE_VTRANS_EGRESS = ("interfaces/interface[name={iface}]/ethernet/switched-vlan/vlan-translation/"
-                               "egress[translation-key={vlan}]")
-        IFACE_VTRANS_INGRESS = ("interfaces/interface[name={iface}]/ethernet/switched-vlan/vlan-translation/"
-                                "ingress[translation-key={vlan}]")
-        IFACE_PC = "interfaces/interface[name={iface}]/aggregation"
-        IFACE_PC_VTRUNKS = "interfaces/interface[name={iface}]/aggregation/switched-vlan/config/trunk-vlans"
-        IFACE_PC_NATIVE_VLAN = "interfaces/interface[name={iface}]/aggregation/switched-vlan/config/native-vlan"
-        IFACE_PC_VTRANS = "interfaces/interface[name={iface}]/aggregation/switched-vlan/vlan-translation"
-        IFACE_PC_VTRANS_EGRESS = ("interfaces/interface[name={iface}]/aggregation/switched-vlan/vlan-translation/"
-                                  "egress[translation-key={vlan}]")
-        IFACE_PC_VTRANS_INGRESS = ("interfaces/interface[name={iface}]/aggregation/switched-vlan/vlan-translation/"
-                                   "ingress[translation-key={vlan}]")
-        IFACE_IPS_VIA_SYSDB = "eos_native:Sysdb/ip/config/ipIntfConfig"
-        IFACE_VIRTUAL_ADDRESS = "interfaces/interface[name={name}]/arista-varp/virtual-address"
+    EVPN_INSTANCES = "arista/eos/arista-exp-eos-evpn:evpn/evpn-instances"
+    EVPN_INSTANCE = "arista/eos/arista-exp-eos-evpn:evpn/evpn-instances/evpn-instance[name={vlan}]"
+    EVPN_INSTANCES_VIA_SYSDB = "eos_native:Sysdb/routing/bgp/macvrf/config"
+    PROTO_BGP = "network-instances/network-instance[name=default]/protocols/protocol[name=BGP]"
+    NETWORK_INSTANCES = "network-instances"
+    NETWORK_INSTANCE_IFACES = "network-instances/network-instance[name={vrf}]/interfaces"
+    BGP_VRF_AGGREGATES = ("network-instances/network-instance[name={vrf}]/protocols/protocol[name=BGP]/"
+                          "bgp/global/afi-safis/afi-safi[afi-safi-name=openconfig-bgp-types:IPV4_UNICAST]/"
+                          "aggregate-addresses")
+    BGP_VRF_AGGREGATE_PREFIX = ("network-instances/network-instance[name={vrf}]/protocols/protocol[name=BGP]/"
+                                "bgp/global/afi-safis/afi-safi[afi-safi-name=openconfig-bgp-types:IPV4_UNICAST]/"
+                                "aggregate-addresses/aggregate-address[aggregate-address={prefix}]")
+    PREFIX_LISTS = "routing-policy/defined-sets/prefix-sets"
+    PREFIX_LIST = "routing-policy/defined-sets/prefix-sets/prefix-set[name={name}]"
+    PREFIX_LIST_PREFIX = ("routing-policy/defined-sets/prefix-sets/prefix-set[name={name}]/"
+                          "prefixes/prefix[ip-prefix={prefix}]")
 
-    metrics_namespace = 'networking_ccloud_switch_agent_switch_gnmi'
-
-    DEFAULT_LABELS = ['switch_name', 'switch_host', 'method']
-
-    metric_api_action = Histogram(
-        'api_action', 'GNMI API action duration',
-        DEFAULT_LABELS + ['success'], namespace=metrics_namespace)
-    metric_api_retry = Counter(
-        'api_retry', 'GNMI API retry count',
-        DEFAULT_LABELS, namespace=metrics_namespace)
-    metric_api_retries_exhausted = Counter(
-        'api_retries_exhausted', 'GNMI API retries exhausted count',
-        DEFAULT_LABELS, namespace=metrics_namespace)
-
-    def __init__(self, switch_name, host, port, **kwargs):
-        self._gnmi = gNMIclient(target=(host, port), **kwargs)
-        self._switch_name = f"{switch_name} ({host})"
-
-        self._def_labels = {
-            'switch_name': switch_name,
-            'switch_host': host,
-        }
-
-    def __repr__(self):
-        return f"<{self.__class__.__name__} to {self._switch_name}>"
-
-    def connect(self, *args, **kwargs):
-        try:
-            self._gnmi.close()  # doesn't raise on already closed connection
-        except AttributeError:
-            # probably never connected (no channel present)
-            pass
-        # FIXME: currently this throws Except (not retriable)
-        #   would possibly raise a ConnectionRefusedError
-        #   ConnectionRefusedError: [Errno 111] Connection refused
-        LOG.debug("Connecting to switch %s", self._switch_name)
-        try:
-            self._gnmi.connect(*args, **kwargs)
-        except Exception as e:
-            raise cc_exc.SwitchConnectionError(f"{self._switch_name} connect() {e.__class__.__name__} {e}")
-
-    def _run_method(self, method, *args, retries=3, **kwargs):
-        try:
-            start_time = time.time()
-            data = getattr(self._gnmi, method)(*args, **kwargs)
-            time_taken = time.time() - start_time
-            LOG.debug("Command %s() succeeded on %s in %.2fs", method, self._switch_name, time_taken)
-            self.metric_api_action.labels(method=method, success=True, **self._def_labels).observe(time_taken)
-            return data
-        except gNMIException as e:
-            time_taken = time.time() - start_time
-            log_method = LOG.warning if retries > 0 else LOG.exception
-            log_method("Command %s() failed on %s in %.2fs (retries left: %s): %s %s",
-                       method, self._switch_name, time_taken, retries, e.__class__.__name__, str(e))
-            self.metric_api_action.labels(method=method, success=False, **self._def_labels).observe(time_taken)
-
-            cmd = [f"{method}("]
-            if args:
-                cmd.append(", ".join(map(json.dumps, args)))
-            if kwargs:
-                if args:
-                    cmd.append(", ")
-                cmd.append(", ".join(f"{k}={json.dumps(v)}" for k, v in kwargs.items()))
-            cmd.append(")")
-            cmd = "".join(cmd)
-            LOG.debug("Failed command on %s was %s", self._switch_name, cmd)
-
-            if isinstance(e.orig_exc, AttributeError):
-                # module 'grpc' has no attribute '_channel', sometimes a first-connect problem
-                LOG.info("Reconnecting %s because of %s %s", self._switch_name, e.__class__.__name__, str(e))
-                self.connect()
-            if retries > 0:
-                self.metric_api_retry.labels(method=method, **self._def_labels).inc()
-                time.sleep(0.5)
-                return self._run_method(method, *args, retries=retries - 1, **kwargs)
-
-            self.metric_api_retries_exhausted.labels(method=method, **self._def_labels).inc()
-            raise cc_exc.SwitchConnectionError(f"{self._switch_name} {method}() {e.__class__.__name__} {e}")
-
-    def get(self, prefix="", path=None, *args, unpack=True, single=True, **kwargs):
-        data = self._run_method("get", prefix, path, *args, **kwargs)
-        if data and unpack:
-            data = data['notification']
-            if path and len(path) > 1:
-                data = [x['update'] for x in data]
-            else:
-                data = [data[0]['update']]
-
-            def _unpack(entry):
-                if single:
-                    return entry[0]['val']
-                else:
-                    return [x['val'] for x in entry]
-
-            data = [_unpack(e) for e in data]
-
-            if not (path and len(path) > 1):
-                data = data[0]
-
-        return data
-
-    def set(self, *args, retries=3, **kwargs):
-        return self._run_method("set", *args, **kwargs)
+    IFACES = "interfaces"
+    IFACE = "interfaces/interface[name={name}]"
+    IFACE_ETH = "interfaces/interface[name={iface}]/ethernet"
+    IFACE_VTRUNKS = "interfaces/interface[name={iface}]/ethernet/switched-vlan/config/trunk-vlans"
+    IFACE_NATIVE_VLAN = "interfaces/interface[name={iface}]/ethernet/switched-vlan/config/native-vlan"
+    IFACE_VTRANS = "interfaces/interface[name={iface}]/ethernet/switched-vlan/vlan-translation"
+    IFACE_VTRANS_EGRESS = ("interfaces/interface[name={iface}]/ethernet/switched-vlan/vlan-translation/"
+                           "egress[translation-key={vlan}]")
+    IFACE_VTRANS_INGRESS = ("interfaces/interface[name={iface}]/ethernet/switched-vlan/vlan-translation/"
+                            "ingress[translation-key={vlan}]")
+    IFACE_PC = "interfaces/interface[name={iface}]/aggregation"
+    IFACE_PC_VTRUNKS = "interfaces/interface[name={iface}]/aggregation/switched-vlan/config/trunk-vlans"
+    IFACE_PC_NATIVE_VLAN = "interfaces/interface[name={iface}]/aggregation/switched-vlan/config/native-vlan"
+    IFACE_PC_VTRANS = "interfaces/interface[name={iface}]/aggregation/switched-vlan/vlan-translation"
+    IFACE_PC_VTRANS_EGRESS = ("interfaces/interface[name={iface}]/aggregation/switched-vlan/vlan-translation/"
+                              "egress[translation-key={vlan}]")
+    IFACE_PC_VTRANS_INGRESS = ("interfaces/interface[name={iface}]/aggregation/switched-vlan/vlan-translation/"
+                               "ingress[translation-key={vlan}]")
+    IFACE_IPS_VIA_SYSDB = "eos_native:Sysdb/ip/config/ipIntfConfig"
+    IFACE_VIRTUAL_ADDRESS = "interfaces/interface[name={name}]/arista-varp/virtual-address"
 
 
 class EOSSetConfig:
@@ -216,8 +108,9 @@ class EOSSwitch(SwitchBase):
         return cc_const.PLATFORM_EOS
 
     def login(self):
-        self._api = EOSGNMIClient(switch_name=self.name, host=self.host, port=6030,
-                                  username=self.user, password=self._password, insecure=False, skip_verify=True)
+        self._api = CCGNMIClient(switch_name=self.name, host=self.host, port=6030,
+                                 username=self.user, password=self._password, platform=self.get_platform(),
+                                 insecure=False, skip_verify=True)
         self._api.connect()
 
     @staticmethod
@@ -267,14 +160,14 @@ class EOSSwitch(SwitchBase):
         }
 
     def get_vlan_config(self) -> List[agent_msg.Vlan]:
-        swdata = self.api.get(EOSGNMIClient.PATHS.VLANS)["openconfig-network-instance:vlan"]
+        swdata = self.api.get(EOSGNMIPaths.VLANS)["openconfig-network-instance:vlan"]
         vlans = [agent_msg.Vlan(vlan=v['vlan-id'], name=v['config']['name'])
                  for v in swdata if v['vlan-id'] in self.managed_vlans]
         vlans.sort()
         return vlans
 
     def get_all_managed_vlan_ids_on_switch(self):
-        vlans_on_switch = self.api.get(f"{EOSGNMIClient.PATHS.VLANS}/vlan/vlan-id", single=False)
+        vlans_on_switch = self.api.get(f"{EOSGNMIPaths.VLANS}/vlan/vlan-id", single=False)
 
         return set(vlans_on_switch) & set(self.managed_vlans)
 
@@ -289,21 +182,21 @@ class EOSSwitch(SwitchBase):
                 vlans_to_remove = self.get_all_managed_vlan_ids_on_switch() - set(v.vlan for v in vlans)
                 for vlan in sorted(vlans_to_remove):
                     LOG.debug("Removing stale vlan %s from %s (%s) on config replace", vlan, self.name, self.host)
-                    vpath = EOSGNMIClient.PATHS.VLAN.format(vlan=vlan)
+                    vpath = EOSGNMIPaths.VLAN.format(vlan=vlan)
                     config_req.delete.append(vpath)
 
             for vlan in vlans:
                 vcfg = {'vlan-id': vlan.vlan, 'config': {'name': vlan.name, 'vlan-id': vlan.vlan}}
                 wanted_vlans.append(vcfg)
-            vlan_cfg = (EOSGNMIClient.PATHS.VLANS, {'vlan': wanted_vlans})
+            vlan_cfg = (EOSGNMIPaths.VLANS, {'vlan': wanted_vlans})
             config_req.update.append(vlan_cfg)
         else:
             for vlan in vlans:
-                vpath = EOSGNMIClient.PATHS.VLAN.format(vlan=vlan.vlan)
+                vpath = EOSGNMIPaths.VLAN.format(vlan=vlan.vlan)
                 config_req.delete.append(vpath)
 
     def get_vxlan_mappings(self, with_unmanaged=False) -> List[agent_msg.VXLANMapping]:
-        swdata = self.api.get(EOSGNMIClient.PATHS.VXMAPS)['arista-exp-eos-vxlan:vlan-to-vni']
+        swdata = self.api.get(EOSGNMIPaths.VXMAPS)['arista-exp-eos-vxlan:vlan-to-vni']
         vxlan_maps = [agent_msg.VXLANMapping(vni=v['vni'], vlan=v['vlan']) for v in swdata
                       if with_unmanaged or v['vlan'] in self.managed_vlans]
         vxlan_maps.sort()
@@ -324,7 +217,7 @@ class EOSSwitch(SwitchBase):
                 for vlan in vmaps_to_remove:
                     LOG.debug("Removing stale vlan mapping for vlan %s from %s (%s) on config replace",
                               vlan, self.name, self.host)
-                    config_req.delete.append(EOSGNMIClient.PATHS.VXMAP_VLAN.format(vlan=vlan))
+                    config_req.delete.append(EOSGNMIPaths.VXMAP_VLAN.format(vlan=vlan))
 
             # delete all mappings for VNIs we want to repurpose, but are used by a different vlan
             for curr_map in curr_maps:
@@ -333,18 +226,18 @@ class EOSSwitch(SwitchBase):
                         LOG.warning("Removing stale vxlan map <vlan %s vni %s> in favor of <vlan %s vni %s> "
                                     "on switch %s (%s)",
                                     curr_map.vlan, curr_map.vni, os_map.vlan, os_map.vni, self.name, self.host)
-                        del_map = EOSGNMIClient.PATHS.VXMAP_VLAN.format(vlan=curr_map.vlan)
+                        del_map = EOSGNMIPaths.VXMAP_VLAN.format(vlan=curr_map.vlan)
                         config_req.delete.append(del_map)
 
             mapcfgs = [{'vlan': vmap.vlan, 'vni': vmap.vni} for vmap in vxlan_maps]
-            config_req.update.append((EOSGNMIClient.PATHS.VXMAPS, {'vlan-to-vni': mapcfgs}))
+            config_req.update.append((EOSGNMIPaths.VXMAPS, {'vlan-to-vni': mapcfgs}))
         else:
             # delete vlan mapping only if it has the right vni
             for os_map in vxlan_maps:
                 for curr_map in curr_maps:
                     if curr_map.vlan == os_map.vlan:
                         if curr_map.vni == os_map.vni:
-                            config_req.delete.append(EOSGNMIClient.PATHS.VXMAP_VLAN.format(vlan=curr_map.vlan))
+                            config_req.delete.append(EOSGNMIPaths.VXMAP_VLAN.format(vlan=curr_map.vlan))
                         else:
                             LOG.warning("Not deleting vlan %s from switch %s (%s), as it points to vni %s "
                                         "(delete requested vni %s)",
@@ -356,9 +249,9 @@ class EOSSwitch(SwitchBase):
 
     def get_bgp_evpn_extented_config_from_sysdb(self):
         curr_insts = {}
-        sysdb_entries = self.api.get(EOSGNMIClient.PATHS.EVPN_INSTANCES_VIA_SYSDB, unpack=False)['notification']
+        sysdb_entries = self.api.get(EOSGNMIPaths.EVPN_INSTANCES_VIA_SYSDB, unpack=False)['notification']
         for entry in sysdb_entries:
-            m = EOSGNMIClient.evpn_prefix_re.match(entry['prefix'])
+            m = EVPN_PREFIX_RE.match(entry['prefix'])
             if not m:
                 LOG.warning("Unepxected paths %s when fetching vlan instances on %s (%s)",
                             entry['prefix'], self.name, self.host)
@@ -407,7 +300,7 @@ class EOSSwitch(SwitchBase):
     def get_bgp_vlan_config(self) -> List[agent_msg.BGPVlan]:
         bgp_vlans = []
         curr_evpn_ext_conf = self.get_bgp_evpn_extented_config_from_sysdb()
-        curr_bgp_vlans = self.api.get(EOSGNMIClient.PATHS.EVPN_INSTANCES)["arista-exp-eos-evpn:evpn-instance"]
+        curr_bgp_vlans = self.api.get(EOSGNMIPaths.EVPN_INSTANCES)["arista-exp-eos-evpn:evpn-instance"]
         for entry in curr_bgp_vlans:
             if not entry['name'].isdecimal():
                 LOG.warning("Could not match bgp vpn instance name '%s' to a vlan", entry['name'])
@@ -452,7 +345,7 @@ class EOSSwitch(SwitchBase):
     def get_vrf_prefix_lists(self):
         """Get BGP VRF prefix lists, keyed by vrf and then (az_local, ext_announcable)"""
         prefix_lists = {}
-        for pl in self.api.get(EOSGNMIClient.PATHS.PREFIX_LISTS)['openconfig-routing-policy:prefix-set']:
+        for pl in self.api.get(EOSGNMIPaths.PREFIX_LISTS)['openconfig-routing-policy:prefix-set']:
             m = self.PREFIX_LIST_RE.match(pl['name'])
             if not m:
                 continue
@@ -476,7 +369,7 @@ class EOSSwitch(SwitchBase):
         # get prefix lists and sort them by VRF
         prefix_lists = self.get_vrf_prefix_lists()
 
-        for inst in self.api.get(EOSGNMIClient.PATHS.NETWORK_INSTANCES)['openconfig-network-instance:network-instance']:
+        for inst in self.api.get(EOSGNMIPaths.NETWORK_INSTANCES)['openconfig-network-instance:network-instance']:
             if inst['config']['type'] != 'openconfig-network-instance-types:L3VRF':
                 continue
             for inst_bgp in inst['protocols']['protocol']:
@@ -515,7 +408,7 @@ class EOSSwitch(SwitchBase):
         return bgp_vrfs
 
     def get_bgp_config(self) -> agent_msg.BGP:
-        bgp_asn = self.api.get(f"{EOSGNMIClient.PATHS.PROTO_BGP}/bgp/global/config/as")
+        bgp_asn = self.api.get(f"{EOSGNMIPaths.PROTO_BGP}/bgp/global/config/as")
         bgp = agent_msg.BGP(asn=bgp_asn, asn_region=self.asn_region, vlans=self.get_bgp_vlan_config())
         bgp.vrfs = self.get_bgp_vrf_config()
         return bgp
@@ -554,7 +447,7 @@ class EOSSwitch(SwitchBase):
                         cfg_aggs = [agg.network for agg in bgp_vrf.aggregates or []]
                         for device_agg in device_vrf.aggregates or []:
                             if device_agg.network not in cfg_aggs:
-                                delete_req = EOSGNMIClient.PATHS.BGP_VRF_AGGREGATE_PREFIX.format(
+                                delete_req = EOSGNMIPaths.BGP_VRF_AGGREGATE_PREFIX.format(
                                     vrf=bgp_vrf.name, prefix=device_agg.network)
                                 config_req.delete.append(delete_req)
 
@@ -563,7 +456,7 @@ class EOSSwitch(SwitchBase):
                                'config': {'aggregate-address': agg.network,
                                           'attribute-map': self.gen_route_map_name(bgp_vrf.name, agg.az_local)}}
                               for agg in bgp_vrf.aggregates or []]
-                config_req.update.append((EOSGNMIClient.PATHS.BGP_VRF_AGGREGATES.format(vrf=bgp_vrf.name),
+                config_req.update.append((EOSGNMIPaths.BGP_VRF_AGGREGATES.format(vrf=bgp_vrf.name),
                                           {'aggregate-address': aggregates}))
 
                 # manage prefix lists
@@ -581,19 +474,19 @@ class EOSSwitch(SwitchBase):
                         'config': {'name': pl_name},
                         'prefixes': {'prefix': prefixes},
                     }
-                    config_req.get_list(operation).append((EOSGNMIClient.PATHS.PREFIX_LIST.format(name=pl_name),
+                    config_req.get_list(operation).append((EOSGNMIPaths.PREFIX_LIST.format(name=pl_name),
                                                            pl_config))
             else:
                 # delete
                 for net in bgp_vrf.networks:
                     pl_name = self.gen_prefix_list_name(bgp_vrf.name, net.az_local, net.ext_announcable)
-                    delete_req = EOSGNMIClient.PATHS.PREFIX_LIST_PREFIX.format(name=pl_name, prefix=net.network)
+                    delete_req = EOSGNMIPaths.PREFIX_LIST_PREFIX.format(name=pl_name, prefix=net.network)
                     config_req.delete.append(delete_req)
 
                 for agg in bgp_vrf.aggregates:
                     # NOTE: We're deleting regardless of route-map here
-                    delete_req = EOSGNMIClient.PATHS.BGP_VRF_AGGREGATE_PREFIX.format(vrf=bgp_vrf.name,
-                                                                                     prefix=agg.network)
+                    delete_req = EOSGNMIPaths.BGP_VRF_AGGREGATE_PREFIX.format(vrf=bgp_vrf.name,
+                                                                              prefix=agg.network)
                     config_req.delete.append(delete_req)
 
     def _make_bgp_config(self, config_req: EOSSetConfig, bgp: Optional[agent_msg.BGP], operation: Op) -> None:
@@ -612,7 +505,7 @@ class EOSSwitch(SwitchBase):
                 bgp_vlans_to_remove = set(bv.vlan for bv in bgp_vlans_on_switch) - set(bv.vlan for bv in bgp.vlans)
                 for vlan in bgp_vlans_to_remove:
                     LOG.debug("Removing stale bgp vlan %s from %s (%s) on config replace", vlan, self.name, self.host)
-                    delete_req = EOSGNMIClient.PATHS.EVPN_INSTANCE.format(vlan=vlan)
+                    delete_req = EOSGNMIPaths.EVPN_INSTANCE.format(vlan=vlan)
                     config_req.delete.append(delete_req)
 
             for bgp_vlan in bgp.vlans:
@@ -674,17 +567,17 @@ class EOSSwitch(SwitchBase):
                 # NOTE: We could do a replace every time, but replace takes ~320ms per whole call (not per
                 #       evpn instance) vs ~32ms on update. This is only the case on a replace, where we have
                 #       ROUTER_MAC, HOST_ROUTE as part of the "redistribute" key.
-                config_req.get_list(operation).append((EOSGNMIClient.PATHS.EVPN_INSTANCE.format(vlan=bgp_vlan.vlan),
+                config_req.get_list(operation).append((EOSGNMIPaths.EVPN_INSTANCE.format(vlan=bgp_vlan.vlan),
                                                        inst))
         else:
             for bgp_vlan in bgp.vlans:
-                delete_req = EOSGNMIClient.PATHS.EVPN_INSTANCE.format(vlan=bgp_vlan.vlan)
+                delete_req = EOSGNMIPaths.EVPN_INSTANCE.format(vlan=bgp_vlan.vlan)
                 config_req.delete.append(delete_req)
 
     def get_iface_secondary_ips(self):
         ifaces = {}
 
-        for entry in self.api.get(EOSGNMIClient.PATHS.IFACE_IPS_VIA_SYSDB, unpack=False)['notification']:
+        for entry in self.api.get(EOSGNMIPaths.IFACE_IPS_VIA_SYSDB, unpack=False)['notification']:
             # Sysdb/ip/config/ipIntfConfig/Vlan1337/virtualSecondaryWithMask
             if entry['prefix'].endswith("/virtualSecondaryWithMask"):
                 ifname = entry['prefix'].split("/")[-2]
@@ -695,7 +588,7 @@ class EOSSwitch(SwitchBase):
 
     def get_iface_vrf_map(self):
         iface_vrf_map = {}
-        for inst in self.api.get(EOSGNMIClient.PATHS.NETWORK_INSTANCES)['openconfig-network-instance:network-instance']:
+        for inst in self.api.get(EOSGNMIPaths.NETWORK_INSTANCES)['openconfig-network-instance:network-instance']:
             if 'interfaces' not in inst:
                 continue
             for iface in inst['interfaces']['interface']:
@@ -721,7 +614,7 @@ class EOSSwitch(SwitchBase):
             iface_vrf_map = {}
 
         # iterate over all ifaces on switch
-        for data in self.api.get(EOSGNMIClient.PATHS.IFACES)['openconfig-interfaces:interface']:
+        for data in self.api.get(EOSGNMIPaths.IFACES)['openconfig-interfaces:interface']:
             if data['config'].get('type') == 'iana-if-type:l3ipvlan':
                 # l3 ifaces are a special case, as they are handled by a different config object
                 vrf = iface_vrf_map.get(data['name'])
@@ -811,7 +704,7 @@ class EOSSwitch(SwitchBase):
     def get_vlan_translations(self):
         """Get egress/ingress vlan translations from the device as a interface/bridging-vlan dict"""
         iface_map = {}
-        for iface in self.api.get(EOSGNMIClient.PATHS.IFACES)['openconfig-interfaces:interface']:
+        for iface in self.api.get(EOSGNMIPaths.IFACES)['openconfig-interfaces:interface']:
             ifname = iface['name']
             if 'openconfig-if-aggregate:aggregation' in iface:
                 iface = iface['openconfig-if-aggregate:aggregation']
@@ -858,13 +751,13 @@ class EOSSwitch(SwitchBase):
                         return
                     for vtrans in iface_cfg.vlan_translations:
                         if existing_vtrans[ifname]['ingress'].get(vtrans.inside) not in (vtrans.outside, None):
-                            vpath = (EOSGNMIClient.PATHS.IFACE_PC_VTRANS_INGRESS if is_pc
-                                     else EOSGNMIClient.PATHS.IFACE_VTRANS_INGRESS)
+                            vpath = (EOSGNMIPaths.IFACE_PC_VTRANS_INGRESS if is_pc
+                                     else EOSGNMIPaths.IFACE_VTRANS_INGRESS)
                             tkey = existing_vtrans[ifname]['ingress'][vtrans.inside]
                             config_req.delete.append(vpath.format(iface=ifname, vlan=tkey))
                         if existing_vtrans[ifname]['egress'].get(vtrans.outside) not in (vtrans.inside, None):
-                            vpath = (EOSGNMIClient.PATHS.IFACE_PC_VTRANS_EGRESS if is_pc
-                                     else EOSGNMIClient.PATHS.IFACE_VTRANS_EGRESS)
+                            vpath = (EOSGNMIPaths.IFACE_PC_VTRANS_EGRESS if is_pc
+                                     else EOSGNMIPaths.IFACE_VTRANS_EGRESS)
                             tkey = existing_vtrans[ifname]['egress'][vtrans.outside]
                             config_req.delete.append(vpath.format(iface=ifname, vlan=tkey))
 
@@ -907,7 +800,7 @@ class EOSSwitch(SwitchBase):
                     if iface.vlan_translations:
                         remove_stale_vlan_translations(iface.name, iface, is_pc=True)
 
-                    pc_cfg = (EOSGNMIClient.PATHS.IFACE.format(name=iface.name), data)
+                    pc_cfg = (EOSGNMIPaths.IFACE.format(name=iface.name), data)
                     config_req.get_list(operation).append(pc_cfg)
                     normal_ifaces = iface.members or []
                 else:
@@ -921,7 +814,7 @@ class EOSSwitch(SwitchBase):
                         data['switched-vlan'] = {'config': data_vlan}
                     if iface.vlan_translations:
                         remove_stale_vlan_translations(iface_name, iface, is_pc=False)
-                    iface_cfg = (EOSGNMIClient.PATHS.IFACE_ETH.format(iface=iface_name), data)
+                    iface_cfg = (EOSGNMIPaths.IFACE_ETH.format(iface=iface_name), data)
                     config_req.get_list(operation).append(iface_cfg)
         else:
             # delete everything (that is requested)
@@ -936,9 +829,9 @@ class EOSSwitch(SwitchBase):
                 normal_ifaces = []
                 if iface.portchannel_id is not None:
                     if iface.native_vlan:
-                        config_req.delete.append(EOSGNMIClient.PATHS.IFACE_PC_NATIVE_VLAN.format(iface=iface.name))
+                        config_req.delete.append(EOSGNMIPaths.IFACE_PC_NATIVE_VLAN.format(iface=iface.name))
                     if iface.trunk_vlans:
-                        config_req.replace.append((EOSGNMIClient.PATHS.IFACE_PC_VTRUNKS.format(iface=iface.name),
+                        config_req.replace.append((EOSGNMIPaths.IFACE_PC_VTRUNKS.format(iface=iface.name),
                                                    calc_delete_range(all_ifaces_cfg, iface.name, iface)))
 
                     # NOTE: we only delete the translations based on one part of the translation
@@ -946,9 +839,9 @@ class EOSSwitch(SwitchBase):
                     #       to do a replace on the existing translations by looking through the transaltion
                     #       dict in all_interfaces. If this happens we can change the implementation
                     for vtrans in iface.vlan_translations or []:
-                        config_req.delete.append(EOSGNMIClient.PATHS.IFACE_PC_VTRANS_EGRESS
+                        config_req.delete.append(EOSGNMIPaths.IFACE_PC_VTRANS_EGRESS
                                                  .format(iface=iface.name, vlan=vtrans.inside))
-                        config_req.delete.append(EOSGNMIClient.PATHS.IFACE_PC_VTRANS_INGRESS
+                        config_req.delete.append(EOSGNMIPaths.IFACE_PC_VTRANS_INGRESS
                                                  .format(iface=iface.name, vlan=vtrans.outside))
                     normal_ifaces = iface.members or []
                 else:
@@ -956,18 +849,18 @@ class EOSSwitch(SwitchBase):
 
                 for iface_name in normal_ifaces:
                     if iface.native_vlan:
-                        config_req.delete.append(EOSGNMIClient.PATHS.IFACE_NATIVE_VLAN.format(iface=iface_name))
+                        config_req.delete.append(EOSGNMIPaths.IFACE_NATIVE_VLAN.format(iface=iface_name))
 
                     # delete trunk vlans
                     if iface.trunk_vlans:
-                        config_req.replace.append((EOSGNMIClient.PATHS.IFACE_VTRUNKS.format(iface=iface_name),
+                        config_req.replace.append((EOSGNMIPaths.IFACE_VTRUNKS.format(iface=iface_name),
                                                    calc_delete_range(all_ifaces_cfg, iface_name, iface)))
                     # delete translations
                     # NOTE: see note above for PC translations
                     for vtrans in iface.vlan_translations or []:
-                        config_req.delete.append(EOSGNMIClient.PATHS.IFACE_VTRANS_EGRESS
+                        config_req.delete.append(EOSGNMIPaths.IFACE_VTRANS_EGRESS
                                                  .format(iface=iface_name, vlan=vtrans.inside))
-                        config_req.delete.append(EOSGNMIClient.PATHS.IFACE_VTRANS_INGRESS
+                        config_req.delete.append(EOSGNMIPaths.IFACE_VTRANS_INGRESS
                                                  .format(iface=iface_name, vlan=vtrans.outside))
 
     def _make_vlan_ifaces_config(self, config_req: EOSSetConfig, vlan_ifaces: Optional[List[agent_msg.VlanIface]],
@@ -982,7 +875,7 @@ class EOSSwitch(SwitchBase):
                 wanted_vlans = [vif.vlan for vif in vlan_ifaces]
                 for switch_vif in switch_vlan_ifaces:
                     if switch_vif.vlan in self.managed_vlans and switch_vif.vlan not in wanted_vlans:
-                        config_req.delete.append(EOSGNMIClient.PATHS.IFACE.format(name=f"Vlan{switch_vif.vlan}"))
+                        config_req.delete.append(EOSGNMIPaths.IFACE.format(name=f"Vlan{switch_vif.vlan}"))
 
             all_secondary_ips = self.get_iface_secondary_ips()
             for viface in vlan_ifaces:
@@ -996,7 +889,7 @@ class EOSSwitch(SwitchBase):
                     vconfig["arista-varp"] = {"virtual-address": {"config": {"ip": vip, "prefix-length": int(plen)}}}
                 else:
                     # remove address from interface
-                    config_req.delete.append(EOSGNMIClient.PATHS.IFACE_VIRTUAL_ADDRESS.format(name=vifname))
+                    config_req.delete.append(EOSGNMIPaths.IFACE_VIRTUAL_ADDRESS.format(name=vifname))
 
                 # handle secondary ips
                 secondary_ip_cmds = []
@@ -1013,14 +906,14 @@ class EOSSwitch(SwitchBase):
                     secondary_ip_cmds = [("cli:", f"interface {vifname}")] + secondary_ip_cmds + [("cli:", "exit")]
                     config_req.update_cli.extend(secondary_ip_cmds)
 
-                config_req.update.append((EOSGNMIClient.PATHS.IFACE.format(name=vifname), vconfig))
+                config_req.update.append((EOSGNMIPaths.IFACE.format(name=vifname), vconfig))
 
                 if viface.vrf:
-                    config_req.update.append((EOSGNMIClient.PATHS.NETWORK_INSTANCE_IFACES.format(vrf=viface.vrf),
+                    config_req.update.append((EOSGNMIPaths.NETWORK_INSTANCE_IFACES.format(vrf=viface.vrf),
                                               {"interface": [{"id": vifname, "config": {"id": vifname}}]}))
         else:
             for viface in vlan_ifaces:
-                config_req.delete.append(EOSGNMIClient.PATHS.IFACE.format(name=f"Vlan{viface.vlan}"))
+                config_req.delete.append(EOSGNMIPaths.IFACE.format(name=f"Vlan{viface.vlan}"))
 
     def _make_config_from_update(self, config: agent_msg.SwitchConfigUpdate) -> EOSSetConfig:
         # build config
