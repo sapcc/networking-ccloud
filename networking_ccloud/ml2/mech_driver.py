@@ -65,7 +65,7 @@ class CCFabricMechanismDriver(ml2_api.MechanismDriver, CCFabricDriverAPI):
 
         self.vif_details = {
             # allow ports without an IP to be bound
-            pb_api.VIF_DETAILS_CONNECTIVITY: pb_api.CONNECTIVITY_L2,
+            pb_api.VIF_DETAILS_CONNECTIVITY: self.connectivity,
         }
 
     def initialize(self):
@@ -93,6 +93,10 @@ class CCFabricMechanismDriver(ml2_api.MechanismDriver, CCFabricDriverAPI):
         if self._plugin_property is None:
             self._plugin_property = directory.get_plugin()
         return self._plugin_property
+
+    @property
+    def connectivity(self):
+        return pb_api.CONNECTIVITY_L2
 
     def start_rpc_listeners(self):
         """Start the RPC listeners.
