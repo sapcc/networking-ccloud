@@ -6,7 +6,7 @@ pbr>=2.0 # Apache-2.0
 
 # general requirements
 oslo.config
-pydantic
+pydantic<2
 pyyaml
 
 # driver requirements
