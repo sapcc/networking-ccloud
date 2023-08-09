@@ -41,6 +41,7 @@ from networking_ccloud.ml2.agent.common.api import CCFabricSwitchAgentRPCClient
 from networking_ccloud.ml2.agent.common import messages as agent_msg
 from networking_ccloud.tests import base
 from networking_ccloud.tests.common import config_fixtures as cfix
+from networking_ccloud.tests.common.helper import fix_net_mtu
 
 
 class TestCustomExtension(base.TestCase):
@@ -128,6 +129,7 @@ class TestNetworkExtension(test_segment.SegmentTestCase, base.PortBindingHelper,
         vlan_type_driver.update_network_segment_range_allocations()
 
         self._net_a = self._make_network(name="a", admin_state_up=True, fmt='json')['network']
+        fix_net_mtu(self.ctx, self._net_a)
         for az in ('a', 'b'):
             self.db.ensure_bgw_for_network(self.ctx, self._net_a['id'], f"qa-de-1{az}")
             self.db.ensure_transit_for_network(self.ctx, self._net_a['id'], f"qa-de-1{az}")
@@ -148,6 +150,7 @@ class TestNetworkExtension(test_segment.SegmentTestCase, base.PortBindingHelper,
                                                       host='nova-compute-crow')
 
         self._net_b = self._make_network(name="b", admin_state_up=True, fmt='json')['network']
+        fix_net_mtu(self.ctx, self._net_b)
         self._seg_b = {physnet: self._make_segment(network_id=self._net_b['id'], network_type='vlan',
                        physical_network=physnet, segmentation_id=seg_id, tenant_id='test-tenant',
                        fmt='json')['segment']
@@ -216,6 +219,7 @@ class TestNetworkExtension(test_segment.SegmentTestCase, base.PortBindingHelper,
     def test_network_ensure_interconnects(self):
         with self.network() as network:
             network_id = network['network']['id']
+            fix_net_mtu(self.ctx, network['network'])
             self._make_segment(network_id=network_id, network_type='vxlan',
                                segmentation_id=424242,
                                tenant_id="test-tenant", fmt='json')['segment']

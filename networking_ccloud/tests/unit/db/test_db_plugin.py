@@ -29,6 +29,7 @@ from networking_ccloud.common import constants as cc_const
 from networking_ccloud.db.db_plugin import CCDbPlugin
 from networking_ccloud.tests import base
 from networking_ccloud.tests.common import config_fixtures as cfix
+from networking_ccloud.tests.common.helper import fix_net_mtu
 
 
 class TestDBPluginNetworkSyncData(test_segment.SegmentTestCase, base.PortBindingHelper, base.TestCase):
@@ -45,11 +46,13 @@ class TestDBPluginNetworkSyncData(test_segment.SegmentTestCase, base.PortBinding
         vlan_type_driver = plugin.type_manager.drivers['vlan'].obj
         vlan_type_driver._parse_network_vlan_ranges()
         vlan_type_driver.update_network_segment_range_allocations()
+        ctx = context.get_admin_context()
 
         # network a, segments foo bar baz
         #   ports 1(foo), 2(foo), 3-bm(bar)
         #   no port on baz (to make sure this segment is ignored)
         self._net_a = self._make_network(name="a", admin_state_up=True, fmt='json')['network']
+        fix_net_mtu(ctx, self._net_a)
         self._subnet_a_1 = self._make_subnet("json", {"network": self._net_a}, "10.180.0.1", "10.180.0.0/24")['subnet']
         self._seg_a = {physnet: self._make_segment(network_id=self._net_a['id'], network_type='vlan',
                        physical_network=physnet, segmentation_id=seg_id, tenant_id='test-tenant',
@@ -73,6 +76,7 @@ class TestDBPluginNetworkSyncData(test_segment.SegmentTestCase, base.PortBinding
         # network b, segments foo spam ham
         #   ports 1(foo) 2(spam) 3(spam) 4(spam) 5-trunk(ham) 6-double(foo,spam)
         self._net_b = self._make_network(name="b", admin_state_up=True, fmt='json')['network']
+        fix_net_mtu(ctx, self._net_b)
         self._seg_b = {physnet: self._make_segment(network_id=self._net_b['id'], network_type='vlan',
                        physical_network=physnet, segmentation_id=seg_id, tenant_id='test-tenant',
                        fmt='json')['segment']
@@ -103,8 +107,8 @@ class TestDBPluginNetworkSyncData(test_segment.SegmentTestCase, base.PortBinding
                                                        host='caw-compute', port=self._port_b_6a)
 
         # create trunk
-        ctx = context.get_admin_context()
         self._net_c = self._make_network(name="b", admin_state_up=True, fmt='json')['network']
+        fix_net_mtu(ctx, self._net_c)
         self._port_c_1 = self._make_port('json', self._net_c['id'])['port']  # bindings don't matter
         with ctx.session.begin():
             subport = trunk_models.SubPort(port_id=self._port_b_5['id'], segmentation_type='vlan', segmentation_id=1000)
