@@ -480,6 +480,8 @@ class NXOSSwitch(SwitchBase):
 
         config_req = self._make_config_from_update(config)
         try:
+            LOG.info("Applying config update %s",
+                     dict(delete=config_req.delete, replace=config_req.replace, update=config_req.update))
             self.api.set(delete=config_req.delete, replace=config_req.replace, update=config_req.update)
             self.metric_apply_config_update_success.labels(**self._def_labels).inc()
         except Exception as e:
