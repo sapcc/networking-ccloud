@@ -543,20 +543,20 @@ class CCFabricMechanismDriver(ml2_api.MechanismDriver, CCFabricDriverAPI):
                 LOG.debug("Port %s does not have two binding levels, no update will be sent. Old host %s, levels %s",
                           context.current['id'], old_host, context.original_binding_levels)
                 return
+            segment_0 = context.original_binding_levels[0][ml2_api.BOUND_SEGMENT]
+            segment_1 = context.original_binding_levels[1][ml2_api.BOUND_SEGMENT]
             orig_network_id = None
             if context.network.original is not None:
                 orig_network_id = context.network.original['id']
-            elif 'network_id' in context.original_binding_levels[1][ml2_api.BOUND_SEGMENT]:
-                orig_network_id = context.original_binding_levels[1][ml2_api.BOUND_SEGMENT]['network_id']
+            elif segment_1 and 'network_id' in segment_1:
+                orig_network_id = segment_1['network_id']
             else:
                 LOG.warning("Port %s transitioning from %s to %s does not have an original network attached to it, "
                             "old host will not be cleaned up",
                             context.current['id'], old_host, new_host)
                 return
             self.driver_handle_binding_host_removed(context._plugin_context, context, context.original,
-                                                    context.original_binding_levels[0][ml2_api.BOUND_SEGMENT],
-                                                    context.original_binding_levels[1][ml2_api.BOUND_SEGMENT],
-                                                    orig_network_id)
+                                                    segment_0, segment_1, orig_network_id)
 
     def delete_port_postcommit(self, context):
         """Delete a port.
