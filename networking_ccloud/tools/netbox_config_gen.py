@@ -486,7 +486,7 @@ class ConfigGenerator:
 
     def get_asn_region(self, region):
         sites = self.netbox.dcim.sites.filter(region=region)
-        site_asns = {site.asn for site in sites if site.asn}
+        site_asns = {asn for site in sites if site.asns for asn in site.asns}
         if not site_asns:
             raise ConfigException(f"Region {region} has no ASN")
         if len(site_asns) > 1:
@@ -571,10 +571,14 @@ class ConfigGenerator:
                     continue
 
                 # FIXME: ignore management, peerlink (maybe), unconnected ports
-                if iface.connected_endpoint is None:
+                if iface.connected_endpoints is None:
                     continue
 
-                far_device = iface.connected_endpoint.device
+                if len(iface.connected_endpoints) > 1:
+                    raise ConfigException(f'Interface {iface.name} on {switch.name} has more than one '
+                                          'connected endpoint')
+
+                far_device = iface.connected_endpoints[0].device
                 if far_device.device_role.slug not in self.connection_roles:
                     continue
                 if (far_device.device_role.slug == 'filer'
@@ -586,7 +590,7 @@ class ConfigGenerator:
 
                 if self.verbose:
                     print(f"Device {switch.name} port {iface.name} is connected to "
-                          f"device {far_device.name} port {iface.connected_endpoint.name} "
+                          f"device {far_device.name} port {iface.connected_endpoints[0].name} "
                           f"role {far_device.device_role.name}")
 
                 ports_to_device = device_ports_map.get(far_device, [])
@@ -636,8 +640,13 @@ class ConfigGenerator:
                 ifaces = self._ignore_filter(self.netbox.dcim.interfaces.filter(device_id=nb_switch.id))
                 aci_facing_ifaces = list()
                 for iface in ifaces:
-                    connected_device_role = iface
-                    for attr in ('connected_endpoint', 'device', 'device_role', 'slug'):
+                    if not iface.connected_endpoints:
+                        continue
+                    if len(iface.connected_endpoints) > 1:
+                        raise ConfigException(f'Interface {iface.name} on {nb_switch.name} has more than '
+                                              'one connected endpoint')
+                    connected_device_role = iface.connected_endpoints[0]
+                    for attr in ('device', 'device_role', 'slug'):
                         connected_device_role = getattr(connected_device_role, attr, None)
                     if not connected_device_role:
                         continue
