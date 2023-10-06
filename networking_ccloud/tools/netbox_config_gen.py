@@ -382,15 +382,6 @@ class ConfigGenerator:
                 extra_vlans.add(vlan.vid)
                 continue
 
-            # by convention we ignore certain VLAN groups member VLANs, once we upgrade to netbox 3.x we shall remove
-            # this as VLAN groups will then support tags
-            if vlan.group and (
-                    (vlan.group.slug.startswith(self.region) and vlan.group.slug.endswith('cp'))
-                    or vlan.group.slug == f'{self.region}-regional'
-                    or vlan.group.slug == 'global-cc-core-transit'):
-                extra_vlans.add(vlan.vid)
-                continue
-
             mandatory_attrs = ('vid', 'tenant')
             for attr in mandatory_attrs:
                 if not getattr(vlan, attr, None):
