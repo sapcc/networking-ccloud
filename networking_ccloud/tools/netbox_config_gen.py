@@ -186,6 +186,11 @@ class ConfigGenerator:
                 yield item
 
     @classmethod
+    def is_trusted_far_device(cls, far_device: NbRecord) -> bool:
+        trusted_clusters = {'cc-k8s-controlplane', 'cc-k8s-controlplane-swift'}
+        return far_device.cluster and far_device.cluster.type.slug in trusted_clusters
+
+    @classmethod
     def switch_filter(cls, switches: Iterable[NbRecord]) -> Generator[NbRecord, None, None]:
         for switch in cls._ignore_filter(switches):
             tags = [x.slug for x in getattr(switch, 'tags', list())]
@@ -363,17 +368,24 @@ class ConfigGenerator:
             parent_prefixes.add(ipaddress.ip_network(nb_parent_prefix.prefix))
         return networks, parent_prefixes
 
-    def make_infra_networks_and_extra_vlans(self, iface: NbRecord, svis: Dict[NbRecord, List[NbRecord]]
-                                            ) -> Tuple[Set[conf.InfraNetwork], Set[int]]:
+    def make_infra_networks_and_extra_vlans(self, iface: NbRecord,
+                                            svis: Dict[NbRecord, List[NbRecord]], far_interface: NbRecord,
+                                            is_trusted=False) -> Tuple[Set[conf.InfraNetwork], Set[int]]:
         # lag superseeds physcal interface
         infra_nets = set()
         extra_vlans = set()
         if iface.lag:
             iface = iface.lag
 
+        if far_interface.lag:
+            far_interface = far_interface.lag
+
         # FIXME: support untagged VLANs
         # FIXME: support DHCP relay
-        for vlan in getattr(iface, 'tagged_vlans', list()):
+        vlans = set(getattr(iface, 'tagged_vlans', []))
+        if is_trusted:
+            vlans.update(getattr(far_interface, 'tagged_vlans', []))
+        for vlan in vlans:
             # some infra vlans we will not manage, just put in the allowed VLAN list
             tags = set(x.slug for x in vlan.tags)
             if vlan.group and hasattr(vlan.group, 'tags'):
@@ -569,7 +581,8 @@ class ConfigGenerator:
                     raise ConfigException(f'Interface {iface.name} on {switch.name} has more than one '
                                           'connected endpoint')
 
-                far_device = iface.connected_endpoints[0].device
+                far_interface = iface.connected_endpoint[0]
+                far_device = far_interface.device
                 if far_device.device_role.slug not in self.connection_roles:
                     continue
                 if (far_device.device_role.slug == 'filer'
@@ -585,8 +598,10 @@ class ConfigGenerator:
                           f"role {far_device.device_role.name}")
 
                 ports_to_device = device_ports_map.get(far_device, [])
+                trusted_device = self.is_trusted_far_device(far_device)
                 # ensure InfraNetworks are symmetric
-                infra_nets_and_extra_vlans = self.make_infra_networks_and_extra_vlans(iface, svi_vlan_ip_map)
+                infra_nets_and_extra_vlans = self.make_infra_networks_and_extra_vlans(iface, svi_vlan_ip_map,
+                                                                                      far_interface, trusted_device)
                 if far_device in device_infra_nets_map:
                     if device_infra_nets_map[far_device] != infra_nets_and_extra_vlans:
                         raise ConfigException(f'Host {far_device.name} has asymmetric infra networks on both switches')
