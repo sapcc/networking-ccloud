@@ -43,11 +43,13 @@ class TestEOSConfigUpdates(base.TestCase):
             ('network-instances/network-instance[name=default]/vlans',
              {'vlan': [
                  {'vlan-id': 1000, 'config': {'name': 'nest', 'vlan-id': 1000}},
-                 {'vlan-id': 1001, 'config': {'name': 'basket', 'vlan-id': 1001}}]})]
+                 {'vlan-id': 1001, 'config': {'name': 'basket', 'vlan-id': 1001}},
+                 {'vlan-id': 1002, 'config': {'name': '36a4e83f301d47da994b40ba080a42f5', 'vlan-id': 1002}}]})]
 
         cu = messages.SwitchConfigUpdate(switch_name="seagull-sw1", operation=messages.OperationEnum.add)
         cu.add_vlan(1000, "nest")
         cu.add_vlan(1001, "basket")
+        cu.add_vlan(1002, "36a4e83f-301d-47da-994b-40ba080a42f5")
         self.switch.apply_config_update(cu).result()
         self.switch._api.set.assert_called_with(update=expected_update, delete=[], replace=[])
 
@@ -951,7 +953,10 @@ class TestEOSSwitch(base.TestCase):
                 return {
                     'openconfig-network-instance:vlan': [
                         {'config': {'vlan-id': 2121, 'name': 'b226a569-e0ed-4d24-b943-c7183288'},
-                         'vlan-id': 2121}]}
+                         'vlan-id': 2121},
+                        {'config': {'vlan-id': 2122, 'name': 'nest'},
+                         'vlan-id': 2122},
+                    ]}
             elif prefix == 'interfaces/interface[name=Vxlan1]/arista-exp-eos-vxlan:arista-vxlan/config/vlan-to-vnis':
                 return {'arista-exp-eos-vxlan:vlan-to-vni': [{'vlan': 2121, 'vni': 31337}]}
             elif prefix == ('network-instances/network-instance[name=default]/protocols/protocol[name=BGP]/'
@@ -1094,6 +1099,7 @@ class TestEOSSwitch(base.TestCase):
 
         cu = messages.SwitchConfigUpdate(switch_name="seagull-sw1", operation=messages.OperationEnum.add)
         cu.add_vlan(2121, "b226a569-e0ed-4d24-b943-c7183288")
+        cu.add_vlan(2122, "nest")
         cu.add_vxlan_map(31337, 2121)
         cu.bgp = messages.BGP(asn="65130.4113", asn_region=65130, switchgroup_id=4223)
         cu.bgp.add_vlan(2000, 10091, 1, bgw_mode=False)

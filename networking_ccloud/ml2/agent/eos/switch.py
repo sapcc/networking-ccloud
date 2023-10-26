@@ -15,6 +15,7 @@
 from operator import attrgetter
 import re
 from typing import List, Optional
+import uuid
 
 from oslo_log import log as logging
 
@@ -31,6 +32,7 @@ LOG = logging.getLogger(__name__)
 # Sysdb/routing/bgp/macvrf/config/vlan.3087 or
 # Sysdb/routing/bgp/macvrf/config/vlan.3087/importRemoteDomainRtList
 EVPN_PREFIX_RE = re.compile(r"^Sysdb/routing/bgp/macvrf/config/vlan\.(?P<vlan>\d+)(:?/(?P<suffix>[^/]+))?$")
+UUID_RE = re.compile("^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
 
 
 class EOSGNMIPaths:
@@ -161,8 +163,15 @@ class EOSSwitch(SwitchBase):
 
     def get_vlan_config(self) -> List[agent_msg.Vlan]:
         swdata = self.api.get(EOSGNMIPaths.VLANS)["openconfig-network-instance:vlan"]
-        vlans = [agent_msg.Vlan(vlan=v['vlan-id'], name=v['config']['name'])
-                 for v in swdata if v['vlan-id'] in self.managed_vlans]
+        vlans = []
+        for v in swdata:
+            if v['vlan-id'] not in self.managed_vlans:
+                continue
+            vname = v['config']['name']
+            if re.match("^[0-9a-f]{32}$", vname):
+                # name looks like a uuid --> convert it back to one with "-"
+                vname = str(uuid.UUID(vname))
+            vlans.append(agent_msg.Vlan(vlan=v['vlan-id'], name=vname))
         vlans.sort()
         return vlans
 
@@ -186,7 +195,10 @@ class EOSSwitch(SwitchBase):
                     config_req.delete.append(vpath)
 
             for vlan in vlans:
-                vcfg = {'vlan-id': vlan.vlan, 'config': {'name': vlan.name, 'vlan-id': vlan.vlan}}
+                vlan_name = vlan.name
+                if UUID_RE.match(vlan_name):
+                    vlan_name = vlan_name.replace("-", "")
+                vcfg = {'vlan-id': vlan.vlan, 'config': {'name': vlan_name, 'vlan-id': vlan.vlan}}
                 wanted_vlans.append(vcfg)
             vlan_cfg = (EOSGNMIPaths.VLANS, {'vlan': wanted_vlans})
             config_req.update.append(vlan_cfg)
