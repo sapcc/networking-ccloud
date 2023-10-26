@@ -89,7 +89,7 @@ class OperationEnum(str, Enum):
 
 
 class Vlan(pydantic.BaseModel):
-    vlan: pydantic.conint(gt=0, lt=4094)
+    vlan: pydantic.conint(gt=0, lt=4095)
     name: str = None
 
     def __lt__(self, other):
@@ -98,7 +98,7 @@ class Vlan(pydantic.BaseModel):
 
 class VXLANMapping(pydantic.BaseModel):
     vni: pydantic.conint(gt=0, lt=2**24)
-    vlan: pydantic.conint(gt=0, lt=4094)
+    vlan: pydantic.conint(gt=0, lt=4095)
 
     def __lt__(self, other):
         return self.vlan < other.vlan
@@ -108,7 +108,7 @@ class BGPVlan(pydantic.BaseModel):
     # FIXME: validator
     rd: str
     rd_evpn_domain_all: bool = False
-    vlan: pydantic.conint(gt=0, lt=4094)
+    vlan: pydantic.conint(gt=0, lt=4095)
 
     rt_imports: List[str] = []
     rt_exports: List[str] = []
@@ -217,16 +217,16 @@ class BGP(pydantic.BaseModel):
 
 
 class VlanTranslation(pydantic.BaseModel):
-    inside: pydantic.conint(gt=0, lt=4094)
-    outside: pydantic.conint(gt=0, lt=4094)
+    inside: pydantic.conint(gt=0, lt=4095)
+    outside: pydantic.conint(gt=0, lt=4095)
 
 
 class IfaceConfig(pydantic.BaseModel):
     name: str
     description: str = None
 
-    native_vlan: pydantic.conint(gt=0, lt=4094) = None
-    trunk_vlans: List[pydantic.conint(gt=0, lt=4094)] = None
+    native_vlan: pydantic.conint(gt=0, lt=4095) = None
+    trunk_vlans: List[pydantic.conint(gt=0, lt=4095)] = None
     vlan_translations: List[VlanTranslation] = None
     portchannel_id: pydantic.conint(gt=0) = None
     members: List[str] = None
@@ -266,7 +266,7 @@ class IfaceConfig(pydantic.BaseModel):
 
 
 class VlanIface(pydantic.BaseModel):
-    vlan: pydantic.conint(gt=0, lt=4094)
+    vlan: pydantic.conint(gt=0, lt=4095)
     vrf: str = None
 
     primary_ip: str = None
