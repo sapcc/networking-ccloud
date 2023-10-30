@@ -103,8 +103,6 @@ class CCDbPlugin(db_base_plugin_v2.NeutronDbPluginV2,
 
             hosts = net_hosts.setdefault(network_id, {})
             if host not in hosts:
-                # FIXME: do we want to take the trunk segmentation id from the SubPort table
-                #        or alternatively from the port's binding profile?
                 hosts[host] = dict(segment_id=segment_id, network_id=network_id, segmentation_id=segmentation_id,
                                    physical_network=physnet, driver=driver, level=level,
                                    trunk_segmentation_id=trunk_seg_id, is_bgw=False)
@@ -401,3 +399,36 @@ class CCDbPlugin(db_base_plugin_v2.NeutronDbPluginV2,
             result[snp_id]['cidrs'].append(cidr)
 
         return result
+
+    @db_api.retry_if_session_inactive()
+    def get_subport_trunk_vlan_id(self, context, port_id):
+        query = context.session.query(trunk_models.SubPort.segmentation_id)
+        query = query.filter(trunk_models.SubPort.port_id == port_id)
+        subport = query.first()
+        if subport:
+            return subport.segmentation_id
+        return None
+
+    @db_api.retry_if_session_inactive()
+    def get_trunks_with_binding_host(self, context, host):
+        fields = [
+            trunk_models.Trunk.id,
+            trunk_models.Trunk.port_id,
+            ml2_models.PortBinding.host,
+            ml2_models.PortBinding.profile,
+        ]
+        query = context.session.query(*fields)
+        query = query.join(ml2_models.PortBinding,
+                           trunk_models.Trunk.port_id == ml2_models.PortBinding.port_id)
+        query = query.filter(sa.or_(ml2_models.PortBinding.host == host,
+                                    ml2_models.PortBinding.profile.like(f"%{host}%")))
+
+        trunk_ids = []
+        for trunk_id, port_id, port_host, port_profile in query.all():
+            port_profile_host = helper.get_binding_host_from_profile(port_profile, port_id)
+            if port_profile_host:
+                port_host = port_profile_host
+            if port_host != host:
+                continue
+            trunk_ids.append(trunk_id)
+        return trunk_ids

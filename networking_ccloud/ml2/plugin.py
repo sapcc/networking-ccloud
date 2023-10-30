@@ -95,6 +95,7 @@ class FabricPlugin(CCDbPlugin):
                 device_segment = self._plugin.type_manager.allocate_dynamic_segment(context, network_id,
                                                                                     segment_spec)
                 device_segment['is_bgw'] = device_type == cc_const.DEVICE_TYPE_BGW
+                device_segment['trunk_segmentation_id'] = None
                 self.add_segments_to_config(context, scul, {network_id: {device.host: device_segment}})
 
                 if device_type == cc_const.DEVICE_TYPE_TRANSIT:
@@ -173,11 +174,11 @@ class FabricPlugin(CCDbPlugin):
                     LOG.error("Got a port binding for binding host %s in network %s, which was not found in config",
                               binding_host, network_id)
                     continue
-                # FIXME: handle trunk_vlans
+                trunk_vlan = segment_1['trunk_segmentation_id']
                 # FIXME: exclude_hosts
                 # FIXME: direct binding hosts? are they included?
                 gateways = net_gateways.get(network_id)
-                scul.add_binding_host_to_config(hg_config, network_id, vni, vlan,
+                scul.add_binding_host_to_config(hg_config, network_id, vni, vlan, trunk_vlan,
                                                 gateways=gateways, is_bgw=segment_1['is_bgw'])
                 if gateways:
                     l3_net_switch_map.setdefault(network_id, set()).update(hg_config.get_switch_names(self.drv_conf))

@@ -456,6 +456,16 @@ class Hostgroup(pydantic.BaseModel):
                     return True
         return False
 
+    def get_parent_metagroup(self, drv_conf):
+        """Get metagroup for this Hostgroup, if it is part of a metagroup"""
+        if self.metagroup:
+            return None
+
+        for hg in drv_conf.hostgroups:
+            if any(host in hg.members for host in self.binding_hosts):
+                return hg
+        return None
+
 
 class VRF(pydantic.BaseModel):
     name: str

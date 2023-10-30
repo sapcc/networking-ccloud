@@ -51,3 +51,11 @@ class SwitchConnectionError(Exception):
 class SubnetSubnetPoolAZAffinityError(n_exc.BadRequest):
     message = ("The subnet's network %(network_id)s has AZ hint %(net_az_hint)s, "
                "the subnet's subnetpool %(subnetpool_id)s has AZ %(subnetpool_az)s set, which do not match")
+
+
+class GenericTrunkException(n_exc.NeutronException):
+    message = "%(msg)s"
+
+
+class BadTrunkRequest(n_exc.BadRequest):
+    message = "Bad request for %(trunk_port_id)s: %(reason)s"

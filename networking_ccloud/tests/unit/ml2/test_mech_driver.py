@@ -23,6 +23,7 @@ from neutron.db import models_v2
 from neutron.db import segments_db
 from neutron.plugins.ml2 import driver_context
 from neutron.plugins.ml2 import models as ml2_models
+from neutron.services.trunk import models as trunk_models
 from neutron.tests.common import helpers as neutron_test_helpers
 from neutron.tests.unit.plugins.ml2 import test_plugin
 
@@ -33,6 +34,7 @@ from neutron_lib.callbacks import registry
 from neutron_lib import context
 from neutron_lib import exceptions as nl_exc
 from neutron_lib.plugins import directory
+from neutron_lib.services.trunk import constants as trunk_const
 from oslo_config import cfg
 
 from networking_ccloud.common.config import _override_driver_config
@@ -55,18 +57,24 @@ class CCFabricMechanismDriverTestBase(test_plugin.Ml2PluginV2TestCase, base.Port
         self.agent2 = neutron_test_helpers.register_dhcp_agent(host='network-agent-b-1', az='qa-de-1b')
         self.agent3 = neutron_test_helpers.register_dhcp_agent(host='network-agent-c-1', az='qa-de-1c')
 
-    def _test_bind_port(self, fake_host, fake_segments=None, network=None, subnet=None, binding_levels=None):
+    def _test_bind_port(self, fake_host, fake_segments=None, network=None, subnet=None, binding_levels=None,
+                        port_extra={}, port_created_cb=None):
         if network is None:
             with self.network() as network:
-                return self._test_bind_port(fake_host, fake_segments, network, binding_levels=binding_levels)
+                return self._test_bind_port(fake_host, fake_segments, network, binding_levels=binding_levels,
+                                            port_extra=port_extra, port_created_cb=port_created_cb)
         if subnet is None:
             with self.subnet(network=network) as subnet:
-                return self._test_bind_port(fake_host, fake_segments, network, subnet, binding_levels)
+                return self._test_bind_port(fake_host, fake_segments, network, subnet, binding_levels,
+                                            port_extra=port_extra, port_created_cb=port_created_cb)
 
-        with self.port(subnet=subnet) as port:
+        with self.port(subnet=subnet, network=network, **port_extra) as port:
             port['port']['binding:host_id'] = fake_host
             if fake_segments is None:
                 fake_segments = [self._vxlan_segment]
+
+            if port_created_cb:
+                port_created_cb(port=port, subnet=subnet, network=network)
 
             with mock.patch('neutron.plugins.ml2.driver_context.PortContext.binding_levels',
                             new_callable=mock.PropertyMock) as bl_mock:
@@ -168,6 +176,64 @@ class TestCCFabricMechanismDriver(CCFabricMechanismDriverTestBase):
             context.continue_binding.assert_not_called()
             mock_bhc.assert_not_called()
             context.set_binding.assert_not_called()
+
+    def test_bind_port_trunking_direct_level_1(self):
+        ctx = context.get_admin_context()
+
+        fake_segments = [{'id': 'fake-segment-id', 'physical_network': 'seagull', 'segmentation_id': 42,
+                          'network_type': 'vlan'}]
+        binding_levels = [{'driver': 'cc-fabric', 'bound_segment': self._vxlan_segment}]
+
+        with mock.patch.object(CCFabricSwitchAgentRPCClient, 'apply_config_update') as mock_acu:
+            def _create_trunk(port, network, **kwargs):
+                with ctx.session.begin():
+                    subport = trunk_models.SubPort(port_id=port['port']['id'], segmentation_type='vlan',
+                                                   segmentation_id=1234)
+                    trunk_port = self._make_port(net_id=network['network']['id'], fmt="json")
+                    trunk = trunk_models.Trunk(name='random-trunk', port_id=trunk_port['port']['id'],
+                                               sub_ports=[subport])
+                    ctx.session.add(trunk)
+            p_context = self._test_bind_port(fake_host='node001-seagull',
+                                             fake_segments=fake_segments, binding_levels=binding_levels,
+                                             port_extra={'device_owner': trunk_const.TRUNK_SUBPORT_OWNER},
+                                             port_created_cb=_create_trunk)
+            p_context.continue_binding.assert_not_called()
+            mock_acu.assert_called()
+            p_context.set_binding.assert_called()
+
+            # check config
+            swcfgs = mock_acu.call_args[0][1]
+            self.assertEqual(2, len(swcfgs))
+            for swcfg in swcfgs:
+                self.assertEqual(agent_msg.OperationEnum.add, swcfg.operation)
+                self.assertTrue(swcfg.switch_name.startswith("seagull-sw"))
+                self.assertEqual((23, 42), (swcfg.vxlan_maps[0].vni, swcfg.vxlan_maps[0].vlan))
+                self.assertIsNone(swcfg.ifaces[0].native_vlan)
+                self.assertEqual([42], swcfg.ifaces[0].trunk_vlans)
+                self.assertEqual(1, len(swcfg.ifaces[0].vlan_translations))
+                self.assertEqual({'inside': 42, 'outside': 1234}, swcfg.ifaces[0].vlan_translations[0].dict())
+
+    def test_bind_port_trunking_without_subport_direct_level_1(self):
+        fake_segments = [{'id': 'fake-segment-id', 'physical_network': 'seagull', 'segmentation_id': 42,
+                          'network_type': 'vlan'}]
+        binding_levels = [{'driver': 'cc-fabric', 'bound_segment': self._vxlan_segment}]
+        with mock.patch.object(CCFabricSwitchAgentRPCClient, 'apply_config_update') as mock_acu:
+            context = self._test_bind_port(fake_host='node001-seagull',
+                                           fake_segments=fake_segments, binding_levels=binding_levels,
+                                           port_extra={'device_owner': trunk_const.TRUNK_SUBPORT_OWNER})
+            context.continue_binding.assert_not_called()
+            mock_acu.assert_called()
+            context.set_binding.assert_called()
+
+            # check config
+            swcfgs = mock_acu.call_args[0][1]
+            self.assertEqual(2, len(swcfgs))
+            for swcfg in swcfgs:
+                self.assertEqual(agent_msg.OperationEnum.add, swcfg.operation)
+                self.assertTrue(swcfg.switch_name.startswith("seagull-sw"))
+                self.assertEqual((23, 42), (swcfg.vxlan_maps[0].vni, swcfg.vxlan_maps[0].vlan))
+                self.assertEqual(42, swcfg.ifaces[0].native_vlan)
+                self.assertEqual([42], swcfg.ifaces[0].trunk_vlans)
 
     def test_bind_port_hpb(self):
         # only one stage bound

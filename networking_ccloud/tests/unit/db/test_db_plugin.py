@@ -12,11 +12,14 @@
 # License for the specific language governing permissions and limitations
 # under the License.
 
+import json
+
 from neutron.db.models import address_scope as ascope_models
 from neutron.db.models import external_net as extnet_models
 from neutron.db.models import segment as segment_models
 from neutron.db.models import tag as tag_models
 from neutron.db import models_v2
+from neutron.plugins.ml2 import models as ml2_models
 from neutron.services.tag import tag_plugin
 from neutron.services.trunk import models as trunk_models
 from neutron.tests.unit.extensions import test_segment
@@ -303,6 +306,39 @@ class TestDBPluginNetworkSyncData(test_segment.SegmentTestCase, base.PortBinding
                 'cidrs': ['1.3.0.0/16']
             }},
             self._db.get_subnetpool_details(ctx, [self._subnetpool_reg['id'], self._subnetpool_az['id']]))
+
+    def test_get_subport_trunk_vlan_id(self):
+        ctx = context.get_admin_context()
+        with self.port() as trunkport, self.port() as subport:
+            self.assertIsNone(self._db.get_subport_trunk_vlan_id(ctx, subport['port']['id']))
+
+            with ctx.session.begin():
+                subport = trunk_models.SubPort(port_id=subport['port']['id'], segmentation_type='vlan',
+                                               segmentation_id=1000)
+                trunk = trunk_models.Trunk(name='random-trunk', port_id=trunkport['port']['id'], sub_ports=[subport])
+                ctx.session.add(trunk)
+
+            self.assertEqual(1000, self._db.get_subport_trunk_vlan_id(ctx, subport['port']['id']))
+            self.assertIsNone(self._db.get_subport_trunk_vlan_id(ctx, trunkport['port']['id']))
+
+    def test_get_trunks_with_binding_host(self):
+        ctx = context.get_admin_context()
+        with self.port() as trunkport1, self.port() as trunkport2:
+            with ctx.session.begin():
+                trunk1 = trunk_models.Trunk(name='random-trunk1', port_id=trunkport1['port']['id'], sub_ports=[])
+                binding1 = (ctx.session.query(ml2_models.PortBinding)
+                            .filter(ml2_models.PortBinding.port_id == trunkport1['port']['id']).first())
+                binding1.host = 'seagull'
+                ctx.session.add(trunk1, binding1)
+                trunk2 = trunk_models.Trunk(name='random-trunk2', port_id=trunkport2['port']['id'], sub_ports=[])
+                binding2 = (ctx.session.query(ml2_models.PortBinding)
+                            .filter(ml2_models.PortBinding.port_id == trunkport2['port']['id']).first())
+                binding2.profile = json.dumps({"local_link_information": [{"switch_info": "oystercatcher"}]})
+                ctx.session.add(trunk2, binding2)
+
+        self.assertEqual([trunk1.id], self._db.get_trunks_with_binding_host(ctx, "seagull"))
+        self.assertEqual([trunk2.id], self._db.get_trunks_with_binding_host(ctx, "oystercatcher"))
+        self.assertEqual([], self._db.get_trunks_with_binding_host(ctx, "whatever"))
 
 
 class TestNetworkInterconnectAllocation(test_segment.SegmentTestCase, base.PortBindingHelper, base.TestCase):
