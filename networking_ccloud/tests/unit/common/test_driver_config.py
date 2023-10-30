@@ -206,6 +206,31 @@ class TestDriverConfigValidation(base.TestCase):
         self.assertRaisesRegex(ValueError, "VRF id 2 is duplicated on VRF SWITCH-ME",
                                cfix.make_global_config, cfix.make_azs(['monster-az-a']), vrfs=vrfs)
 
+    def test_get_metagroup_for_child_hostgroup(self):
+        # should work
+        gc = cfix.make_global_config(availability_zones=cfix.make_azs(["qa-de-1a", "qa-de-1b"]))
+        sg1 = cfix.make_switchgroup("seagull", availability_zone="qa-de-1a")
+        sg2 = cfix.make_switchgroup("crow", availability_zone="qa-de-1a")
+        hg_seagulls = cfix.make_metagroup("seagull")
+        hg_crows = cfix.make_hostgroups("crow")
+        drv_conf = config.DriverConfig(global_config=gc, switchgroups=[sg1, sg2], hostgroups=hg_seagulls + hg_crows)
+
+        # metagroups have no parent
+        parent_hg = drv_conf.get_hostgroup_by_host("nova-compute-seagull")
+        self.assertIsNotNone(parent_hg)
+        self.assertIsNone(parent_hg.get_parent_metagroup(drv_conf))
+
+        # children are part of their metagroup
+        child_hg = drv_conf.get_hostgroup_by_host("node002-seagull")
+        self.assertIsNotNone(child_hg)
+        self.assertEqual(parent_hg, child_hg.get_parent_metagroup(drv_conf))
+
+        # crow is not part of any metagroup
+        crow_hg = drv_conf.get_hostgroup_by_host("node003-crow")
+        self.assertIsNotNone(crow_hg)
+        self.assertTrue(crow_hg.direct_binding)
+        self.assertIsNone(crow_hg.get_parent_metagroup(drv_conf))
+
 
 class TestDriverConfig(base.TestCase):
     def setUp(self):

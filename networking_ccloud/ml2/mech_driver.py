@@ -22,6 +22,7 @@ from neutron_lib.exceptions import availability_zone as az_exc
 from neutron_lib.plugins import directory
 from neutron_lib.plugins.ml2 import api as ml2_api
 from neutron_lib import rpc as n_rpc
+from neutron_lib.services.trunk import constants as trunk_const
 from oslo_config import cfg
 from oslo_log import log as logging
 
@@ -33,6 +34,7 @@ from networking_ccloud.extensions import fabricoperations
 from networking_ccloud.ml2.agent.common import messages as agent_msg
 from networking_ccloud.ml2.driver_rpc_api import CCFabricDriverAPI
 from networking_ccloud.ml2.plugin import FabricPlugin
+from networking_ccloud.services.trunk.driver import CCTrunkDriver
 
 
 LOG = logging.getLogger(__name__)
@@ -85,6 +87,7 @@ class CCFabricMechanismDriver(ml2_api.MechanismDriver, CCFabricDriverAPI):
         self._agents = {}
 
         fabricoperations.register_api_extension()
+        self.trunk_driver = CCTrunkDriver.create()
 
         LOG.info("CC-Fabric ml2 driver initialized")
 
@@ -235,11 +238,16 @@ class CCFabricMechanismDriver(ml2_api.MechanismDriver, CCFabricDriverAPI):
                       context.current['id'], config_physnet, context.segments_to_bind)
             return
 
-        # FIXME: trunk ports
+        trunk_vlan = None
+        if context.current['device_owner'] == trunk_const.TRUNK_SUBPORT_OWNER:
+            if hg_config.direct_binding and not hg_config.role:
+                trunk_vlan = self.fabric_plugin.get_subport_trunk_vlan_id(context._plugin_context,
+                                                                          context.current['id'])
+
         net_external = context.network.current[extnet_api.EXTERNAL]
         self.handle_binding_host_changed(context._plugin_context, context.current['network_id'], binding_host,
                                          hg_config, context.binding_levels[0][ml2_api.BOUND_SEGMENT], segment,
-                                         net_external=net_external)
+                                         net_external=net_external, trunk_vlan=trunk_vlan)
 
         vif_details = {}  # no vif-details needed yet
         context.set_binding(segment['id'], cc_const.VIF_TYPE_CC_FABRIC, vif_details, nl_const.ACTIVE)
