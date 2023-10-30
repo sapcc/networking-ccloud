@@ -208,6 +208,7 @@ class FabricNetworksController(wsgi.Controller):
 
         configs = {}
         for switch_name, scu in scul.switch_config_updates.items():
+            scu.sort()
             config = scu.dict(exclude_unset=True, exclude_defaults=True)
             del config['operation']
             configs[switch_name] = config
@@ -358,10 +359,14 @@ class SwitchesController(wsgi.Controller):
         switch, sg = self._get_switch(kwargs.pop('id'))
         client = CCFabricSwitchAgentRPCClient.get_for_platform(switch.platform)
         config = client.get_switch_config(request.context, switches=[switch.name])
-        config = config['switches'].get(switch.name)
-        if config and 'operation' in config.get('config', {}):
-            del config['config']['operation']
-        return config
+        config = config['switches'].get(switch.name, {}).get('config')
+        if config is not None:
+            scu = agent_msg.SwitchConfigUpdate.parse_obj(config)
+            scu.sort()
+            config = scu.dict(exclude_unset=True, exclude_defaults=True)
+            # FIXME: ignore interfaces we are not managing (maybe roll-backable by http param)
+            del config['operation']
+        return {'config': config}
 
     @check_cloud_admin
     def os_config(self, request, **kwargs):
