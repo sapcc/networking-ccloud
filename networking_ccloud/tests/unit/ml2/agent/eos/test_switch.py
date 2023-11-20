@@ -130,34 +130,34 @@ class TestEOSConfigUpdates(base.TestCase):
                             'interface-mode': 'TRUNK',
                             'native-vlan': 1000,
                             'trunk-vlans': ['1000..1001'],
-                            'vlan-translation': {
-                                'egress': [{
-                                    'config': {
-                                        'bridging-vlan': 2323,
-                                        'translation-key': 1000
-                                    },
+                        },
+                        'vlan-translation': {
+                            'egress': [{
+                                'config': {
+                                    'bridging-vlan': 2323,
                                     'translation-key': 1000
-                                }, {
-                                    'config': {
-                                        'bridging-vlan': 1337,
-                                        'translation-key': 1001
-                                    },
+                                },
+                                'translation-key': 1000
+                            }, {
+                                'config': {
+                                    'bridging-vlan': 1337,
                                     'translation-key': 1001
-                                }],
-                                'ingress': [{
-                                    'config': {
-                                        'bridging-vlan': 1000,
-                                        'translation-key': 2323
-                                    },
+                                },
+                                'translation-key': 1001
+                            }],
+                            'ingress': [{
+                                'config': {
+                                    'bridging-vlan': 1000,
                                     'translation-key': 2323
-                                }, {
-                                    'config': {
-                                        'bridging-vlan': 1001,
-                                        'translation-key': 1337
-                                    },
+                                },
+                                'translation-key': 2323
+                            }, {
+                                'config': {
+                                    'bridging-vlan': 1001,
                                     'translation-key': 1337
-                                }]
-                            }
+                                },
+                                'translation-key': 1337
+                            }]
                         }
                     }
                 }
@@ -166,36 +166,36 @@ class TestEOSConfigUpdates(base.TestCase):
              {'config': {'aggregate-id': 'Port-Channel23'},
               'switched-vlan': {'config': {'interface-mode': 'TRUNK',
                                            'native-vlan': 1000,
-                                           'trunk-vlans': ['1000..1001'],
-                                           'vlan-translation': {'egress': [{'config': {'bridging-vlan': 2323,
-                                                                                       'translation-key': 1000},
+                                           'trunk-vlans': ['1000..1001']},
+                                'vlan-translation': {'egress': [{'config': {'bridging-vlan': 2323,
                                                                             'translation-key': 1000},
-                                                                           {'config': {'bridging-vlan': 1337,
-                                                                                       'translation-key': 1001},
-                                                                            'translation-key': 1001}],
-                                                                'ingress': [{'config': {'bridging-vlan': 1000,
-                                                                                        'translation-key': 2323},
+                                                                 'translation-key': 1000},
+                                                                {'config': {'bridging-vlan': 1337,
+                                                                            'translation-key': 1001},
+                                                                 'translation-key': 1001}],
+                                                     'ingress': [{'config': {'bridging-vlan': 1000,
                                                                              'translation-key': 2323},
-                                                                            {'config': {'bridging-vlan': 1001,
-                                                                                        'translation-key': 1337},
-                                                                             'translation-key': 1337}]}}}}),
+                                                                  'translation-key': 2323},
+                                                                 {'config': {'bridging-vlan': 1001,
+                                                                             'translation-key': 1337},
+                                                                  'translation-key': 1337}]}}}),
             ('interfaces/interface[name=Ethernet4/2]/ethernet',
              {'config': {'aggregate-id': 'Port-Channel23'},
               'switched-vlan': {'config': {'interface-mode': 'TRUNK',
                                            'native-vlan': 1000,
-                                           'trunk-vlans': ['1000..1001'],
-                                           'vlan-translation': {'egress': [{'config': {'bridging-vlan': 2323,
-                                                                                       'translation-key': 1000},
+                                           'trunk-vlans': ['1000..1001']},
+                                'vlan-translation': {'egress': [{'config': {'bridging-vlan': 2323,
                                                                             'translation-key': 1000},
-                                                                           {'config': {'bridging-vlan': 1337,
-                                                                                       'translation-key': 1001},
-                                                                            'translation-key': 1001}],
-                                                                'ingress': [{'config': {'bridging-vlan': 1000,
-                                                                                        'translation-key': 2323},
+                                                                 'translation-key': 1000},
+                                                                {'config': {'bridging-vlan': 1337,
+                                                                            'translation-key': 1001},
+                                                                 'translation-key': 1001}],
+                                                     'ingress': [{'config': {'bridging-vlan': 1000,
                                                                              'translation-key': 2323},
-                                                                            {'config': {'bridging-vlan': 1001,
-                                                                                        'translation-key': 1337},
-                                                                             'translation-key': 1337}]}}}}),
+                                                                  'translation-key': 2323},
+                                                                 {'config': {'bridging-vlan': 1001,
+                                                                             'translation-key': 1337},
+                                                                  'translation-key': 1337}]}}}),
             ('interfaces/interface[name=Ethernet23/1]/ethernet',
              {'switched-vlan': {'config': {'interface-mode': 'TRUNK',
                                            'trunk-vlans': ['1001']}}}),
@@ -689,53 +689,51 @@ class TestEOSConfigUpdates(base.TestCase):
                             'lag-type': 'LACP'
                         },
                         'switched-vlan': {
-                            'config': {
-                                'vlan-translation': {
-                                    'egress': [{
-                                        'config': {
-                                            'bridging-vlan': 42,
-                                            'translation-key': 23
-                                        },
+                            'vlan-translation': {
+                                'egress': [{
+                                    'config': {
+                                        'bridging-vlan': 42,
                                         'translation-key': 23
-                                    }, {
-                                        'config': {
-                                            'bridging-vlan': 2000,
-                                            'translation-key': 1000
-                                        },
+                                    },
+                                    'translation-key': 23
+                                }, {
+                                    'config': {
+                                        'bridging-vlan': 2000,
                                         'translation-key': 1000
-                                    }],
-                                    'ingress': [{
-                                        'config': {
-                                            'bridging-vlan': 23,
-                                            'translation-key': 42
-                                        },
+                                    },
+                                    'translation-key': 1000
+                                }],
+                                'ingress': [{
+                                    'config': {
+                                        'bridging-vlan': 23,
                                         'translation-key': 42
-                                    }, {
-                                        'config': {
-                                            'bridging-vlan': 1000,
-                                            'translation-key': 2000
-                                        },
+                                    },
+                                    'translation-key': 42
+                                }, {
+                                    'config': {
+                                        'bridging-vlan': 1000,
                                         'translation-key': 2000
-                                    }]
-                                }
+                                    },
+                                    'translation-key': 2000
+                                }]
                             }
                         }
                     }
                 }),
                 ('interfaces/interface[name=Ethernet23/1]/ethernet',
                  {'config': {'aggregate-id': 'Port-Channel23'},
-                  'switched-vlan': {'config': {'vlan-translation': {'egress': [{'config': {'bridging-vlan': 42,
-                                                                                           'translation-key': 23},
+                  'switched-vlan': {'vlan-translation': {'egress': [{'config': {'bridging-vlan': 42,
                                                                                 'translation-key': 23},
-                                                                               {'config': {'bridging-vlan': 2000,
-                                                                                           'translation-key': 1000},
-                                                                                'translation-key': 1000}],
-                                                                    'ingress': [{'config': {'bridging-vlan': 23,
-                                                                                            'translation-key': 42},
+                                                                     'translation-key': 23},
+                                                                    {'config': {'bridging-vlan': 2000,
+                                                                                'translation-key': 1000},
+                                                                     'translation-key': 1000}],
+                                                         'ingress': [{'config': {'bridging-vlan': 23,
                                                                                  'translation-key': 42},
-                                                                                {'config': {'bridging-vlan': 1000,
-                                                                                            'translation-key': 2000},
-                                                                                 'translation-key': 2000}]}}}})]}
+                                                                      'translation-key': 42},
+                                                                     {'config': {'bridging-vlan': 1000,
+                                                                                 'translation-key': 2000},
+                                                                      'translation-key': 2000}]}}})]}
 
         cu = messages.SwitchConfigUpdate(switch_name="seagull-sw1", operation=messages.OperationEnum.add)
         iface = messages.IfaceConfig(name="Port-Channel23", portchannel_id=23, members=["Ethernet23/1"])
