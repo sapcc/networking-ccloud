@@ -743,16 +743,17 @@ class EOSSwitch(SwitchBase):
             existing_vtrans = None  # only needed in add case and when vlan translations exist in config_req
             for iface in ifaces or []:
                 # vlan stuff (native vlan, trunk vlans, translations)
-                data_vlan = {}
+                switched_vlan_config = {}
+                vlan_config = {}
 
                 # native vlan
                 if iface.native_vlan:
-                    data_vlan['native-vlan'] = iface.native_vlan
+                    vlan_config['native-vlan'] = iface.native_vlan
 
                 # trunk vlans
                 if iface.trunk_vlans:
-                    data_vlan['interface-mode'] = 'TRUNK'
-                    data_vlan['trunk-vlans'] = self._compress_vlan_list(iface.trunk_vlans)
+                    vlan_config['interface-mode'] = 'TRUNK'
+                    vlan_config['trunk-vlans'] = self._compress_vlan_list(iface.trunk_vlans)
 
                 # vlan translations
                 def remove_stale_vlan_translations(ifname, iface_cfg, is_pc):
@@ -777,14 +778,19 @@ class EOSSwitch(SwitchBase):
                     if operation == Op.add and existing_vtrans is None:
                         existing_vtrans = self.get_vlan_translations()
 
-                    data_vlan['vlan-translation'] = {"ingress": [], "egress": []}
+                    vtrans_config = {}
+                    vtrans_config['vlan-translation'] = {"ingress": [], "egress": []}
                     for vtrans in iface.vlan_translations:
-                        data_vlan['vlan-translation']['ingress'].append(
+                        vtrans_config['vlan-translation']['ingress'].append(
                             {"translation-key": vtrans.outside,
                              "config": {"translation-key": vtrans.outside, "bridging-vlan": vtrans.inside}})
-                        data_vlan['vlan-translation']['egress'].append(
+                        vtrans_config['vlan-translation']['egress'].append(
                             {"translation-key": vtrans.inside,
                              "config": {"translation-key": vtrans.inside, "bridging-vlan": vtrans.outside}})
+                    switched_vlan_config.update(vtrans_config)
+
+                if vlan_config:
+                    switched_vlan_config['config'] = vlan_config
 
                 # port-channel configuration
                 normal_ifaces = []
@@ -797,8 +803,8 @@ class EOSSwitch(SwitchBase):
                             'fallback-timeout': 50,
                         },
                     }
-                    if data_vlan:
-                        agg_data['switched-vlan'] = {'config': data_vlan}
+                    if switched_vlan_config:
+                        agg_data['switched-vlan'] = switched_vlan_config
 
                     data = {
                         'name': iface.name,
@@ -822,8 +828,8 @@ class EOSSwitch(SwitchBase):
                     data = {}
                     if iface.portchannel_id:
                         data['config'] = {'aggregate-id': f'Port-Channel{iface.portchannel_id}'}
-                    if data_vlan:
-                        data['switched-vlan'] = {'config': data_vlan}
+                    if switched_vlan_config:
+                        data['switched-vlan'] = switched_vlan_config
                     if iface.vlan_translations:
                         remove_stale_vlan_translations(iface_name, iface, is_pc=False)
                     iface_cfg = (EOSGNMIPaths.IFACE_ETH.format(iface=iface_name), data)
