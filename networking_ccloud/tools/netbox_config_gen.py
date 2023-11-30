@@ -489,7 +489,7 @@ class ConfigGenerator:
 
     def get_asn_region(self, region):
         sites = self.netbox.dcim.sites.filter(region=region)
-        site_asns = {asn for site in sites if site.asns for asn in site.asns}
+        site_asns = {asn.asn for site in sites if site.asns for asn in site.asns}
         if not site_asns:
             raise ConfigException(f"Region {region} has no ASN")
         if len(site_asns) > 1:
@@ -581,7 +581,7 @@ class ConfigGenerator:
                     raise ConfigException(f'Interface {iface.name} on {switch.name} has more than one '
                                           'connected endpoint')
 
-                far_interface = iface.connected_endpoint[0]
+                far_interface = iface.connected_endpoints[0]
                 far_device = far_interface.device
                 if far_device.device_role.slug not in self.connection_roles:
                     continue
