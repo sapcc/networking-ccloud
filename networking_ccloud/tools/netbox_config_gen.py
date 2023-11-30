@@ -68,7 +68,7 @@ class ConfigGenerator:
 
     leaf_role = "evpn-leaf"
     spine_role = "evpn-spine"
-    connection_roles = {"server", "neutron-router", "filer", 'loadbalancer'}
+    connection_roles = {"server", "neutron-router", "filer", 'loadbalancer', 'dp-data-domain'}
     manila_tag = "manila"
     infra_network_vrf = 'CC-MGMT'
     tenants = {"converged-cloud"}
