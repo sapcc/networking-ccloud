@@ -101,21 +101,29 @@ class TestDBPluginNetworkSyncData(test_segment.SegmentTestCase, base.PortBinding
                                                       host='node001-spam-compute')
         self._port_b_5 = self._make_port_with_binding(segments=[(self._seg_b[None], 'cc-fabric'),
                                                                 (self._seg_b['ham'], 'cat-ml2')],
-                                                      host='ham-compute')  # FIXME: trunk
-        self._port_b_6a = self._make_port_with_binding(segments=[(self._seg_b[None], 'cc-fabric'),
+                                                      host='ham-compute', vif_type=cc_const.VIF_TYPE_CC_FABRIC)
+        self._port_b_6 = self._make_port_with_binding(segments=[(self._seg_b[None], 'cc-fabric'),
+                                                                (self._seg_b['caw'], 'cat-ml2')],
+                                                      host='caw-compute', vif_type='some-other-driver')
+        self._port_b_7a = self._make_port_with_binding(segments=[(self._seg_b[None], 'cc-fabric'),
                                                                  (self._seg_b['mew'], 'cat-ml2')],
                                                        host='mew-compute')
-        self._port_b_7b = self._make_port_with_binding(segments=[(self._seg_b[None], 'cc-fabric'),
+        self._port_b_8b = self._make_port_with_binding(segments=[(self._seg_b[None], 'cc-fabric'),
                                                                  (self._seg_b['caw'], 'cat-ml2')],
-                                                       host='caw-compute', port=self._port_b_6a)
+                                                       host='caw-compute', port=self._port_b_7a)
 
         # create trunk
         self._net_c = self._make_network(name="b", admin_state_up=True, fmt='json')['network']
         fix_net_mtu(ctx, self._net_c)
         self._port_c_1 = self._make_port('json', self._net_c['id'])['port']  # bindings don't matter
+        self._port_c_2 = self._make_port('json', self._net_c['id'])['port']  # bindings don't matter
         with ctx.session.begin():
             subport = trunk_models.SubPort(port_id=self._port_b_5['id'], segmentation_type='vlan', segmentation_id=1000)
             trunk = trunk_models.Trunk(name='random-trunk', port_id=self._port_c_1['id'], sub_ports=[subport])
+            ctx.session.add(trunk)
+
+            subport = trunk_models.SubPort(port_id=self._port_b_6['id'], segmentation_type='vlan', segmentation_id=2000)
+            trunk = trunk_models.Trunk(name='trunk-on-other-driver', port_id=self._port_c_2['id'], sub_ports=[subport])
             ctx.session.add(trunk)
 
         # network c, external network
@@ -228,6 +236,14 @@ class TestDBPluginNetworkSyncData(test_segment.SegmentTestCase, base.PortBinding
         self.assertEqual(1, len(net_hosts))
         self.assertEqual(1, len(list(net_hosts.values())[0]))
         self.assertEqual(1000, list(net_hosts.values())[0]['ham-compute']['trunk_segmentation_id'])
+
+    def test_get_hosts_on_segments_with_trunk_ports_for_other_driver(self):
+        # there should be exactly one trunk port on segment "ham"
+        ctx = context.get_admin_context()
+        net_hosts = self._db.get_hosts_on_segments(ctx, physical_networks=['caw'])
+        self.assertEqual(1, len(net_hosts))
+        self.assertEqual(1, len(list(net_hosts.values())[0]))
+        self.assertIsNone(list(net_hosts.values())[0]['caw-compute']['trunk_segmentation_id'])
 
     def test_get_top_level_vxlan_segments(self):
         ctx = context.get_admin_context()
