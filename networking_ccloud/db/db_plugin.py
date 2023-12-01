@@ -80,7 +80,9 @@ class CCDbPlugin(db_base_plugin_v2.NeutronDbPluginV2,
         query = query.join(segment_models.NetworkSegment,
                            ml2_models.PortBindingLevel.segment_id == segment_models.NetworkSegment.id)
         query = query.outerjoin(trunk_models.SubPort,
-                                trunk_models.SubPort.port_id == ml2_models.PortBinding.port_id)
+                                sa.and_(trunk_models.SubPort.port_id == ml2_models.PortBinding.port_id,
+                                        ml2_models.PortBinding.vif_type == cc_const.VIF_TYPE_CC_FABRIC))
+
         if level is not None:
             query = query.filter(ml2_models.PortBindingLevel.level == level)
         if driver is not None:
