@@ -611,7 +611,8 @@ class ConfigGenerator:
 
         hgs = [conf.Hostgroup(binding_hosts=[h.name], direct_binding=True, members=self.sort_switchports(m),
                               infra_networks=sorted(device_infra_nets_map[h][0], key=lambda x: x.vlan),
-                              extra_vlans=sorted(device_infra_nets_map[h][1]) if device_infra_nets_map[h][1] else None)
+                              extra_vlans=sorted(device_infra_nets_map[h][1]) if device_infra_nets_map[h][1] else None,
+                              allow_multiple_trunk_ports=h.device_role.slug == 'dp-data-domain')
                for h, m in device_ports_map.items()]
         return set(device_ports_map.keys()), hgs
 

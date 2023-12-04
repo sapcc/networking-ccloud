@@ -302,6 +302,10 @@ class Hostgroup(pydantic.BaseModel):
     # vlans that are added to all allowed-vlan list without managing the vlan on switch
     extra_vlans: List[pydantic.conint(gt=1, lt=4095)] = None
 
+    # allow multiple trunks per hostgroup, not setting the native vlan then (direct bindings only)
+    # note that this means that no native vlan will be set for ports in this hostgroup, ever
+    allow_multiple_trunk_ports: bool = False
+
     _vlan_pool: str = None
 
     class Config:
@@ -346,6 +350,12 @@ class Hostgroup(pydantic.BaseModel):
     def ensure_hostgroups_with_role_are_direct_binding(cls, values):
         if values.get('role') and not values.get('direct_binding'):
             raise ValueError("Hostgroups for bgws/tranits need to be direct bindings")
+        return values
+
+    @pydantic.root_validator
+    def ensure_allow_multiple_trunk_ports_are_direct_binding(cls, values):
+        if values.get('allow_multiple_trunk_ports') and not values.get('direct_binding'):
+            raise ValueError("allow_multiple_trunk_ports can only be set for direct binding hostgroups")
         return values
 
     @pydantic.root_validator

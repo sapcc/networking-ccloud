@@ -424,7 +424,7 @@ class SwitchConfigUpdateList:
                     if hg_config.direct_binding and not hg_config.role:
                         if trunk_vlan:
                             iface.add_vlan_translation(seg_vlan, trunk_vlan)
-                        else:
+                        elif not hg_config.allow_multiple_trunk_ports:
                             iface.native_vlan = seg_vlan
 
     def add_vrf_bgp_config(self, switch_names, vrf_name, vrf_networks, vrf_aggregates):
