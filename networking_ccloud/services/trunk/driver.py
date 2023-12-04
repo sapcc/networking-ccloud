@@ -115,8 +115,12 @@ class CCTrunkDriver(base.DriverBase):
         trunks_on_host = self.fabric_plugin.get_trunks_with_binding_host(context, trunk_host)
         trunks = set(trunks_on_host) - set([trunk.id])
         if trunks:
-            raise BadTrunkRequest(trunk_port_id=trunk.port_id,
-                                  reason=f"Host {trunk_host} already has trunk {' '.join(trunks)} connected to it")
+            if hg_config.allow_multiple_trunk_ports:
+                LOG.info("Creating extra trunk on %s, as allowed by hostgroup (existing trunks: %s)",
+                         trunk_host, ", ".join(trunks_on_host))
+            else:
+                raise BadTrunkRequest(trunk_port_id=trunk.port_id,
+                                      reason=f"Host {trunk_host} already has trunk {' '.join(trunks)} connected to it")
 
         # subport validation
         parent_hg = hg_config.get_parent_metagroup(self.drv_conf)

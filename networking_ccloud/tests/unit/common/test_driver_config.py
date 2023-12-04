@@ -116,6 +116,19 @@ class TestDriverConfigValidation(base.TestCase):
                                config.Hostgroup, binding_hosts=["seagull-compute"],
                                members=[config.SwitchPort(switch="seagull-sw1")])
 
+    def test_hostgroup_multi_trunk_requires_direct_binding(self):
+        # should work
+        hg = config.Hostgroup(binding_hosts=["node001-seagull"],
+                              members=[config.SwitchPort(switch="seagull-sw1", name="e1/1/1")],
+                              allow_multiple_trunk_ports=True)
+        self.assertTrue(hg.allow_multiple_trunk_ports)
+
+        # should fail
+        self.assertRaisesRegex(ValueError, "can only be set for direct binding hostgroups",
+                               config.Hostgroup, binding_hosts=["seagull-compute"],
+                               members=["node001-seagull"], metagroup=True,
+                               allow_multiple_trunk_ports=True)
+
     def test_global_default_vlan_ranges(self):
         self.assertRaisesRegex(ValueError, ".*not in format.*", config.GlobalConfig, asn_region=65000,
                                default_vlan_ranges=["foo:bar"], availability_zones=[])

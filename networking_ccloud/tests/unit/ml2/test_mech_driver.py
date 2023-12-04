@@ -38,6 +38,7 @@ from neutron_lib.services.trunk import constants as trunk_const
 from oslo_config import cfg
 
 from networking_ccloud.common.config import _override_driver_config
+from networking_ccloud.common.config import config_driver
 from networking_ccloud.common.config import config_oslo  # noqa, make sure config opts are there
 from networking_ccloud.common import constants as cc_const
 from networking_ccloud.common import exceptions as cc_exc
@@ -114,7 +115,11 @@ class TestCCFabricMechanismDriver(CCFabricMechanismDriverTestBase):
         #   squirrel - used for vlan exhaustion test and non-lacp hosts
         hg_seagull = cfix.make_metagroup("seagull")
         hg_crow = cfix.make_metagroup("crow")
-        hg_cat = cfix.make_hostgroups("cat")
+        hg_cat_direct_multitrunk = config_driver.Hostgroup(binding_hosts=["node101-cat"],
+                                                           members=[config_driver.SwitchPort(switch="cat-sw1",
+                                                                                             name="e1/1/1")],
+                                                           allow_multiple_trunk_ports=True)
+        hg_cat = cfix.make_hostgroups("cat") + [hg_cat_direct_multitrunk]
         hg_squirrel = cfix.make_metagroup("squirrel")
 
         hostgroups = hg_seagull + hg_crow + hg_cat + hg_squirrel
@@ -214,6 +219,26 @@ class TestCCFabricMechanismDriver(CCFabricMechanismDriverTestBase):
                 self.assertEqual({'inside': 42, 'outside': 1234}, swcfg.ifaces[0].vlan_translations[0].dict())
 
     def test_bind_port_trunking_without_subport_direct_level_1(self):
+        fake_segments = [{'id': 'fake-segment-id', 'physical_network': 'cat', 'segmentation_id': 42,
+                          'network_type': 'vlan'}]
+        binding_levels = [{'driver': 'cc-fabric', 'bound_segment': self._vxlan_segment}]
+        with mock.patch.object(CCFabricSwitchAgentRPCClient, 'apply_config_update') as mock_acu:
+            context = self._test_bind_port(fake_host='node101-cat',
+                                           fake_segments=fake_segments, binding_levels=binding_levels)
+            context.continue_binding.assert_not_called()
+            mock_acu.assert_called()
+            context.set_binding.assert_called()
+
+            # check config
+            swcfg = mock_acu.call_args[0][1]
+            self.assertEqual(agent_msg.OperationEnum.add, swcfg[0].operation)
+            self.assertEqual(1, len(swcfg))
+            self.assertEqual("cat-sw1", swcfg[0].switch_name)
+            self.assertEqual('add', swcfg[0].operation.name)
+            self.assertIsNone(swcfg[0].ifaces[0].native_vlan)
+            self.assertEqual([42], swcfg[0].ifaces[0].trunk_vlans)
+
+    def test_bind_port_direct_no_native_vlan_if_multitrunk_set(self):
         fake_segments = [{'id': 'fake-segment-id', 'physical_network': 'seagull', 'segmentation_id': 42,
                           'network_type': 'vlan'}]
         binding_levels = [{'driver': 'cc-fabric', 'bound_segment': self._vxlan_segment}]
