@@ -832,6 +832,15 @@ class EOSSwitch(SwitchBase):
                         data['switched-vlan'] = switched_vlan_config
                     if iface.vlan_translations:
                         remove_stale_vlan_translations(iface_name, iface, is_pc=False)
+                    if iface.speed:
+                        if iface.speed in ('1g', '10g', '25g', '40g', '100g', '400g'):
+                            eth_config = data.setdefault('config', {})
+                            eth_config['port-speed'] = f"SPEED_{iface.speed.upper()}B"
+                            eth_config['auto-negotiate'] = False
+                            eth_config['duplex-mode'] = 'FULL'
+                        else:
+                            LOG.warning('Invalid interface speed "%s" for interface %s, ignoring it',
+                                        iface.speed, iface.name)
                     iface_cfg = (EOSGNMIPaths.IFACE_ETH.format(iface=iface_name), data)
                     config_req.get_list(operation).append(iface_cfg)
         else:

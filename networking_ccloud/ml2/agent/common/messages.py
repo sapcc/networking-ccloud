@@ -230,6 +230,7 @@ class IfaceConfig(pydantic.BaseModel):
     vlan_translations: List[VlanTranslation] = None
     portchannel_id: pydantic.conint(gt=0) = None
     members: List[str] = None
+    speed: str = None
 
     def __lt__(self, other):
         return self.name < other.name
@@ -244,7 +245,7 @@ class IfaceConfig(pydantic.BaseModel):
 
     @classmethod
     def from_switchport(cls, switchport):
-        iface = cls(name=switchport.name)
+        iface = cls(name=switchport.name, speed=switchport.speed)
         if switchport.lacp:
             iface.portchannel_id = switchport.portchannel_id
             iface.members = switchport.members

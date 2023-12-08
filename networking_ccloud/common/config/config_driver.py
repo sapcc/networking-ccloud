@@ -189,6 +189,9 @@ class SwitchPort(pydantic.BaseModel):
     members: List[str] = None
     unmanaged: bool = False
 
+    # set interface (or member interface) speed to this vendor specific value
+    speed: str = None
+
     @pydantic.root_validator
     def only_allow_members_and_pc_id_with_lacp_enabled(cls, v):
         if v['members'] and not v['lacp']:
