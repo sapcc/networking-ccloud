@@ -196,8 +196,46 @@ class TestEOSConfigUpdates(base.TestCase):
                                                                  {'config': {'bridging-vlan': 1001,
                                                                              'translation-key': 1337},
                                                                   'translation-key': 1337}]}}}),
+            ('interfaces/interface[name=Port-Channel42]', {
+                'config': {
+                    'name': 'Port-Channel42',
+                    'type': 'iana-if-type:ieee8023adLag'
+                },
+                'name': 'Port-Channel42',
+                'aggregation': {
+                    'config': {
+                        'fallback': 'individual',
+                        'mlag': 42,
+                        'fallback-timeout': 50,
+                        'lag-type': 'LACP',
+                    },
+                    'switched-vlan': {
+                        'config': {
+                            'interface-mode': 'TRUNK',
+                            'native-vlan': 1000,
+                            'trunk-vlans': ['667'],
+                        },
+                    }
+                }
+            }),
+            ('interfaces/interface[name=Ethernet5/1]/ethernet',
+             {'config': {'aggregate-id': 'Port-Channel42',
+                         'port-speed': 'SPEED_25GB', 'auto-negotiate': False, 'duplex-mode': 'FULL'},
+              'switched-vlan': {'config': {'interface-mode': 'TRUNK',
+                                           'native-vlan': 1000,
+                                           'trunk-vlans': ['667']}}}),
+            ('interfaces/interface[name=Ethernet5/2]/ethernet',
+             {'config': {'aggregate-id': 'Port-Channel42',
+                         'port-speed': 'SPEED_25GB', 'auto-negotiate': False, 'duplex-mode': 'FULL'},
+              'switched-vlan': {'config': {'interface-mode': 'TRUNK',
+                                           'native-vlan': 1000,
+                                           'trunk-vlans': ['667']}}}),
             ('interfaces/interface[name=Ethernet23/1]/ethernet',
              {'switched-vlan': {'config': {'interface-mode': 'TRUNK',
+                                           'trunk-vlans': ['1001']}}}),
+            ('interfaces/interface[name=Ethernet23/2]/ethernet',
+             {'config': {'port-speed': 'SPEED_100GB', 'auto-negotiate': False, 'duplex-mode': 'FULL'},
+              'switched-vlan': {'config': {'interface-mode': 'TRUNK',
                                            'trunk-vlans': ['1001']}}}),
             ('interfaces/interface[name=Vlan2337]',
              {'name': 'Vlan2337', 'config': {'name': 'Vlan2337', 'type': 'l3ipvlan'},
@@ -234,16 +272,26 @@ class TestEOSConfigUpdates(base.TestCase):
         cu.bgp.add_vlan(1000, 232323, 1)
 
         # interfaces
-        iface1 = messages.IfaceConfig(name="Port-Channel23", portchannel_id=23, native_vlan=1000,
-                                      members=["Ethernet4/1", "Ethernet4/2"])
-        iface1.add_trunk_vlan(1000)
+        pc1 = messages.IfaceConfig(name="Port-Channel23", portchannel_id=23, native_vlan=1000,
+                                   members=["Ethernet4/1", "Ethernet4/2"])
+        pc1.add_trunk_vlan(1000)
+        pc1.add_trunk_vlan(1001)
+        pc1.add_vlan_translation(1000, 2323)
+        pc1.add_vlan_translation(1001, 1337)
+        cu.add_iface(pc1)
+
+        pc2 = messages.IfaceConfig(name="Port-Channel42", portchannel_id=42, native_vlan=1000,
+                                   members=["Ethernet5/1", "Ethernet5/2"], speed='25g')
+        pc2.add_trunk_vlan(667)
+        cu.add_iface(pc2)
+
+        iface1 = messages.IfaceConfig(name="Ethernet23/1")
         iface1.add_trunk_vlan(1001)
-        iface1.add_vlan_translation(1000, 2323)
-        iface1.add_vlan_translation(1001, 1337)
         cu.add_iface(iface1)
 
-        iface2 = messages.IfaceConfig(name="Ethernet23/1")
+        iface2 = messages.IfaceConfig(name="Ethernet23/2")
         iface2.add_trunk_vlan(1001)
+        iface2.speed = "100g"
         cu.add_iface(iface2)
 
         # vlan iface + vrf
