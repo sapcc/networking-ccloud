@@ -82,6 +82,9 @@ class ConfigGenerator:
     }
     ignore_tags = {"cc-net-driver-ignore"}
     extra_vlan_tag = "cc-net-driver-extra-vlan"
+    force_speed_tag = 'cc-net-driver-force-speed'
+    re_speed_tag = re.compile(r'^cnd-net-portspeed-(?P<speed>\d+g)$')
+    lag_member_speed_cache: Dict[int, str] = dict()
 
     # metagroup handlers
 
@@ -213,6 +216,35 @@ class ConfigGenerator:
                                         f'Unexpected values for {attribute}, expected 1 but got {len(item_set)}')
         return item_set.pop()
 
+    @classmethod
+    def _handle_interface_speed(cls, iface: NbRecord) -> Optional[str]:
+        if not any(tag.slug == cls.force_speed_tag for tag in iface.tags):
+            return None
+
+        speed = None
+        speed_tags = {x.slug for x in iface.tags if cls.speed_tag_regex.match(x.slug)}
+        if not speed_tags:
+            LOG.warn(f'Interface {iface.id} has {cls.force_speed_tag} tag but no speed tag . No speed will be set.')
+            return None
+
+        speed_tag = cls._ensure_single_item(speed_tags, 'Interface', iface.id, 'speed_tags')
+        speed = cls.re_speed_tag.match(speed_tag).group('speed')
+
+        if not iface.lag:
+            return speed
+
+        lag = iface.lag
+        if lag.id not in cls.lag_member_speed_cache:
+            cls.lag_member_speed_cache[lag.id] = speed  # type: ignore
+            return speed
+
+        if cls.lag_member_speed_cache[lag.id] != speed:  # type: ignore
+            raise ConfigException(f'Interface {iface.name} has a different speed than other '
+                                  f'member interface(s) of LAG {lag.device.name}/{lag.name} (id: {lag.id}). '
+                                  f'Has {speed}, other(s) have {cls.lag_member_speed_cache[lag.id]}')  # type: ignore
+
+        return speed
+
     def get_azs(self) -> List[conf.AvailabilityZone]:
         azs = list()
         for site in self.netbox.dcim.sites.filter(region=self.region):
@@ -296,6 +328,7 @@ class ConfigGenerator:
                                         switchport_kwargs: Dict[str, Any] = {}):
 
         device_name = iface.device.name  # type: ignore
+        speed = cls._handle_interface_speed(iface)
         if iface.lag is not None:
             # make sure the Port-Channel is not ignored
             if not next(cls._ignore_filter([iface.lag]), False):
@@ -309,10 +342,11 @@ class ConfigGenerator:
             else:
                 candidate_interfaces.append(conf.SwitchPort(switch=device_name, lacp=True,
                                                             name=iface.lag.name, members=[iface.name],
-                                                            **switchport_kwargs))
+                                                            speed=speed, **switchport_kwargs))
         else:
             # not a lag
-            candidate_interfaces.append(conf.SwitchPort(switch=device_name, name=iface.name, **switchport_kwargs))
+            candidate_interfaces.append(conf.SwitchPort(switch=device_name, name=iface.name, speed=speed,
+                                                        **switchport_kwargs))
         return candidate_interfaces
 
     def get_svi_ips_per_vlan(self, device: NbRecord) -> Dict[NbRecord, List[NbRecord]]:
