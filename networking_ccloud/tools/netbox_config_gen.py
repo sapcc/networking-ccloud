@@ -222,7 +222,7 @@ class ConfigGenerator:
             return None
 
         speed = None
-        speed_tags = {x.slug for x in iface.tags if cls.speed_tag_regex.match(x.slug)}
+        speed_tags = {x.slug for x in iface.tags if cls.re_speed_tag.match(x.slug)}
         if not speed_tags:
             LOG.warn(f'Interface {iface.id} has {cls.force_speed_tag} tag but no speed tag . No speed will be set.')
             return None
