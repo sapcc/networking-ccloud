@@ -83,7 +83,7 @@ class ConfigGenerator:
     ignore_tags = {"cc-net-driver-ignore"}
     extra_vlan_tag = "cc-net-driver-extra-vlan"
     force_speed_tag = 'cc-net-driver-force-speed'
-    re_speed_tag = re.compile(r'^cnd-net-portspeed-(?P<speed>\d+g)$')
+    speed_tag_re = re.compile(r'^cnd-net-portspeed-(?P<speed>\d+g)$')
     lag_member_speed_cache: Dict[int, str] = dict()
 
     # metagroup handlers
@@ -222,13 +222,13 @@ class ConfigGenerator:
             return None
 
         speed = None
-        speed_tags = {x.slug for x in iface.tags if cls.re_speed_tag.match(x.slug)}
+        speed_tags = {x.slug for x in iface.tags if cls.speed_tag_re.match(x.slug)}
         if not speed_tags:
             LOG.warn(f'Interface {iface.id} has {cls.force_speed_tag} tag but no speed tag . No speed will be set.')
             return None
 
         speed_tag = cls._ensure_single_item(speed_tags, 'Interface', iface.id, 'speed_tags')
-        speed = cls.re_speed_tag.match(speed_tag).group('speed')
+        speed = cls.speed_tag_re.match(speed_tag).group('speed')
 
         if not iface.lag:
             return speed
