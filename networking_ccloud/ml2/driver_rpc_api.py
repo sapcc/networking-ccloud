@@ -17,6 +17,7 @@ from oslo_log import log as logging
 import oslo_messaging
 
 from networking_ccloud.common import constants as cc_const
+from networking_ccloud.ml2.agent.common import messages as agent_msg
 
 LOG = logging.getLogger(__name__)
 
@@ -24,6 +25,9 @@ LOG = logging.getLogger(__name__)
 class CCFabricDriverAPI:
     def status(self, context):
         return {"driver_state": "running"}
+
+    def get_switch_config(self, context, switch_name):
+        raise NotImplementedError
 
 
 class CCFabricDriverRPCClient:
@@ -44,3 +48,10 @@ class CCFabricDriverRPCClient:
     def status(self, context):
         cctxt = self.client.prepare()
         return cctxt.call(context, 'status')
+
+    def get_switch_config(self, context, switch_name):
+        cctxt = self.client.prepare()
+        config = cctxt.call(context, 'get_switch_config', switch_name=switch_name)
+        if config is not None:
+            config = agent_msg.SwitchConfigUpdate.parse_obj(config)
+        return config

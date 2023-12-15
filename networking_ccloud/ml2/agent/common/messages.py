@@ -13,17 +13,73 @@
 #    under the License.
 
 from enum import Enum
+import ipaddress
+import re
 from typing import List
 
-from neutron_lib.plugins.ml2 import api as ml2_api
 from oslo_log import log as logging
 import pydantic
 
 from networking_ccloud.common.config.config_driver import validate_asn
-from networking_ccloud.common import constants as cc_const
 from networking_ccloud.ml2.agent.common.api import CCFabricSwitchAgentRPCClient
 
 LOG = logging.getLogger(__name__)
+
+
+def validate_route_target(rt):
+    if str(rt).isdecimal() and (int(rt) >> 48) & 0xFF != 0x2:
+        raise ValueError("Route targets are extended attributes and need to have a 0x2 in the type field's "
+                         f"low order position - {rt} does not have this set (RFC 4360 sec 4)")
+    return validate_route_distinguisher(rt)
+
+
+def validate_route_distinguisher(rdrt) -> str:
+    # https://datatracker.ietf.org/doc/html/rfc4360#section-4
+    # https://datatracker.ietf.org/doc/html/rfc4364#section-4.2
+    if not isinstance(rdrt, str):
+        rdrt = str(rdrt)
+
+    if rdrt.isdecimal():
+        rdrt = int(rdrt)
+        rdrt_type = rdrt >> 56
+        # 8byte rdrt
+        if rdrt_type == 0:
+            # 2 byte asn, 4byte admin field
+            a = (rdrt >> 32) & (2**16 - 1)
+            b = rdrt & (2**32 - 1)
+            rdrt = f"{a}:{b}"
+        elif rdrt_type == 1:
+            # 4 byte ip, 2byte admin field
+            a = (rdrt >> 16) & (2**32 - 1)
+            b = rdrt & (2**16 - 1)
+            rdrt = f"{ipaddress.ip_address(a)}:{b}"
+        elif rdrt_type == 2:
+            # 4 byte asn, 2byte admin field
+            a = (rdrt >> 16) & (2**32 - 1)
+            b = rdrt & (2**16 - 1)
+            if a > 2**16:
+                rdrt = f"{a >> 16}.{a & (2**16 - 1)}:{b}"
+            else:
+                rdrt = f"{a}:{b}"
+        else:
+            raise ValueError(f"RD/RT {rdrt} has invalid type {rdrt_type}, see RFC 4364 sec 4.2")
+    else:
+        # ip:num, asn:num, num:num
+        m = re.match(r"^(?P<first>(?:\d+\.\d+\.\d+\.\d+)|(?:\d+\.\d+)|(?:\d+)):(?P<second>\d+)$", rdrt)
+        if not m:
+            raise ValueError(f"RD/RT '{rdrt}' is not in a recognizable format")
+        # automatically reformat cases where ASN is > 16bit to AS dot notation
+        first = m.group('first')
+        if first.isdecimal() and int(first) >= 2**16:
+            first = int(first)
+            rdrt = f"{first >> 16}.{first & (2**16 - 1)}:{m.group('second')}"
+    return rdrt
+
+
+def ensure_network(net):
+    # raises ValueError if host bits are set
+    net = ipaddress.ip_network(net, strict=True)
+    return str(net)
 
 
 class OperationEnum(str, Enum):
@@ -36,38 +92,128 @@ class Vlan(pydantic.BaseModel):
     vlan: pydantic.conint(gt=0, lt=4094)
     name: str = None
 
+    def __lt__(self, other):
+        return self.vlan < other.vlan
+
 
 class VXLANMapping(pydantic.BaseModel):
     vni: pydantic.conint(gt=0, lt=2**24)
     vlan: pydantic.conint(gt=0, lt=4094)
 
+    def __lt__(self, other):
+        return self.vlan < other.vlan
+
 
 class BGPVlan(pydantic.BaseModel):
     # FIXME: validator
     rd: str
+    rd_evpn_domain_all: bool = False
     vlan: pydantic.conint(gt=0, lt=4094)
-    vni: pydantic.conint(gt=0, lt=2**24)
-    bgw_mode: bool = False
+
+    rt_imports: List[str] = []
+    rt_exports: List[str] = []
+    rt_imports_evpn: List[str] = []
+    rt_exports_evpn: List[str] = []
+
+    _norm_rt_imports = pydantic.validator('rt_imports', each_item=True, allow_reuse=True)(validate_route_target)
+    _norm_rt_exports = pydantic.validator('rt_exports', each_item=True, allow_reuse=True)(validate_route_target)
+    _norm_rt_imports_evpn = pydantic.validator('rt_imports_evpn',
+                                               each_item=True, allow_reuse=True)(validate_route_target)
+    _norm_rt_exports_evpn = pydantic.validator('rt_exports_evpn',
+                                               each_item=True, allow_reuse=True)(validate_route_target)
+
+    def __lt__(self, other):
+        return self.vlan < other.vlan
+
+
+class BGPVRFNetwork(pydantic.BaseModel):
+    network: str
+    az_local: bool
+    ext_announcable: bool
+
+    _ensure_network = pydantic.validator('network', allow_reuse=True)(ensure_network)
+
+
+class BGPVRFAggregate(pydantic.BaseModel):
+    network: str
+    az_local: bool
+
+    _ensure_network = pydantic.validator('network', allow_reuse=True)(ensure_network)
+
+
+class BGPVRF(pydantic.BaseModel):
+    name: str
+    networks: List[BGPVRFNetwork] = None
+    aggregates: List[BGPVRFAggregate] = None
+
+    def __lt__(self, other):
+        return self.name < other.name
+
+    def add_networks(self, networks):
+        if not self.networks:
+            self.networks = []
+        self.networks.extend(networks)
+
+    def add_aggregates(self, aggregates):
+        if not self.aggregates:
+            self.aggregates = []
+        self.aggregates.extend(aggregates)
 
 
 class BGP(pydantic.BaseModel):
     asn: str
-
-    # regional asn (only used for bgws)
     asn_region: str
 
+    # the switchgroup id is only used for putting together RDs
+    # it will not be filled when config is pulled from the device
+    switchgroup_id: int = None
+
     vlans: List[BGPVlan] = None
+    vrfs: List[BGPVRF] = None
 
     _normalize_asn = pydantic.validator('asn', allow_reuse=True)(validate_asn)
     _normalize_asn_region = pydantic.validator('asn_region', allow_reuse=True)(validate_asn)
 
-    def add_vlan(self, rd, vlan, vni, bgw_mode=False):
+    def sort(self):
+        if self.vlans:
+            self.vlans.sort()
+        if self.vrfs:
+            self.vrfs.sort()
+
+    def add_vlan(self, vlan, vni, az_num, bgw_mode=False):
+        # FIXME: raise if vni > 2byte (can't encode it in RT otherwise, write snarky commit message for that)
         if not self.vlans:
             self.vlans = []
+
+        if self.switchgroup_id is None:
+            raise Exception("add_vlan() is only available when switchgroup_id is set (programming error)")
+
+        rd = f"{self.switchgroup_id}:{vni}"
         for bv in self.vlans:
-            if bv.rd == rd and bv.vlan == vlan and bv.vni == vni:
+            if bv.rd == rd and bv.vlan == vlan:
                 return
-        self.vlans.append(BGPVlan(rd=rd, vlan=vlan, vni=vni, bgw_mode=bgw_mode))
+
+        rt = f"{az_num}:{vni}"
+        bvargs = dict(rt_imports=[rt], rt_exports=[rt])
+        if bgw_mode:
+            bgw_rt = f"{self.asn_region}:{vni}"
+            bvargs['rd_evpn_domain_all'] = True
+            bvargs['rt_imports_evpn'] = [bgw_rt]
+            bvargs['rt_exports_evpn'] = [bgw_rt]
+
+        self.vlans.append(BGPVlan(rd=rd, vlan=vlan, **bvargs))
+
+    def get_or_create_vrf(self, name: str) -> BGPVRF:
+        if not self.vrfs:
+            self.vrfs = []
+
+        for vrf in self.vrfs:
+            if vrf.name == name:
+                return vrf
+
+        vrf = BGPVRF(name=name)
+        self.vrfs.append(vrf)
+        return vrf
 
 
 class VlanTranslation(pydantic.BaseModel):
@@ -77,16 +223,29 @@ class VlanTranslation(pydantic.BaseModel):
 
 class IfaceConfig(pydantic.BaseModel):
     name: str
+    description: str = None
 
     native_vlan: pydantic.conint(gt=0, lt=4094) = None
     trunk_vlans: List[pydantic.conint(gt=0, lt=4094)] = None
     vlan_translations: List[VlanTranslation] = None
     portchannel_id: pydantic.conint(gt=0) = None
     members: List[str] = None
+    speed: str = None
+
+    def __lt__(self, other):
+        return self.name < other.name
+
+    def sort(self):
+        if self.members:
+            self.members.sort()
+        if self.trunk_vlans:
+            self.trunk_vlans.sort(key=lambda x: int(str(x).split("..")[0]))
+        if self.vlan_translations:
+            self.vlan_translations.sort()
 
     @classmethod
     def from_switchport(cls, switchport):
-        iface = cls(name=switchport.name)
+        iface = cls(name=switchport.name, speed=switchport.speed)
         if switchport.lacp:
             iface.portchannel_id = switchport.portchannel_id
             iface.members = switchport.members
@@ -107,6 +266,17 @@ class IfaceConfig(pydantic.BaseModel):
         self.vlan_translations.append(VlanTranslation(inside=inside, outside=outside))
 
 
+class VlanIface(pydantic.BaseModel):
+    vlan: pydantic.conint(gt=0, lt=4094)
+    vrf: str = None
+
+    primary_ip: str = None
+    secondary_ips: List[str] = None
+
+    def __lt__(self, other):
+        return self.vlan < other.vlan
+
+
 class SwitchConfigUpdate(pydantic.BaseModel):
     switch_name: str
     operation: OperationEnum
@@ -115,10 +285,27 @@ class SwitchConfigUpdate(pydantic.BaseModel):
     vxlan_maps: List[VXLANMapping] = None
     bgp: BGP = None
     ifaces: List[IfaceConfig] = None  # noqa: E701 (pyflakes bug)
+    vlan_ifaces: List[VlanIface] = None
 
     @classmethod
     def make_object_from_net_data(self, vxlan_map, net_host_map):
         pass
+
+    def sort(self):
+        # in case we want to compare this or ship it to the user we may benefit from it being sorted
+        # also test cases would fail otherwise
+        if self.vlans:
+            self.vlans.sort()
+        if self.vxlan_maps:
+            self.vxlan_maps.sort()
+        if self.ifaces:
+            self.ifaces.sort()
+            for iface in self.ifaces:
+                iface.sort()
+        if self.bgp:
+            self.bgp.sort()
+        if self.vlan_ifaces:
+            self.vlan_ifaces.sort()
 
     def add_vlan(self, vlan, name=None):
         if self.vlans is None:
@@ -143,17 +330,38 @@ class SwitchConfigUpdate(pydantic.BaseModel):
 
         return iface
 
-    def get_or_create_iface(self, switchport):
+    def get_iface(self, name):
         if self.ifaces is None:
             self.ifaces = []
 
         for iface in self.ifaces:
-            if iface.name == switchport.name:
+            if iface.name == name:
                 return iface
+        return None
+
+    def get_or_create_iface(self, name):
+        iface = self.get_iface(name)
+        if iface:
+            return iface
+
+        iface = IfaceConfig(name=name)
+        self.ifaces.append(iface)
+        return iface
+
+    def get_or_create_iface_from_switchport(self, switchport):
+        iface = self.get_iface(switchport.name)
+        if iface:
+            return iface
 
         iface = IfaceConfig.from_switchport(switchport)
         self.ifaces.append(iface)
         return iface
+
+    def add_vlan_iface(self, **kwargs):
+        if not self.vlan_ifaces:
+            self.vlan_ifaces = []
+        vif = VlanIface(**kwargs)
+        self.vlan_ifaces.append(vif)
 
 
 class SwitchConfigUpdateList:
@@ -168,17 +376,8 @@ class SwitchConfigUpdateList:
                                                                          operation=self.operation)
         return self.switch_config_updates[switch_name]
 
-    def add_binding_host_from_segment_to_config(self, binding_host, *args, **kwargs):
-        # find binding host
-        hg_config = self.drv_conf.get_hostgroup_by_host(binding_host)
-        if hg_config is None:
-            # FIXME: maybe don't use a value error here
-            raise ValueError(f"Could not find binding host {binding_host}")
-
-        return self.add_binding_host_to_config(hg_config, *args, **kwargs)
-
     def add_binding_host_to_config(self, hg_config, network_id, seg_vni, seg_vlan, trunk_vlan=None,
-                                   keep_mapping=False, exclude_hosts=None, is_bgw=False):
+                                   keep_mapping=False, exclude_hosts=None, is_bgw=False, gateways=None):
         """Add binding host config to all required switches
 
         Given a hostgroup config this method generates and adds config to this
@@ -189,6 +388,7 @@ class SwitchConfigUpdateList:
          * keep_mapping: determines if the vlan-vni mapping is kept on op=remove/replace
          * exclude_hosts: hosts to exclude if a metagroup is being bound
          * is_bgw: bordergateway mode - no ifaces will be configured, bgp stanzas marked as bgw
+         * gateways: all gateways configured for this binding host ({'vrf': name, 'ips': [gw, gw, gw]})
         """
         add = self.operation == OperationEnum.add
         for switch_name, switchports in hg_config.iter_switchports(self.drv_conf, exclude_hosts=exclude_hosts):
@@ -197,78 +397,99 @@ class SwitchConfigUpdateList:
 
             # add bgp stuff
             if seg_vni and (add or not keep_mapping):
+                sg = self.drv_conf.get_switchgroup_by_switch_name(switch.name)
+                switch_az_num = self.drv_conf.global_config.get_availability_zone(sg.availability_zone).number
                 if not scu.bgp:
-                    sg = self.drv_conf.get_switchgroup_by_switch_name(switch.name)
-                    scu.bgp = BGP(asn=sg.asn, asn_region=self.drv_conf.global_config.asn_region)
-                scu.bgp.add_vlan(switch.get_rt(seg_vni), seg_vlan, seg_vni, bgw_mode=is_bgw)
+                    scu.bgp = BGP(asn=sg.asn, asn_region=self.drv_conf.global_config.asn_region,
+                                  switchgroup_id=sg.group_id)
+                scu.bgp.add_vlan(seg_vlan, seg_vni, switch_az_num, bgw_mode=is_bgw)
 
             # vlan-vxlan mapping
             if seg_vni and (add or not keep_mapping):
                 scu.add_vlan(seg_vlan, network_id)
                 scu.add_vxlan_map(seg_vni, seg_vlan)
 
+            # gateways
+            if gateways:
+                scu.add_vlan_iface(vlan=seg_vlan, vrf=gateways['vrf'], primary_ip=gateways['ips'][0],
+                                   secondary_ips=gateways['ips'][1:])
+
             # interface config
             if not is_bgw:
                 for sp in switchports:
-                    iface = scu.get_or_create_iface(sp)
+                    if sp.unmanaged:
+                        continue
+                    iface = scu.get_or_create_iface_from_switchport(sp)
                     iface.add_trunk_vlan(seg_vlan)
 
                     if hg_config.direct_binding and not hg_config.role:
                         if trunk_vlan:
                             iface.add_vlan_translation(seg_vlan, trunk_vlan)
-                        else:
+                        elif not hg_config.allow_multiple_trunk_ports:
                             iface.native_vlan = seg_vlan
 
-    def add_segments(self, net_segments, top_segments):
-        for network_id, segments in net_segments.items():
-            if network_id not in top_segments:
-                # FIXME: maybe don't use a value error
-                raise ValueError(f"Network id {network_id} is missing its top level vxlan segment")
+    def add_vrf_bgp_config(self, switch_names, vrf_name, vrf_networks, vrf_aggregates):
+        for switch_name in switch_names:
+            scu = self.get_or_create_switch(switch_name)
+            vrf = scu.bgp.get_or_create_vrf(vrf_name)
 
-            segment_0 = top_segments[network_id]
-            vni = segment_0['segmentation_id']
+            networks = []
+            curr_networks = [(net.network, net.az_local, net.ext_announcable) for net in (vrf.networks or [])]
+            for network, az_local, ext_announcable in vrf_networks:
+                if (network, az_local, ext_announcable) not in curr_networks:
+                    networks.append(BGPVRFNetwork(network=network, az_local=az_local, ext_announcable=ext_announcable))
+            vrf.add_networks(networks)
 
-            for binding_host, segment_1 in segments.items():
-                vlan = segment_1['segmentation_id']
-                hg_config = self.drv_conf.get_hostgroup_by_host(binding_host)
-                if not hg_config:
-                    LOG.error("Got a port binding for binding host %s in network %s, which was not found in config",
-                              binding_host, network_id)
+            aggregates = []
+            curr_aggregates = [(agg.network, agg.az_local) for agg in (vrf.aggregates or [])]
+            for network, az_local in vrf_aggregates:
+                if (network, az_local) not in curr_aggregates:
+                    aggregates.append(BGPVRFAggregate(network=network, az_local=az_local))
+            vrf.add_aggregates(aggregates)
+
+    def add_infra_networks_from_hostgroup(self, hg_config, sg):
+        for inet in hg_config.infra_networks or []:
+            # FIXME: exclude hosts
+            gateways = None
+            if inet.vrf:
+                gateways = {'vrf': inet.vrf, 'ips': inet.networks}
+
+            self.add_binding_host_to_config(hg_config, inet.name, inet.vni, inet.vlan,
+                                            gateways=gateways)
+
+            if inet.vrf:
+                # get network address from network (clear host bits); they are az-local and non-ext-announcable
+                # add_vrf_bgp_config() network inputs: (network, az_local, ext_announcable)
+                nets = [(str(ipaddress.ip_network(net, strict=False)), True, False)
+                        for net in inet.networks]
+                # aggregates are az-local
+                # add_vrf_bgp_config() network inputs: (network, az_local)
+                aggs = [(agg, True) for agg in inet.aggregates]
+
+                self.add_vrf_bgp_config(hg_config.get_switch_names(self.drv_conf), inet.vrf, nets, aggs)
+
+    def add_extra_vlans(self, hg_config, exclude_hosts=None):
+        """Add extra vlans to interfaces, which only appear in the 'allowed trunk vlans' list"""
+        if not hg_config.extra_vlans:
+            return
+
+        for switch_name, switchports in hg_config.iter_switchports(self.drv_conf, exclude_hosts=exclude_hosts):
+            switch = self.drv_conf.get_switch_by_name(switch_name)
+            scu = self.get_or_create_switch(switch.name)
+
+            for sp in switchports:
+                if sp.unmanaged:
                     continue
-                # FIXME: handle trunk_vlans
-                # FIXME: exclude_hosts
-                # FIXME: direct binding hosts? are they included?
-                self.add_binding_host_to_config(hg_config, network_id, vni, vlan)
+                iface = scu.get_or_create_iface_from_switchport(sp)
+                for extra_vlan in hg_config.extra_vlans:
+                    iface.add_trunk_vlan(extra_vlan)
 
-    def add_interconnects(self, context, fabric_plugin, interconnects):
-        network_ids = set(ic.network_id for ic in interconnects)
-        top_segments = fabric_plugin.get_top_level_vxlan_segments(context, network_ids=network_ids)
-        for device in interconnects:
-            if device.network_id not in top_segments:
-                # this is an error and not an exception, because the method is used by the switch sync
-                # and I didn't want that a broken network could prevent the sync of a while switch
-                LOG.error("Could not create config for interconnect of network %s: Missing top segment",
-                          device.network_id)
-                continue
-            vni = top_segments[device.network_id]['segmentation_id']
+    def clean_switches(self, switch_names):
+        for cfg_switch in list(self.switch_config_updates):
+            if cfg_switch not in switch_names:
+                del self.switch_config_updates[cfg_switch]
 
-            device_hg = self.drv_conf.get_hostgroup_by_host(device.host)
-            if not device_hg:
-                LOG.error("Could not bind device type %s host %s in network %s: Host not found in config",
-                          device.device_type, device.host, device.network_id)
-                continue
-
-            device_physnet = device_hg.get_vlan_pool_name(self.drv_conf)
-            device_segment = fabric_plugin.get_segment_by_host(context, device.network_id, device_physnet)
-            if not device_segment:
-                LOG.error("Missing network segment for interconnect %s physnet %s in network %s",
-                          device.host, device_physnet, device.network_id)
-                continue
-
-            self.add_binding_host_to_config(device_hg, device.network_id, vni, device_segment[ml2_api.SEGMENTATION_ID],
-                                            is_bgw=device.device_type == cc_const.DEVICE_TYPE_BGW)
-
-    def execute(self, context):
+    def execute(self, context, synchronous=True):
         platform_updates = {}
         for scu in self.switch_config_updates.values():
             platform = self.drv_conf.get_switch_by_name(scu.switch_name).platform
@@ -279,6 +500,6 @@ class SwitchConfigUpdateList:
 
         for platform, updates in platform_updates.items():
             rpc_client = CCFabricSwitchAgentRPCClient.get_for_platform(platform)
-            rpc_client.apply_config_update(context, updates)
+            rpc_client.apply_config_update(context, updates, synchronous=synchronous)
 
         return True

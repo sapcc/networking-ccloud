@@ -23,11 +23,15 @@ CC_DRIVER_NAME = 'cc-fabric'
 VIF_TYPE_CC_FABRIC = 'cc-fabric'
 
 CC_TRANSIT = 'cc-fabric-transit'
+CC_NET_GW = 'cc-fabric-network-gateway'
 
 DEVICE_TYPE_TRANSIT = 'transit'
 DEVICE_TYPE_BGW = 'bgw'
 
 AGENT_TYPE_CC_FABRIC = 'CC fabric agent'
+
+AZ_TAG_PREFIX = 'availability-zone::'
+L3_GATEWAY_TAG = 'gateway-host::cc-fabric'
 
 # rpc topics
 CC_DRIVER_TOPIC = 'cc-fabric-driver'
@@ -38,3 +42,4 @@ SWITCH_AGENT_TOPIC_MAP = {
     PLATFORM_EOS: SWITCH_AGENT_EOS_TOPIC,
     PLATFORM_NXOS: SWITCH_AGENT_NXOS_TOPIC,
 }
+TRUNK_PROFILE = 'cc-fabric_trunk_ro'

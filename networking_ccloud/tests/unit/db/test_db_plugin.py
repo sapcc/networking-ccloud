@@ -12,25 +12,51 @@
 # License for the specific language governing permissions and limitations
 # under the License.
 
+import json
+
+from neutron.db.models import address_scope as ascope_models
+from neutron.db.models import external_net as extnet_models
 from neutron.db.models import segment as segment_models
+from neutron.db.models import tag as tag_models
+from neutron.db import models_v2
+from neutron.plugins.ml2 import models as ml2_models
+from neutron.services.tag import tag_plugin
 from neutron.services.trunk import models as trunk_models
 from neutron.tests.unit.extensions import test_segment
 from neutron_lib import context
+from neutron_lib.plugins import directory
+from oslo_config import cfg
 
 from networking_ccloud.common.config import _override_driver_config, config_driver
+from networking_ccloud.common import constants as cc_const
 from networking_ccloud.db.db_plugin import CCDbPlugin
 from networking_ccloud.tests import base
 from networking_ccloud.tests.common import config_fixtures as cfix
+from networking_ccloud.tests.common.helper import fix_net_mtu
 
 
-class TestDBPluginNetworkSyncData(test_segment.SegmentTestCase, base.PortBindingHelper):
+class TestDBPluginNetworkSyncData(test_segment.SegmentTestCase, base.PortBindingHelper, base.TestCase):
     def setUp(self):
         super().setUp()
+
+        cfg.CONF.set_override('global_physnet_mtu', 9000)
+        cfg.CONF.set_override('path_mtu', 9000, group='ml2')
+        cfg.CONF.set_override('network_vlan_ranges', ['foo:100:410', 'bar:200:210', 'baz:300:310',
+                                                      'spam:500:510', 'ham:600:610', 'mew:700:710',
+                                                      'caw:800:810'],
+                              group='ml2_type_vlan')
+        plugin = directory.get_plugin()
+        vlan_type_driver = plugin.type_manager.drivers['vlan'].obj
+        vlan_type_driver._parse_network_vlan_ranges()
+        vlan_type_driver.update_network_segment_range_allocations()
+        ctx = context.get_admin_context()
 
         # network a, segments foo bar baz
         #   ports 1(foo), 2(foo), 3-bm(bar)
         #   no port on baz (to make sure this segment is ignored)
         self._net_a = self._make_network(name="a", admin_state_up=True, fmt='json')['network']
+        fix_net_mtu(ctx, self._net_a)
+        self._subnet_a_1 = self._make_subnet("json", {"network": self._net_a}, "10.180.0.1", "10.180.0.0/24")['subnet']
         self._seg_a = {physnet: self._make_segment(network_id=self._net_a['id'], network_type='vlan',
                        physical_network=physnet, segmentation_id=seg_id, tenant_id='test-tenant',
                        fmt='json')['segment']
@@ -53,6 +79,7 @@ class TestDBPluginNetworkSyncData(test_segment.SegmentTestCase, base.PortBinding
         # network b, segments foo spam ham
         #   ports 1(foo) 2(spam) 3(spam) 4(spam) 5-trunk(ham) 6-double(foo,spam)
         self._net_b = self._make_network(name="b", admin_state_up=True, fmt='json')['network']
+        fix_net_mtu(ctx, self._net_b)
         self._seg_b = {physnet: self._make_segment(network_id=self._net_b['id'], network_type='vlan',
                        physical_network=physnet, segmentation_id=seg_id, tenant_id='test-tenant',
                        fmt='json')['segment']
@@ -74,22 +101,68 @@ class TestDBPluginNetworkSyncData(test_segment.SegmentTestCase, base.PortBinding
                                                       host='node001-spam-compute')
         self._port_b_5 = self._make_port_with_binding(segments=[(self._seg_b[None], 'cc-fabric'),
                                                                 (self._seg_b['ham'], 'cat-ml2')],
-                                                      host='ham-compute')  # FIXME: trunk
-        self._port_b_6a = self._make_port_with_binding(segments=[(self._seg_b[None], 'cc-fabric'),
+                                                      host='ham-compute', vif_type=cc_const.VIF_TYPE_CC_FABRIC)
+        self._port_b_6 = self._make_port_with_binding(segments=[(self._seg_b[None], 'cc-fabric'),
+                                                                (self._seg_b['caw'], 'cat-ml2')],
+                                                      host='caw-compute', vif_type='some-other-driver')
+        self._port_b_7a = self._make_port_with_binding(segments=[(self._seg_b[None], 'cc-fabric'),
                                                                  (self._seg_b['mew'], 'cat-ml2')],
                                                        host='mew-compute')
-        self._port_b_7b = self._make_port_with_binding(segments=[(self._seg_b[None], 'cc-fabric'),
+        self._port_b_8b = self._make_port_with_binding(segments=[(self._seg_b[None], 'cc-fabric'),
                                                                  (self._seg_b['caw'], 'cat-ml2')],
-                                                       host='caw-compute', port=self._port_b_6a)
+                                                       host='caw-compute', port=self._port_b_7a)
 
         # create trunk
-        ctx = context.get_admin_context()
         self._net_c = self._make_network(name="b", admin_state_up=True, fmt='json')['network']
+        fix_net_mtu(ctx, self._net_c)
         self._port_c_1 = self._make_port('json', self._net_c['id'])['port']  # bindings don't matter
+        self._port_c_2 = self._make_port('json', self._net_c['id'])['port']  # bindings don't matter
         with ctx.session.begin():
             subport = trunk_models.SubPort(port_id=self._port_b_5['id'], segmentation_type='vlan', segmentation_id=1000)
             trunk = trunk_models.Trunk(name='random-trunk', port_id=self._port_c_1['id'], sub_ports=[subport])
             ctx.session.add(trunk)
+
+            subport = trunk_models.SubPort(port_id=self._port_b_6['id'], segmentation_type='vlan', segmentation_id=2000)
+            trunk = trunk_models.Trunk(name='trunk-on-other-driver', port_id=self._port_c_2['id'], sub_ports=[subport])
+            ctx.session.add(trunk)
+
+        # network c, external network
+        # NOTE: without the l3 plugin we don't have external network support loaded here
+        #       therefore we just "cheat" our way into an external network by creating the
+        #       appropriate db model
+        self._subnetpool_reg = self._make_subnetpool("json", prefixes=["1.1.0.0/16", "2.2.0.0/16"], tenant_id="foo",
+                                                     name="sp")['subnetpool']
+        self._net_c = self._make_network(name="c", admin_state_up=True, fmt='json')['network']
+        with ctx.session.begin():
+            ctx.session.add(extnet_models.ExternalNetwork(network_id=self._net_c['id']))
+
+        self._subnet_c_1 = self._make_subnet("json", {"network": self._net_c}, "1.1.1.1", "1.1.1.0/24",
+                                             subnetpool_id=self._subnetpool_reg['id'])['subnet']
+        self._subnet_c_2 = self._make_subnet("json", {"network": self._net_c}, "2.2.2.2", "2.2.2.0/24",
+                                             subnetpool_id=self._subnetpool_reg['id'])['subnet']
+
+        # az aware network
+        self._subnetpool_az = self._make_subnetpool("json", prefixes=["1.3.0.0/16"], tenant_id="foo",
+                                                    name="sp")['subnetpool']
+
+        self._net_d = self._make_network(name="d", admin_state_up=True, fmt='json')['network']
+        with ctx.session.begin():
+            net = ctx.session.query(models_v2.Network).get(self._net_d['id'])
+            net.availability_zone_hints = '["qa-de-1d"]'
+            ctx.session.add(extnet_models.ExternalNetwork(network_id=self._net_d['id']))
+
+            self._address_scope = ascope_models.AddressScope(name="seagull", ip_version=4)
+            ctx.session.add(self._address_scope)
+
+            spn_reg = ctx.session.query(models_v2.SubnetPool).get(self._subnetpool_reg['id'])
+            spn_reg.address_scope_id = self._address_scope['id']
+            spn_az = ctx.session.query(models_v2.SubnetPool).get(self._subnetpool_az['id'])
+            spn_az.address_scope_id = self._address_scope['id']
+            ctx.session.add(tag_models.Tag(standard_attr_id=spn_az.standard_attr_id,
+                                           tag="availability-zone::qa-de-1d"))
+
+        self._subnet_d_1 = self._make_subnet("json", {"network": self._net_d}, "1.3.1.1", "1.3.1.0/24",
+                                             subnetpool_id=self._subnetpool_az['id'])['subnet']
 
         # fix segment index
         with ctx.session.begin():
@@ -164,6 +237,14 @@ class TestDBPluginNetworkSyncData(test_segment.SegmentTestCase, base.PortBinding
         self.assertEqual(1, len(list(net_hosts.values())[0]))
         self.assertEqual(1000, list(net_hosts.values())[0]['ham-compute']['trunk_segmentation_id'])
 
+    def test_get_hosts_on_segments_with_trunk_ports_for_other_driver(self):
+        # there should be exactly one trunk port on segment "ham"
+        ctx = context.get_admin_context()
+        net_hosts = self._db.get_hosts_on_segments(ctx, physical_networks=['caw'])
+        self.assertEqual(1, len(net_hosts))
+        self.assertEqual(1, len(list(net_hosts.values())[0]))
+        self.assertIsNone(list(net_hosts.values())[0]['caw-compute']['trunk_segmentation_id'])
+
     def test_get_top_level_vxlan_segments(self):
         ctx = context.get_admin_context()
         segments = self._db.get_top_level_vxlan_segments(ctx, network_ids=[self._net_a['id']])
@@ -187,8 +268,96 @@ class TestDBPluginNetworkSyncData(test_segment.SegmentTestCase, base.PortBinding
             self.assertEqual(700, net_hosts[self._net_b['id']]['mew-compute']['segmentation_id'])
             self.assertEqual(800, net_hosts[self._net_b['id']]['caw-compute']['segmentation_id'])
 
+    def test_get_gateways_for_networks(self):
+        ctx = context.get_admin_context()
 
-class TestNetworkInterconnectAllocation(test_segment.SegmentTestCase, base.PortBindingHelper):
+        # FIXME: I bet at some point the order of this is going to break and someone will complain about it
+        self.assertEqual({self._net_c['id']: [("1.1.1.1/24", "seagull"), ("2.2.2.2/24", "seagull")]},
+                         self._db.get_gateways_for_networks(ctx, [self._net_c['id']]))
+        self.assertEqual({}, self._db.get_gateways_for_networks(ctx, [self._net_a['id']]))
+
+        # networks without subnetpool/address scope are not returned by this, so....
+        self.assertEqual({}, self._db.get_gateways_for_networks(ctx, [self._net_a['id']], external_only=False))
+
+    def test_get_gateways_for_networks_when_not_handling_l3_gateways(self):
+        ctx = context.get_admin_context()
+        cfg.CONF.set_override('handle_all_l3_gateways', False, group='ml2_cc_fabric')
+        self.assertEqual({}, self._db.get_gateways_for_networks(ctx, [self._net_c['id']]))
+
+    def test_get_gateways_for_networks_when_not_handling_l3_gateways_but_net_is_tagged(self):
+        tp = tag_plugin.TagPlugin()
+        ctx = context.get_admin_context()
+        cfg.CONF.set_override('handle_all_l3_gateways', False, group='ml2_cc_fabric')
+        try:
+            tp.update_tag(ctx, "networks", self._net_c['id'], cc_const.L3_GATEWAY_TAG)
+            self.assertEqual({self._net_c['id']: [("1.1.1.1/24", "seagull"), ("2.2.2.2/24", "seagull")]},
+                             self._db.get_gateways_for_networks(ctx, [self._net_c['id']]))
+        finally:
+            tp.delete_tag(ctx, "networks", self._net_c['id'], cc_const.L3_GATEWAY_TAG)
+
+    def test_get_gateways_for_network(self):
+        ctx = context.get_admin_context()
+        self.assertEqual([("1.1.1.1/24", "seagull"), ("2.2.2.2/24", "seagull")],
+                         self._db.get_gateways_for_network(ctx, self._net_c['id']))
+        self.assertIsNone(self._db.get_gateways_for_network(ctx, self._net_a['id']))
+
+    def test_get_subnet_l3_config_for_networks(self):
+        ctx = context.get_admin_context()
+        self.assertEqual({self._subnetpool_reg['id']: [("1.1.1.0/24", None), ("2.2.2.0/24", None)]},
+                         self._db.get_subnet_l3_config_for_networks(ctx, [self._net_c['id']]))
+        self.assertEqual({self._subnetpool_az['id']: [("1.3.1.0/24", "qa-de-1d")]},
+                         self._db.get_subnet_l3_config_for_networks(ctx, [self._net_d['id']]))
+
+    def test_get_subnetpool_details(self):
+        ctx = context.get_admin_context()
+        self.assertEqual({
+            self._subnetpool_reg['id']: {
+                'address_scope': 'seagull',
+                'az': None,
+                'cidrs': ['1.1.0.0/16', '2.2.0.0/16']
+            },
+            self._subnetpool_az['id']: {
+                'address_scope': 'seagull',
+                'az': 'qa-de-1d',
+                'cidrs': ['1.3.0.0/16']
+            }},
+            self._db.get_subnetpool_details(ctx, [self._subnetpool_reg['id'], self._subnetpool_az['id']]))
+
+    def test_get_subport_trunk_vlan_id(self):
+        ctx = context.get_admin_context()
+        with self.port() as trunkport, self.port() as subport:
+            self.assertIsNone(self._db.get_subport_trunk_vlan_id(ctx, subport['port']['id']))
+
+            with ctx.session.begin():
+                subport = trunk_models.SubPort(port_id=subport['port']['id'], segmentation_type='vlan',
+                                               segmentation_id=1000)
+                trunk = trunk_models.Trunk(name='random-trunk', port_id=trunkport['port']['id'], sub_ports=[subport])
+                ctx.session.add(trunk)
+
+            self.assertEqual(1000, self._db.get_subport_trunk_vlan_id(ctx, subport['port']['id']))
+            self.assertIsNone(self._db.get_subport_trunk_vlan_id(ctx, trunkport['port']['id']))
+
+    def test_get_trunks_with_binding_host(self):
+        ctx = context.get_admin_context()
+        with self.port() as trunkport1, self.port() as trunkport2:
+            with ctx.session.begin():
+                trunk1 = trunk_models.Trunk(name='random-trunk1', port_id=trunkport1['port']['id'], sub_ports=[])
+                binding1 = (ctx.session.query(ml2_models.PortBinding)
+                            .filter(ml2_models.PortBinding.port_id == trunkport1['port']['id']).first())
+                binding1.host = 'seagull'
+                ctx.session.add(trunk1, binding1)
+                trunk2 = trunk_models.Trunk(name='random-trunk2', port_id=trunkport2['port']['id'], sub_ports=[])
+                binding2 = (ctx.session.query(ml2_models.PortBinding)
+                            .filter(ml2_models.PortBinding.port_id == trunkport2['port']['id']).first())
+                binding2.profile = json.dumps({"local_link_information": [{"switch_info": "oystercatcher"}]})
+                ctx.session.add(trunk2, binding2)
+
+        self.assertEqual([trunk1.id], self._db.get_trunks_with_binding_host(ctx, "seagull"))
+        self.assertEqual([trunk2.id], self._db.get_trunks_with_binding_host(ctx, "oystercatcher"))
+        self.assertEqual([], self._db.get_trunks_with_binding_host(ctx, "whatever"))
+
+
+class TestNetworkInterconnectAllocation(test_segment.SegmentTestCase, base.PortBindingHelper, base.TestCase):
     def setUp(self):
         super().setUp()
 

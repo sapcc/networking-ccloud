@@ -17,7 +17,7 @@ import ipaddress
 from itertools import groupby
 from operator import attrgetter
 import re
-from typing import List, Union
+from typing import Dict, List, Union
 
 import pydantic
 
@@ -69,7 +69,10 @@ def validate_asn(asn):
     if not (0 < asn < (2 ** 32)):
         raise ValueError(f"asn value '{asn}' is out of range")
 
-    return asn
+    if asn >= 2 ** 16:
+        return f"{asn >> 16}.{asn & 0xFFFF}"
+    else:
+        return str(asn)
 
 
 class Switch(pydantic.BaseModel):
@@ -100,9 +103,6 @@ class Switch(pydantic.BaseModel):
 
         return v
 
-    def get_rt(self, vni):
-        return f"{self.bgp_source_ip}:{vni}"
-
 
 class HostgroupRole(str, Enum):
     transit = cc_const.DEVICE_TYPE_TRANSIT
@@ -123,6 +123,7 @@ class SwitchGroup(pydantic.BaseModel):
     # calculated from member-hostnames
     vtep_ip: str
     asn: str
+    group_id: pydantic.conint(ge=0, lt=2 ** 16)
 
     override_vlan_pool: str = None
     vlan_ranges: List[str] = None
@@ -157,6 +158,27 @@ class SwitchGroup(pydantic.BaseModel):
     def validate_availability_zone(cls, v):
         return v.lower()
 
+    def get_managed_vlans(self, drv_conf, with_infra_nets=False):
+        """Get a list of all vlans that we manage on this switch"""
+        vlan_ranges = self.vlan_ranges
+        if not vlan_ranges:
+            vlan_ranges = drv_conf.global_config.default_vlan_ranges
+
+        all_ranges = set()
+        for vlan_range in vlan_ranges:
+            start, end = vlan_range.split(":")
+            all_ranges |= set(range(int(start), int(end) + 1))
+
+        if with_infra_nets:
+            for hg in drv_conf.hostgroups:
+                if not hg.infra_networks:
+                    continue
+                if not hg.has_switches_as_member(drv_conf, [sw.name for sw in self.members]):
+                    continue
+                all_ranges |= set(infra_net.vlan for infra_net in hg.infra_networks)
+
+        return all_ranges
+
 
 class SwitchPort(pydantic.BaseModel):
     # FIXME: for LACP is the name just Port-Channel<id>? do we need to parse the id? if so, extra validation
@@ -165,6 +187,10 @@ class SwitchPort(pydantic.BaseModel):
     lacp: bool = False
     portchannel_id: pydantic.conint(gt=0) = None
     members: List[str] = None
+    unmanaged: bool = False
+
+    # set interface (or member interface) speed to this vendor specific value
+    speed: str = None
 
     @pydantic.root_validator
     def only_allow_members_and_pc_id_with_lacp_enabled(cls, v):
@@ -196,20 +222,61 @@ class SwitchPort(pydantic.BaseModel):
 
 class InfraNetwork(pydantic.BaseModel):
     name: str
-    native_vlan_pool: str = None
-    vlan: pydantic.conint(gt=0, lt=4096)
-    networks: List[str] = None
-    vni: pydantic.conint(gt=0, lt=2**24) = None
+    vlan: pydantic.conint(gt=1, lt=4095)
+    vrf: str = None
+    networks: List[str] = []
+    aggregates: List[str] = []
+    vni: pydantic.conint(gt=0, lt=2**24)
     untagged: bool = False
-    dhcp_relays: List[str] = None
+    dhcp_relays: List[str] = []
 
-    _normalize_networks = pydantic.validator('networks', each_item=True, allow_reuse=True)(validate_ip_address)
+    _normalize_relays = pydantic.validator('dhcp_relays', each_item=True, allow_reuse=True)(validate_ip_address)
+
+    def __hash__(self) -> int:
+        return hash((self.name, self.vlan, self.vrf, tuple(self.networks),
+                    self.vni, self.untagged, tuple(self.dhcp_relays)))
+
+    @pydantic.validator('networks', each_item=True)
+    def ensure_host_bit_set(cls, net):
+        net = ipaddress.ip_interface(net)
+        if str(net) == str(net.network):
+            raise ValueError(f'Network {net} is supposed to be used as gateway and hence needs hosts bits set')
+        return str(net)
+
+    @pydantic.validator('aggregates', each_item=True)
+    def ensure_network(cls, net):
+        # raises ValueError if host bits are set
+        net = ipaddress.ip_network(net, strict=True)
+        return str(net)
 
     @pydantic.root_validator
     def ensure_correct_value_combination(cls, values):
-        # FIXME: we probably need a different logic here
-        if bool(values.get('vni')) ^ bool(values.get('networks')):
-            raise ValueError("If network is set vni needs to be set and vice versa")
+        if len(values.get('networks')) > 0 and not bool(values.get('vrf')):
+            raise ValueError("If network is given a VRF must be set too")
+        if len(values.get('dhcp_relays')) > 0 and not len(values.get('networks')) > 0:
+            raise ValueError("If dhcp_relays is given a network must be present too")
+        if len(values.get('aggregates', [])) > len(values.get('networks', [])):
+            raise ValueError('There are more aggregates than networks')
+        return values
+
+    @pydantic.root_validator
+    def ensure_dhcp_relay_not_in_networks(cls, values):
+        for network in values.get('networks', []):
+            network = ipaddress.ip_interface(network)
+            for relay in values.get('dhcp_relays', []):
+                relay = ipaddress.ip_address(relay)
+                if relay in network.network:
+                    raise ValueError(f'dhcp_relay {relay} is contained in network {network}')
+        return values
+
+    @pydantic.root_validator
+    def ensure_aggregate_is_supernet_of_networks(cls, values):
+        for aggregate in values.get('aggregates', []):
+            aggregate = ipaddress.ip_network(aggregate)
+            if any(ipaddress.ip_interface(x).network == aggregate for x in values.get('networks', [])):
+                raise ValueError(f'Aggregate {aggregate} is equal to one of the networks')
+            if not any(ipaddress.ip_interface(x) in aggregate for x in values.get('networks', [])):
+                raise ValueError(f'Aggregate {aggregate} is not a supernet of any network in networks')
         return values
 
 
@@ -233,10 +300,20 @@ class Hostgroup(pydantic.BaseModel):
     handle_availability_zones: List[str] = None
 
     # infra networks attached to hostgroup
-    infra_networks: List[InfraNetwork] = None
+    infra_networks: List[InfraNetwork] = []
+
+    # vlans that are added to all allowed-vlan list without managing the vlan on switch
+    extra_vlans: List[pydantic.conint(gt=1, lt=4095)] = None
+
+    # allow multiple trunks per hostgroup, not setting the native vlan then (direct bindings only)
+    # note that this means that no native vlan will be set for ports in this hostgroup, ever
+    allow_multiple_trunk_ports: bool = False
+
+    _vlan_pool: str = None
 
     class Config:
         use_enum_values = True
+        underscore_attrs_are_private = True
 
     @pydantic.validator('binding_hosts')
     def ensure_at_least_one_binding_host(cls, v):
@@ -276,6 +353,12 @@ class Hostgroup(pydantic.BaseModel):
     def ensure_hostgroups_with_role_are_direct_binding(cls, values):
         if values.get('role') and not values.get('direct_binding'):
             raise ValueError("Hostgroups for bgws/tranits need to be direct bindings")
+        return values
+
+    @pydantic.root_validator
+    def ensure_allow_multiple_trunk_ports_are_direct_binding(cls, values):
+        if values.get('allow_multiple_trunk_ports') and not values.get('direct_binding'):
+            raise ValueError("allow_multiple_trunk_ports can only be set for direct binding hostgroups")
         return values
 
     @pydantic.root_validator
@@ -344,7 +427,9 @@ class Hostgroup(pydantic.BaseModel):
 
     def get_vlan_pool_name(self, drv_conf):
         """Find vlanpool name for this hostgroup"""
-        return self.get_any_switchgroup(drv_conf).vlan_pool
+        if self._vlan_pool is None:
+            self._vlan_pool = self.get_any_switchgroup(drv_conf).vlan_pool
+        return self._vlan_pool
 
     def iter_switchports(self, driver_config, exclude_hosts=None):
         """Iterate over all switchports, grouped by switch
@@ -365,32 +450,119 @@ class Hostgroup(pydantic.BaseModel):
 
         return groupby(sorted(ifaces, key=attrgetter('switch')), key=attrgetter('switch'))
 
-    def has_switch_as_member(self, drv_conf, switch_name):
+    def get_switch_names(self, driver_config, exclude_hosts=None):
+        switches = [switch_name for switch_name, _ in
+                    self.iter_switchports(driver_config, exclude_hosts=exclude_hosts)]
+        switches.sort()
+
+        return switches
+
+    def has_switches_as_member(self, drv_conf, switch_names):
         if self.metagroup:
             for member in self.members:
                 far_hg = drv_conf.get_hostgroup_by_host(member)
-                if far_hg.has_switch_as_member(drv_conf, switch_name):
+                if far_hg.has_switches_as_member(drv_conf, switch_names):
                     return True
         else:
             for member in self.members:
-                if member.switch == switch_name:
+                if member.switch in switch_names:
                     return True
         return False
+
+    def get_parent_metagroup(self, drv_conf):
+        """Get metagroup for this Hostgroup, if it is part of a metagroup"""
+        if self.metagroup:
+            return None
+
+        for hg in drv_conf.hostgroups:
+            if any(host in hg.members for host in self.binding_hosts):
+                return hg
+        return None
+
+
+class VRF(pydantic.BaseModel):
+    name: str
+    address_scopes: List[str] = []
+
+    # magic number we use for vni, rt import/export calculation
+    number: pydantic.conint(gt=0)
+
+
+class AvailabilityZone(pydantic.BaseModel):
+    name: str
+    suffix: str
+    number: pydantic.conint(gt=0, lt=10)  # needs to be one digit
+
+    @pydantic.validator('name')
+    def validate_name(cls, v):
+        return v.lower()
+
+    @pydantic.validator('suffix')
+    def validate_suffix(cls, v):
+        return v.lower()
 
 
 class GlobalConfig(pydantic.BaseModel):
     asn_region: str
     default_vlan_ranges: List[str]
+    availability_zones: List[AvailabilityZone]
+    vrfs: List[VRF]
 
     _normalize_asn = pydantic.validator('asn_region', allow_reuse=True)(validate_asn)
     _normalize_vlan_ranges = pydantic.validator('default_vlan_ranges',
                                                 each_item=True, allow_reuse=True)(validate_vlan_ranges)
+
+    _availability_zone_map: Dict[str, AvailabilityZone] = pydantic.PrivateAttr()
+    _address_scopes_to_vrf_map: Dict[str, str] = pydantic.PrivateAttr()
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        # cache certain mappings that we need frequently
+        self._availability_zone_map = {az.name: az for az in self.availability_zones}
+        self._address_scopes_to_vrf_map = {ascope: vrf.name for vrf in self.vrfs for ascope in vrf.address_scopes}
+
+    @pydantic.validator('vrfs')
+    def check_vrf_name_unique(cls, values):
+        names = set()
+        for vrf in values:
+            if vrf.name in names:
+                raise ValueError(f'VRF {vrf.name} is duplicated')
+            names.add(vrf.name)
+        return values
+
+    @pydantic.validator('vrfs')
+    def check_vrf_number_unique(cls, values):
+        nums = set()
+        for vrf in values:
+            if vrf.number in nums:
+                raise ValueError(f'VRF id {vrf.number} is duplicated on VRF {vrf.name}')
+            nums.add(vrf.number)
+        return values
+
+    def get_availability_zone(self, az_name):
+        return self._availability_zone_map.get(az_name)
+
+    def get_vrf_name_for_address_scope(self, address_scope):
+        return self._address_scopes_to_vrf_map.get(address_scope)
 
 
 class DriverConfig(pydantic.BaseModel):
     global_config: GlobalConfig
     switchgroups: List[SwitchGroup]
     hostgroups: List[Hostgroup]
+
+    _hostgroup_by_host: Dict[str, Hostgroup] = pydantic.PrivateAttr()
+    _switchgroup_by_switch: Dict[str, SwitchGroup] = pydantic.PrivateAttr()
+    _switch_by_name: Dict[str, Switch] = pydantic.PrivateAttr()
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        # cache certain mappings that we need frequently
+        self._hostgroup_by_host = {binding_host: hg for hg in self.hostgroups for binding_host in hg.binding_hosts}
+        self._switchgroup_by_switch = {sw.name: sg for sg in self.switchgroups for sw in sg.members}
+        self._switch_by_name = {sw.name: sw for sg in self.switchgroups for sw in sg.members}
 
     @pydantic.root_validator
     def check_hostgroup_references(cls, values):
@@ -465,6 +637,17 @@ class DriverConfig(pydantic.BaseModel):
 
         return v
 
+    @pydantic.validator('switchgroups')
+    def ensure_switchgroup_id_unique(cls, v):
+        group_ids = {}
+        for sg in v:
+            if sg.group_id in group_ids:
+                raise ValueError(f"SwitchGroup {sg.name} has group id {sg.group_id}, which is already in use "
+                                 f"by SwitchGroup {group_ids[sg.group_id]}")
+            group_ids[sg.group_id] = sg.name
+
+        return v
+
     @pydantic.root_validator
     def ensure_interconnect_az_requirements(cls, values):
         """Make sure transits service their own AZ and all others service ONLY their own AZ"""
@@ -496,6 +679,34 @@ class DriverConfig(pydantic.BaseModel):
 
         return values
 
+    @pydantic.root_validator
+    def ensure_all_switchgroup_azs_exist(cls, values):
+        if 'global_config' not in values:
+            return values
+        azs = [az.name for az in values['global_config'].availability_zones]
+        for sg in values.get('switchgroups', []):
+            if sg.availability_zone not in azs:
+                raise ValueError(f"SwitchGroup {sg.name} has invalid az {sg.availability_zone} - "
+                                 f"options are '{', '.join(azs)}'")
+
+        return values
+
+    @pydantic.root_validator
+    def ensure_all_infra_network_vrf_exist(cls, values):
+        if 'global_config' not in values:
+            return values
+        if 'hostgroups' not in values:
+            return values
+        global_config: GlobalConfig = values['global_config']
+        hgs: List[Hostgroup] = values['hostgroups']
+        vrf_names = set(x.name for x in global_config.vrfs)
+        for hg in hgs:
+            if hg.infra_networks:
+                for net in hg.infra_networks:
+                    if net.vrf and net.vrf not in vrf_names:
+                        raise ValueError(f'Associated VRF {net.vrf} of infra network {net.name} is not existing')
+        return values
+
     def get_platforms(self):
         """Get all platforms as a set used in the given config"""
         v = set()
@@ -515,34 +726,20 @@ class DriverConfig(pydantic.BaseModel):
         return switches
 
     def get_hostgroup_by_host(self, host):
-        for hg in self.hostgroups:
-            if host in hg.binding_hosts:
-                return hg
-        return None
+        return self._hostgroup_by_host.get(host)
 
     def get_hostgroups_by_hosts(self, hosts):
-        hgs = []
-        for hg in self.hostgroups:
-            if any(host in hg.binding_hosts for host in hosts):
-                hgs.append(hg)
-        return hgs
+        return [self._hostgroup_by_host[host] for host in hosts if host in self._hostgroup_by_host]
 
-    def get_hostgroups_by_switch(self, switch_name):
+    def get_hostgroups_by_switches(self, switch_names):
         """Get all hostgroups that reference this switch"""
-        return [hg for hg in self.hostgroups if hg.has_switch_as_member(self, switch_name)]
+        return [hg for hg in self.hostgroups if hg.has_switches_as_member(self, switch_names)]
 
     def get_switchgroup_by_switch_name(self, name):
-        for sg in self.switchgroups:
-            if any(s.name == name for s in sg.members):
-                return sg
-        return None
+        return self._switchgroup_by_switch.get(name)
 
     def get_switch_by_name(self, name):
-        for sg in self.switchgroups:
-            for switch in sg.members:
-                if switch.name == name:
-                    return switch
-        return None
+        return self._switch_by_name.get(name)
 
     def get_interconnects_for_az(self, device_type, az):
         return [hg for hg in self.hostgroups
@@ -558,4 +755,4 @@ class DriverConfig(pydantic.BaseModel):
                    if not (ignore_special and hg_config.role))
 
     def list_availability_zones(self):
-        return sorted(set(sg.availability_zone for sg in self.switchgroups))
+        return sorted(az.name for az in self.global_config.availability_zones)

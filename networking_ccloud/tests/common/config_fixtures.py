@@ -35,12 +35,20 @@ def make_switch(name, platform="test", **kwargs):
     return config_driver.Switch(**switch_vars)
 
 
+_LAST_AUTO_GROUP_ID = 0
+
+
 def make_switchgroup(name, members=None, switch_vars=None, availability_zone=DEFAULT_AZ, **kwargs):
     switchgroup_vars = dict(
         name=name, asn=65100, availability_zone=availability_zone, role="vpod",
         vtep_ip="1.1.1.3",  # FIXME: derive IPs from somewhere
     )
     switchgroup_vars.update(kwargs)
+
+    if 'group_id' not in kwargs:
+        global _LAST_AUTO_GROUP_ID
+        _LAST_AUTO_GROUP_ID += 1
+        switchgroup_vars['group_id'] = _LAST_AUTO_GROUP_ID
 
     if switch_vars is None:
         switch_vars = None
@@ -66,8 +74,8 @@ def gen_switchport_names(switchgroup=None, switches=None, ports_per_switch=2, of
     return ports
 
 
-def make_switchport(switch, name, lacp=False, members=None):
-    return config_driver.SwitchPort(switch=switch, name=name, lacp=lacp, members=members)
+def make_switchport(switch, name, lacp=False, members=None, unmanaged=False):
+    return config_driver.SwitchPort(switch=switch, name=name, lacp=lacp, members=members, unmanaged=unmanaged)
 
 
 def make_lacp(pc_id, switchgroup, **kwargs):
@@ -84,7 +92,7 @@ def make_hostgroups(switchgroup, nodes=10, ports_per_switch=2, offset=0, **kwarg
     for n in range(1, nodes + 1):
         ports = make_lacp(100 + n, switchgroup, ports_per_switch=ports_per_switch, offset=(n - 1) * ports_per_switch)
         binding_host = f"node{n:03d}-{switchgroup}"
-        hg = config_driver.Hostgroup(binding_hosts=[binding_host], members=ports)
+        hg = config_driver.Hostgroup(binding_hosts=[binding_host], members=ports, **kwargs)
         groups.append(hg)
     return groups
 
@@ -100,21 +108,58 @@ def make_metagroup(switchgroup, hg_kwargs={}, meta_kwargs={}):
 
 
 def make_interconnect(role, host, switch_base, handle_azs):
+    unmanaged = role == config_driver.HostgroupRole.transit
     sp_name = f"{host}-1/1/1" if role != config_driver.HostgroupRole.bgw else None
     return config_driver.Hostgroup(binding_hosts=[host], role=role,
-                                   members=[make_switchport(f"{switch_base}-sw1", sp_name)],
+                                   members=[make_switchport(f"{switch_base}-sw1", sp_name, unmanaged=unmanaged)],
                                    handle_availability_zones=handle_azs)
 
 
 def make_global_config(asn_region=65123, **kwargs):
     kwargs.setdefault("default_vlan_ranges", ["2000:3750"])
+    kwargs.setdefault("availability_zones", [])
+    kwargs.setdefault("vrfs", [])
     return config_driver.GlobalConfig(asn_region=asn_region, **kwargs)
 
 
+def make_azs(names):
+    azs = []
+    for name in names:
+        az_num = ord(name[-1]) - ord('a') + 1
+        azs.append(config_driver.AvailabilityZone(name=name, suffix=name[-1], number=az_num))
+    return azs
+
+
+def make_azs_from_switchgroups(switchgroups):
+    if switchgroups is None:
+        return []
+
+    return make_azs(az for az in set(sg.availability_zone for sg in switchgroups))
+
+
+def make_vrfs(names):
+    vrfs = []
+    for i, name in enumerate(names):
+        vrfs.append(config_driver.VRF(name=name, number=i + 1))
+    return vrfs
+
+
+def make_vrfs_from_hostgroups(hostgroups):
+    if hostgroups is None:
+        return []
+    infra_nets = list()
+    for hostgroup in hostgroups:
+        if hostgroup.infra_networks:
+            infra_nets.extend(hostgroup.infra_networks)
+
+    return make_vrfs(set(x.vrf for x in infra_nets if x.vrf))
+
+
 # whole config
-def make_config(switchgroups=None, hostgroups=None, global_config=None):
+def make_config(switchgroups=None, hostgroups=None, global_config=None, extra_vrfs=[]):
     if not global_config:
-        global_config = make_global_config()
+        global_config = make_global_config(availability_zones=make_azs_from_switchgroups(switchgroups),
+                                           vrfs=make_vrfs_from_hostgroups(hostgroups) + extra_vrfs)
 
     return config_driver.DriverConfig(
         switchgroups=switchgroups or [],

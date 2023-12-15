@@ -15,12 +15,15 @@ import time
 
 from neutron import service
 from neutron_lib.api.definitions import availability_zone as az_api
+from neutron_lib.api.definitions import external_net as extnet_api
 from neutron_lib.api.definitions import portbindings as pb_api
 from neutron_lib import constants as nl_const
 from neutron_lib.exceptions import availability_zone as az_exc
 from neutron_lib.plugins import directory
 from neutron_lib.plugins.ml2 import api as ml2_api
 from neutron_lib import rpc as n_rpc
+from neutron_lib.services.trunk import constants as trunk_const
+from oslo_config import cfg
 from oslo_log import log as logging
 
 from networking_ccloud.common.config import get_driver_config, validate_ml2_vlan_ranges
@@ -31,6 +34,7 @@ from networking_ccloud.extensions import fabricoperations
 from networking_ccloud.ml2.agent.common import messages as agent_msg
 from networking_ccloud.ml2.driver_rpc_api import CCFabricDriverAPI
 from networking_ccloud.ml2.plugin import FabricPlugin
+from networking_ccloud.services.trunk.driver import CCTrunkDriver
 
 
 LOG = logging.getLogger(__name__)
@@ -63,7 +67,7 @@ class CCFabricMechanismDriver(ml2_api.MechanismDriver, CCFabricDriverAPI):
 
         self.vif_details = {
             # allow ports without an IP to be bound
-            pb_api.VIF_DETAILS_CONNECTIVITY: pb_api.CONNECTIVITY_L2,
+            pb_api.VIF_DETAILS_CONNECTIVITY: self.connectivity,
         }
 
     def initialize(self):
@@ -83,6 +87,7 @@ class CCFabricMechanismDriver(ml2_api.MechanismDriver, CCFabricDriverAPI):
         self._agents = {}
 
         fabricoperations.register_api_extension()
+        self.trunk_driver = CCTrunkDriver.create()
 
         LOG.info("CC-Fabric ml2 driver initialized")
 
@@ -91,6 +96,10 @@ class CCFabricMechanismDriver(ml2_api.MechanismDriver, CCFabricDriverAPI):
         if self._plugin_property is None:
             self._plugin_property = directory.get_plugin()
         return self._plugin_property
+
+    @property
+    def connectivity(self):
+        return pb_api.CONNECTIVITY_L2
 
     def start_rpc_listeners(self):
         """Start the RPC listeners.
@@ -206,8 +215,9 @@ class CCFabricMechanismDriver(ml2_api.MechanismDriver, CCFabricDriverAPI):
         # config update (direct bindings are handled in the next step)
         if not hg_config.direct_binding:
             # send rpc call to agent
+            net_external = context.network.current[extnet_api.EXTERNAL]
             self.handle_binding_host_changed(context._plugin_context, context.current['network_id'],
-                                             binding_host, hg_config, segment, next_segment)
+                                             binding_host, hg_config, segment, next_segment, net_external=net_external)
 
         # binding
         LOG.info("Binding port %s to toplevel segment %s, next segment is %s physnet %s segmentation id %s",
@@ -228,9 +238,16 @@ class CCFabricMechanismDriver(ml2_api.MechanismDriver, CCFabricDriverAPI):
                       context.current['id'], config_physnet, context.segments_to_bind)
             return
 
-        # FIXME: trunk ports
+        trunk_vlan = None
+        if context.current['device_owner'] == trunk_const.TRUNK_SUBPORT_OWNER:
+            if hg_config.direct_binding and not hg_config.role:
+                trunk_vlan = self.fabric_plugin.get_subport_trunk_vlan_id(context._plugin_context,
+                                                                          context.current['id'])
+
+        net_external = context.network.current[extnet_api.EXTERNAL]
         self.handle_binding_host_changed(context._plugin_context, context.current['network_id'], binding_host,
-                                         hg_config, context.binding_levels[0][ml2_api.BOUND_SEGMENT], segment)
+                                         hg_config, context.binding_levels[0][ml2_api.BOUND_SEGMENT], segment,
+                                         net_external=net_external, trunk_vlan=trunk_vlan)
 
         vif_details = {}  # no vif-details needed yet
         context.set_binding(segment['id'], cc_const.VIF_TYPE_CC_FABRIC, vif_details, nl_const.ACTIVE)
@@ -343,12 +360,57 @@ class CCFabricMechanismDriver(ml2_api.MechanismDriver, CCFabricDriverAPI):
                 LOG.warning("Tried to remove device %s host %s on network delete for %s, but is not present in config",
                             device_type, device_host, network_id)
                 continue
+            # we don't need to do a per-subnet l3 cleanup, as each subnet's delete hook should have been called
+            # we also don't need to remove the segment, as it is deleted together with the network
             scul.add_binding_host_to_config(device_hg, network_id, net_data['segment_0_vni'], device_vlan,
                                             is_bgw=device_type == cc_const.DEVICE_TYPE_BGW)
             LOG.debug("Removing config for %s %s on network delete of %s", device_type, device_host, network_id)
 
-        if not scul.execute(context._plugin_context):
+        if not scul.execute(context._plugin_context, synchronous=False):
             LOG.warning("Deletion of network %s yielded no config updates!", network_id)
+
+    def create_subnet_precommit(self, context):
+        """Allocate resources for a new subnet.
+
+        :param context: SubnetContext instance describing the new
+            subnet.
+
+        Create a new subnet, allocating resources as necessary in the
+        database. Called inside transaction context on session. Call
+        cannot block.  Raising an exception will result in a rollback
+        of the current transaction.
+        """
+        self._check_subnet_and_subnetpool_az_match(context)
+
+    def _check_subnet_and_subnetpool_az_match(self, context):
+        if not cfg.CONF.ml2_cc_fabric.subnet_subnetpool_az_check_enabled:
+            return
+
+        # check if a subnet's subnetpool and a subnet's network are in the same AZ
+        # network needs to be external, subnet needs to have a subnetpool
+        snp_id = context.current['subnetpool_id']
+        net = context.network.current
+        if snp_id is None or not net[extnet_api.EXTERNAL]:
+            return
+
+        # network az hint must match subnetpool az tag
+        net_az_hints = net[az_api.AZ_HINTS]
+        net_az_hint = net_az_hints[0] if net_az_hints else None
+
+        snp_details = self.fabric_plugin.get_subnetpool_details(context._plugin_context,
+                                                                [context.current['subnetpool_id']])
+
+        # if the subnetpool has no address scope we ignore it
+        if snp_id not in snp_details:
+            return
+
+        snp_az = snp_details[snp_id]['az']
+
+        # net and snp az need to match. they need to either be None or an AZ
+        if net_az_hint != snp_az:
+            raise cc_exc.SubnetSubnetPoolAZAffinityError(network_id=net['id'], net_az_hint=net_az_hint,
+                                                         subnetpool_id=context.current['subnetpool_id'],
+                                                         subnetpool_az=snp_az)
 
     def create_port_precommit(self, context):
         """Allocate resources for a new port.
@@ -361,6 +423,73 @@ class CCFabricMechanismDriver(ml2_api.MechanismDriver, CCFabricDriverAPI):
         of the current transaction.
         """
         self._check_port_az_affinity(context.network.current, context.current)
+
+    def create_subnet_postcommit(self, context):
+        """Create a subnet.
+
+        :param context: SubnetContext instance describing the new
+            subnet.
+
+        Called after the transaction commits. Call can block, though
+        will block the entire process so care should be taken to not
+        drastically affect performance. Raising an exception will
+        cause the deletion of the resource.
+        """
+        net = context.network.current
+        if not net[extnet_api.EXTERNAL]:
+            return
+        self._sync_network(context._plugin_context, context.current['network_id'])
+
+    def update_subnet_postcommit(self, context):
+        """Update a subnet.
+
+        :param context: SubnetContext instance describing the new
+            state of the subnet, as well as the original state prior
+            to the update_subnet call.
+
+        Called after the transaction commits. Call can block, though
+        will block the entire process so care should be taken to not
+        drastically affect performance. Raising an exception will
+        cause the deletion of the resource.
+
+        update_subnet_postcommit is called for all changes to the
+        subnet state.  It is up to the mechanism driver to ignore
+        state or state changes that it does not know or care about.
+        """
+        net = context.network.current
+        if not net[extnet_api.EXTERNAL]:
+            return
+        if context.original['gateway_ip'] != context.current['gateway_ip']:
+            LOG.info("Subnet %s changed gateway from %s to %s, syncing network",
+                     context.current['id'], context.original['gateway_ip'], context.current['gateway_ip'])
+            self._sync_network(context._plugin_context, context.current['network_id'])
+
+    def delete_subnet_postcommit(self, context):
+        """Delete a subnet.
+
+        :param context: SubnetContext instance describing the current
+            state of the subnet, prior to the call to delete it.
+
+        Called after the transaction commits. Call can block, though
+        will block the entire process so care should be taken to not
+        drastically affect performance. Runtime errors are not
+        expected, and will not prevent the resource from being
+        deleted.
+        """
+        net = context.network.current
+        if not net[extnet_api.EXTERNAL]:
+            return
+        # FIXME: do we remove all subnets properly? We should on sync, but what if this
+        #        is the last subnet? do we need to explicitly remove the vlan iface then?
+        self._sync_network(context._plugin_context, context.current['network_id'])
+
+    def _sync_network(self, context, network_id):
+        LOG.debug("Syncing network %s from driver side due to update in network/subnet", network_id)
+        scul = self.fabric_plugin.make_network_config(context, network_id)
+        if scul is None:
+            LOG.error("Tried to sync network %s but no config could be generated for it", network_id)
+            return
+        scul.execute(context, synchronous=False)
 
     def update_port_precommit(self, context):
         """Update resources of a port.
@@ -422,10 +551,20 @@ class CCFabricMechanismDriver(ml2_api.MechanismDriver, CCFabricDriverAPI):
                 LOG.debug("Port %s does not have two binding levels, no update will be sent. Old host %s, levels %s",
                           context.current['id'], old_host, context.original_binding_levels)
                 return
+            segment_0 = context.original_binding_levels[0][ml2_api.BOUND_SEGMENT]
+            segment_1 = context.original_binding_levels[1][ml2_api.BOUND_SEGMENT]
+            orig_network_id = None
+            if context.network.original is not None:
+                orig_network_id = context.network.original['id']
+            elif segment_1 and 'network_id' in segment_1:
+                orig_network_id = segment_1['network_id']
+            else:
+                LOG.warning("Port %s transitioning from %s to %s does not have an original network attached to it, "
+                            "old host will not be cleaned up",
+                            context.current['id'], old_host, new_host)
+                return
             self.driver_handle_binding_host_removed(context._plugin_context, context, context.original,
-                                                    context.original_binding_levels[0][ml2_api.BOUND_SEGMENT],
-                                                    context.original_binding_levels[1][ml2_api.BOUND_SEGMENT],
-                                                    context.network.original['id'])
+                                                    segment_0, segment_1, orig_network_id)
 
     def delete_port_postcommit(self, context):
         """Delete a port.
@@ -490,14 +629,17 @@ class CCFabricMechanismDriver(ml2_api.MechanismDriver, CCFabricDriverAPI):
 
         # 3. config updates
         # FIXME: trunk?
+        net_external = port_context.network.current[extnet_api.EXTERNAL]
         self.handle_binding_host_changed(context, network_id, binding_host, hg_config, segment_0, segment_1,
-                                         add=False, keep_mapping=keep_segment, exclude_hosts=hosts_on_network)
+                                         add=False, keep_mapping=keep_segment, exclude_hosts=hosts_on_network,
+                                         net_external=net_external)
 
     # ------------------ switch config snippet methods ------------------
     # FIXME: move this somewhere else
     def handle_binding_host_changed(self, context, network_id, binding_host, hg_config,
                                     segment_0, segment_1, trunk_vlan=None, force_update=False,
-                                    add=True, keep_mapping=False, exclude_hosts=None):
+                                    add=True, keep_mapping=False, exclude_hosts=None,
+                                    net_external=None):
         # FIXME: the logic of this method needs testing (i.e. written tests)
         LOG.debug("Handling config update (type %s) for binding host %s on %s",
                   "add" if add else "remove", binding_host, network_id)
@@ -520,12 +662,45 @@ class CCFabricMechanismDriver(ml2_api.MechanismDriver, CCFabricDriverAPI):
                           binding_host)
                 return
 
+        gateways = None
+        if net_external:
+            gateways = self.fabric_plugin.get_gateways_with_vrfs_for_network(context, network_id)
+            if not gateways and cfg.CONF.ml2_cc_fabric.handle_all_l3_gateways:
+                # only warn if we are responsible for all l3 gateways
+                LOG.warning("Network %s has no gateway IPs, l3 will not work (binding host %s)",
+                            network_id, binding_host)
+
         op = agent_msg.OperationEnum.add if add else agent_msg.OperationEnum.remove
         scul = agent_msg.SwitchConfigUpdateList(op, self.drv_conf)
         scul.add_binding_host_to_config(hg_config, network_id,
                                         segment_0[ml2_api.SEGMENTATION_ID], segment_1[ml2_api.SEGMENTATION_ID],
-                                        trunk_vlan, keep_mapping, exclude_hosts)
+                                        trunk_vlan, keep_mapping, exclude_hosts, gateways=gateways)
 
-        if not scul.execute(context):
+        # handle l3 bgp config
+        if net_external and gateways:
+            # NOTE: For our l3 lifecycle the cidrs of subnets ("vrf_networks") join/leave the switch
+            #       together with the subnet. This is different for the aggregates, as an aggregate
+            #       might be in use by another network on the same subnet pool. Therefore the aggregate
+            #       lifecycle is "add on segment join" and we'll just leave them there on delete.
+            #       The syncloop will clean them up later and they don't do any harm in the meantime.
+            #       If this changes... we'll just fix the lifecycle here.
+            vrf_config = self.fabric_plugin.get_l3_network_config(context, [network_id])
+            for vrf_name, vrf in vrf_config.items():
+                vrf_aggregates = vrf['vrf_aggregates'] if add else []
+                scul.add_vrf_bgp_config([sw_name for sw_name, _ in hg_config.iter_switchports(self.drv_conf)],
+                                        vrf_name, vrf['vrf_networks'], vrf_aggregates)
+
+        if not scul.execute(context, synchronous=False):
             LOG.warning("Update for host %s on %s yielded no config updates! add=%s, keep=%s, excl=%s",
                         binding_host, network_id, add, keep_mapping, exclude_hosts)
+
+    def get_switch_config(self, context, switch_name):
+        sw = self.drv_conf.get_switch_by_name(switch_name)
+        if not sw:
+            raise ValueError(f"Switch '{switch_name}' does not exist in config")
+        sg = self.drv_conf.get_switchgroup_by_switch_name(switch_name)
+        scul = self.fabric_plugin.make_switch_config(context, sw, sg)
+        scu = scul.switch_config_updates.get(switch_name)
+        if scu is not None:
+            scu = scu.dict()
+        return scu

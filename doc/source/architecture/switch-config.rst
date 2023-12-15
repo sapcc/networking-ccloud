@@ -364,9 +364,11 @@ aPOD/vPOD/stPOD/netPOD/bPOD/Transit leafs
 
    router bgp 65130.1112
      vlan 3150
-         rd 65130.1112:10394
-         route-target both 65130:10394
+         rd 1112:10394
+         route-target export 1:10394
+         route-target import 1:10394
          redistribute learned
+         redistribute static
 
 **NX-OS**:
 ::
@@ -383,8 +385,9 @@ aPOD/vPOD/stPOD/netPOD/bPOD/Transit leafs
    router bgp 65130.1103
       evpn
          vni 10394 l2
-            rd 65130.1103:10394
-            route-target both 65130:10394
+            rd 1103:10394
+            route-target export 1:10394
+            route-target import 1:10394
 
 Border Gateway
 --------------
@@ -402,7 +405,9 @@ Only applicable for regional networks.
    router bgp 65130.1103
       vlan 2340
          rd evpn domain all 65130.1103:10394
-         route-target both 65130:10394
+         route-target export 65130:999
+         route-target export 65130.1:10394
+         route-target import 65130.1:10394
          route-target import export evpn domain remote 65130:10394
          redistribute learned
 
@@ -414,11 +419,34 @@ Subnet
 There exists RT convention to describe the span of a subnet (regional vs AZ local) and
 to tag a prefix as a supernet that should be announced towards upstream routers:
 
-* **RT REGIONAL_ASN:CCLOUD_ID:** 65130:102 is representing a regional network in QA-DE-1 in vrf CC-CLOUD02 
-* **RT REGIONAL_ASN:AZ_CCLOUD_ID:** 65130:1102 is representing a AZa network in QA-DE-1 in vrf CC-CLOUD02 (AZa=1XXX,AZb=2XXX, ...)
-* **RT REGIONAL_ASN:1:** 65130:1 is tagging the prefix as a supernet in QA-DE-1, this is expected to be added to the above if required 
+.. list-table:: RT and Community Schema
+   :header-rows: 1
 
-
+   * - 
+     - Type
+     - AZa
+     - AZb
+     - AZc
+     - AZd
+   * - CC-CLOUDXX Regional
+     - Ext RT
+     - $REGION_ASN:1XX
+     - $REGION_ASN:1XX
+     - $REGION_ASN:1XX
+     - $REGION_ASN:1XX
+   * - CC-CLOUDXX perAZ
+     - Ext RT
+     - $REGION_ASN:11XX
+     - $REGION_ASN:21XX
+     - $REGION_ASN:31XX
+     - $REGION_ASN:41XX
+   * - Aggregates to Core
+     - Std Community
+     - $REGION_ASN.1
+     - $REGION_ASN.1
+     - $REGION_ASN.1
+     - $REGION_ASN.1
+  
 External Network
 ################
 
@@ -512,64 +540,158 @@ Sample Subnet Definition
 
 On Device configuration
 -----------------------
+All examples use CC-CLOUD02 and availability-zone A as examples.
 
+For the prefixes that need to be redistributed into BGP there are the following combinations:
+
+.. list-table:: BGP prefix properties
+   :widths: 10 10 40 40
+   :header-rows: 1
+
+   * - az-local
+     - is externally announced (CIDR in address scope)
+     - config EOS
+     - config NXOS
+ 
+   * - False
+     - False
+     - * entry in `PL-CC-CLOUD02`
+       * :code:`aggregate-address <supernet> attribute-map RM-CC-CLOUD02-AGGREGATE`
+     - * :code:`network <prefix> route-map RM-CC-CLOUD02``
+       * :code:`aggregate-address  <supernet>  attribute-map RM-CC-CLOUD02-AGGREGATE`
+ 
+   * - True
+     - False
+     - * entry in `PL-CC-CLOUD02-A`
+       * :code:`aggregate-address <supernet> attribute-map RM-CC-CLOUD02-A-AGGREGATE`
+     - * :code:`network <prefix> route-map RM-CC-CLOUD02-A`
+       * :code:`aggregate-address  <supernet>  attribute-map RM-CC-CLOUD02-A-AGGREGATE`
+ 
+   * - False
+     - True
+     - * entry in `PL-CC-CLOUD02-EXTERNAL`
+     - * :code:`network <prefix> route-map RM-CC-CLOUD02-AGGREGATE`
+ 
+   * - True
+     - True
+     - * entry in `PL-CC-CLOUD02-A-EXTERNAL`
+     - * :code:`network <prefix> route-map RM-CC-CLOUD02-AGGREGATE`
+  
 **EOS**:
+
+We assume the following L3 related config to be preconfigured on each device, example for AZ A, regional ASN 65130, VRF CC-CLOUD02:
+
 ::
 
-   route-map RM-CC-CLOUD02
-      set extcommunity rt 65130:102
-   route-map RM-CC-CLOUD02-AGGREGATE
-      set extcommunity rt 65130:102 rt 65130:1
-   route-map RM-CC-CLOUD02-A
-      set extcommunity rt 65130:1102
-   route-map RM-CC-CLOUD02-A-AGGREGATE
-      set extcommunity rt 65130:1102 rt 65130:1
+  vrf instance CC-CLOUD02
 
-   vrf instance CC-CLOUD02
+  ip routing vrf CC-CLOUD02
 
-   ip routing vrf CC-CLOUD02
+  route-map RM-CC-CLOUD02-REDIST permit 10
+    match ip address prefix-list PL-CC-CLOUD02
+    set community 65130:102
+    set extcommunity rt 65130:102
+  route-map RM-CC-CLOUD02-REDIST permit 20
+    match ip address prefix-list PL-CC-CLOUD02-A
+    set community 65130:1102
+    set extcommunity rt 65130:1102
+  route-map RM-CC-CLOUD02-REDIST permit 30
+    match ip address prefix-list PL-CC-CLOUD02-EXTERNAL
+    set community 65130:1 65130:102
+    set extcommunity rt 65130:102
+  route-map RM-CC-CLOUD02-REDIST permit 40
+    match ip address prefix-list PL-CC-CLOUD02-A-EXTERNAL
+    set community 65130:1 65130:1102
+    set extcommunity rt 65130:1102
 
-   interface vlan 3150
-      description aeec9fd4-30f7-4398-8554-34acb36b7712
-      vrf CC-CLOUD02
-      ip address virtual 10.47.8.193/27
-      ip address virtual 10.47.10.1/24 secondary
+  route-map RM-CC-CLOUD02-AGGREGATE permit 10
+    set community 65130:1 65130:102
+    set extcommunity rt 65130:102
 
-   interface vlan 3200
-      description fce02a86-525c-49c9-a6cd-bf472881a83f
-      vrf CC-CLOUD02
-      ip address virtual 10.47.20.1/25
+  route-map RM-CC-CLOUD02-A-AGGREGATE permit 10
+    set community 65130:1 65130:1102
+    set extcommunity rt 65130:1102
 
-   interface vxlan1
-      vxlan vlan 3150 vni 10394
-      vxlan vlan 3200 vni 10400
-      vxlan vrf CC-CLOUD02 vni 102
-   !
-   router bgp 65130.1103
-      vrf CC-CLOUD02
-         rd 65130.1103:102
-         route-target import evpn 65130:102
-         route-target import evpn 65130:1102
-         route-target import evpn 65130:2102
-         route-target import evpn 65130:4102
-         route-target export evpn 65130:1102
-         aggregate-address 10.47.8.0/24 route-map RM-CC-CLOUD02-AGGREGATE
-         aggregate-address 10.47.20.0/24 route-map RM-CC-CLOUD02-A-AGGREGATE
-         network 10.47.8.192/27 route-map RM-CC-CLOUD02
-         network 10.47.20.0/25 route-map RM-CC-CLOUD02-A
-         network 10.47.10.0/24 route-map RM-CC-CLOUD02-AGGREGATE
+  # These prefix lists must be preconfigured, otherwise Octa fails to
+  # build a valid config tree
+  ip prefix-list PL-CC-CLOUD02
+  ip prefix-list PL-CC-CLOUD02-A
+  ip prefix-list PL-CC-CLOUD02-EXTERNAL
+  ip prefix-list PL-CC-CLOUD02-A-EXTERNAL
+
+  interface Vxlan1
+    vxlan vrf CC-CLOUD02 vni 102
+
+  router bgp 65130.1103
+    vrf CC-CLOUD02
+      rd 65130.1103:102
+      route-target export evpn 65130:1102
+      route-target import evpn 65130:102
+      route-target import evpn 65130:1102
+      route-target import evpn 65130:2102
+      route-target import evpn 65130:4102
+      redistribute connected route-map RM-CC-CLOUD02-REDIST
+      redistribute static route-map RM-CC-CLOUD02-REDIST
+  
+  # Octa crashes when `redistribute static` is configured but no static route is present
+  # Let us configure a dummy route from the zeroconf range to hackaround that problem
+  ip route vrf CC-CLOUD02 169.254.255.255 255.255.255.255 null0   
+
+
+Driver controlled configuration:
+
+::
+
+  # The driver assumes full control over these prefix-lists
+  # any prefix unknown to the driver will be removed.
+
+  ip prefix-list PL-CC-CLOUD02
+    seq 10 permit 10.47.8.192/27
+
+  ip prefix-list PL-CC-CLOUD02-A
+    seq 10 permit 10.47.20.0/25
+
+  ip prefix-list PL-CC-CLOUD02-EXTERNAL
+    seq 10 permit 10.47.10.0/24
+
+  ip prefix-list PL-CC-CLOUD02-A-EXTERNAL
+
+  interface Vlan3150
+    description aeec9fd4-30f7-4398-8554-34acb36b7712
+    vrf CC-CLOUD02
+    ip address virtual 10.47.8.193/27
+    ip address virtual 10.47.10.1/24 secondary
+
+  interface Vlan3200
+    description fce02a86-525c-49c9-a6cd-bf472881a83f
+    vrf CC-CLOUD02
+    ip address virtual 10.47.20.1/25
+
+  router bgp 65130.1103
+    vrf CC-CLOUD02
+      # The driver assumes full control over aggregate address statements,
+      # that have an attribute-map/route-map associated that complies with
+      # f'RM-CC-{VRF}-AGGREGATE' or f'RM-CC-{VRF}-{AZ}-AGGREGATE'
+      # any aggregate statement not known to the driver will be removed
+      aggregate-address 10.47.8.0/24 attribute-map RM-CC-CLOUD02-A-AGGREGATE
+      aggregate-address 10.47.20.0/24 attribute-map RM-CC-CLOUD02-AGGREGATE
+
+
 
 **NX-OS**:
 ::
 
    route-map RM-CC-CLOUD02
       set extcommunity rt 65130:102
+
    route-map RM-CC-CLOUD02-AGGREGATE
-      set extcommunity rt 65130:102 rt 65130:1
+      set community 65130:1
+      set extcommunity rt 65130:102
+
    route-map RM-CC-CLOUD02-A
-      set extcommunity rt 65130:1102
+
    route-map RM-CC-CLOUD02-A-AGGREGATE
-      set extcommunity rt 65130:1102 rt 65130:1
+      set community 65130:1
 
    interface Vlan 3150
       description aeec9fd4-30f7-4398-8554-34acb36b7712
@@ -607,8 +729,8 @@ On Device configuration
    router bgp 65130.1103
       vrf CC-CLOUD02
          address-family ipv4 unicast
-            aggregate-address 10.47.8.0/24 route-map RM-CC-CLOUD02-AGGREGATE
-            aggregate-address 10.47.20.0/24 route-map RM-CC-CLOUD02-A-AGGREGATE
+            aggregate-address 10.47.8.0/24 attribute-map RM-CC-CLOUD02-AGGREGATE
+            aggregate-address 10.47.20.0/24 attribute-map RM-CC-CLOUD02-A-AGGREGATE
             network 10.47.8.192/27 route-map RM-CC-CLOUD02
             network 10.47.20.0/25 route-map RM-CC-CLOUD02-A
             network 10.47.10.0/24 route-map RM-CC-CLOUD02-AGGREGATE
@@ -672,7 +794,7 @@ On Device configuration
 
    router bgp 65130.1103
       vrf CC-CLOUD02
-         network 10.47.100.0/24
+         network 10.47.100.0/24 route-map RM-CC-CLOUD02-A
 
 **NX-OS**:
 ::
@@ -683,7 +805,7 @@ On Device configuration
    router bgp 65130.1103      
       vrf CC-CLOUD02
          address-family ipv4 unicast
-            network 10.47.100.0/24
+            network 10.47.100.0/24 route-map RM-CC-CLOUD02-A
 
 ***********
 Subnet Pool
@@ -811,9 +933,9 @@ aPOD/vPOD/stPOD/netPOD/bPOD/Transit leafs
 
    router bgp 65130.1103
       vrf CC-CLOUD02
-         aggregate-address 130.214.202.0/24 route-map RM-CC-CCLOUD02-AGGREGATE
-         aggregate-address 130.214.215.0/26 route-map RM-CC-CCLOUD02-A-AGGREGATE
-         aggregate-address 10.236.100.0/22 route-map RM-CC-CCLOUD02-AGGREGATE
+         aggregate-address 130.214.202.0/24 attribute-map RM-CC-CCLOUD02-AGGREGATE
+         aggregate-address 130.214.215.0/26 attribute-map RM-CC-CCLOUD02-A-AGGREGATE
+         aggregate-address 10.236.100.0/22 attribute-map RM-CC-CCLOUD02-AGGREGATE
 
 **NX-OS**:
 ::
@@ -821,9 +943,9 @@ aPOD/vPOD/stPOD/netPOD/bPOD/Transit leafs
    router bgp 65130.1103
       vrf CC-CLOUD02
          address-family ipv4 unicast
-            aggregate-address 130.214.202.0/24 route-map RM-CC-CCLOUD02-AGGREGATE
-            aggregate-address 130.214.215.0/26 route-map RM-CC-CCLOUD02-A-AGGREGATE
-            aggregate-address 10.236.100.0/22 route-map RM-CC-CCLOUD02-AGGREGATE
+            aggregate-address 130.214.202.0/24 attribute-map RM-CC-CCLOUD02-AGGREGATE
+            aggregate-address 130.214.215.0/26 attribute-map RM-CC-CCLOUD02-A-AGGREGATE
+            aggregate-address 10.236.100.0/22 attribute-map RM-CC-CCLOUD02-AGGREGATE
 
 ***********
 Floating IP
@@ -867,7 +989,7 @@ netPOD leafs
 **EOS**:
 ::
 
-   arp vrf CC-CLOUD02 10.47.104.75 fa16.3e6d.d333 
+   arp vrf CC-CLOUD02 10.47.104.75 fa16.3e6d.d333
 
 **NX-OS**:
 ::
@@ -1026,20 +1148,20 @@ Scaling Limits
      - EOS
      - NX-OS
    * - VLANs
-     - 1800
+     - 1.800
      - 
    * - VRFs
-     - 
+     - 128
      -
    * - VLAN Translations (per Port)
-     -
-     - 4000 / 500 (FX3)
+     - n/a
+     - 4.000 / 500 (FX3)
    * - VLAN Translations (per Switch)
-     -
-     - 24000 / 6000 (FX3)
+     - 16.000
+     - 24.000 / 6.000 (FX3)
    * - Static ARP entries
      -
      - 
    * - Static IPv4 Routes
-     -
+     - 30.000
      - 

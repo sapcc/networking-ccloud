@@ -12,8 +12,10 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
+from networking_ccloud.common.config import config_driver
 from networking_ccloud.ml2.agent.common import messages as agent_msg
 from networking_ccloud.tests import base
+from networking_ccloud.tests.common import config_fixtures as cfix
 
 
 class TestSwitchConfigUpdate(base.TestCase):
@@ -50,10 +52,42 @@ class TestSwitchConfigUpdate(base.TestCase):
         self.assertEqual(2, len(iface.vlan_translations))
 
         # bgp
-        bgp = agent_msg.BGP(asn=65000, asn_region=65123)
-        bgp.add_vlan("foo", 23, 42)
-        bgp.add_vlan("foo", 23, 42)
+        bgp = agent_msg.BGP(asn=65000, asn_region=65123, switchgroup_id=1000)
+        bgp.add_vlan(23, 42, 1)
+        bgp.add_vlan(23, 42, 1)
         self.assertEqual(1, len(bgp.vlans))
-        bgp.add_vlan("foo", 13, 37)
-        bgp.add_vlan("bar", 23, 42)
+        bgp.add_vlan(13, 37, 1)
+        bgp.add_vlan(23, 42, 1)
+        bgp.add_vlan(100, 100, 1)
         self.assertEqual(3, len(bgp.vlans))
+
+    def test_rt_validation(self):
+        # int conversion
+        self.assertEqual("65130:10091", agent_msg.validate_route_target("842681173419883"))
+        self.assertEqual("65000.1337:6667", agent_msg.validate_route_target(144957310991145483))
+        self.assertEqual("23.23.23.23:4242", agent_msg.validate_route_target("72645931930423442"))
+
+        # format fixing
+        self.assertEqual("65130.23:1234", agent_msg.validate_route_target("4268359703:1234"))
+        self.assertEqual("123:123", agent_msg.validate_route_target("123:123"))
+
+
+class TestSwitchConfigUpdateList(base.TestCase):
+    def setUp(self):
+        super().setUp()
+        switchgroups = [
+            cfix.make_switchgroup("seagull", availability_zone="qa-de-1a"),
+        ]
+        hg_seagull = cfix.make_metagroup("seagull")
+        self.drv_conf = cfix.make_config(switchgroups=switchgroups, hostgroups=hg_seagull)
+
+    def test_extra_vlans(self):
+        hg_extra = config_driver.Hostgroup(binding_hosts=["seagull-extra"],
+                                           members=[cfix.make_switchport("seagull-sw1", "enp0s10")],
+                                           extra_vlans=[234, 456])
+        scul = agent_msg.SwitchConfigUpdateList(agent_msg.OperationEnum.add, self.drv_conf)
+        scul.add_extra_vlans(hg_extra)
+        print(scul.switch_config_updates)
+        scu = scul.switch_config_updates['seagull-sw1']
+        self.assertEqual(1, len(scu.ifaces))
+        self.assertEqual({234, 456}, set(scu.ifaces[0].trunk_vlans))

@@ -12,15 +12,23 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
+import ipaddress
+import json
+
 from neutron.db import address_scope_db
 from neutron.db import db_base_plugin_v2
 from neutron.db import external_net_db
+from neutron.db.models import address_scope as ascope_models
+from neutron.db.models import external_net as extnet_models
 from neutron.db.models import segment as segment_models
+from neutron.db.models import tag as tag_models
+from neutron.db import models_v2
 from neutron.plugins.ml2 import models as ml2_models
 from neutron.services.segments.db import SegmentDbMixin
 from neutron.services.trunk import models as trunk_models
 from neutron_lib import constants as nl_const
 from neutron_lib.db import api as db_api
+from oslo_config import cfg
 from oslo_log import log as logging
 import sqlalchemy as sa
 
@@ -72,7 +80,9 @@ class CCDbPlugin(db_base_plugin_v2.NeutronDbPluginV2,
         query = query.join(segment_models.NetworkSegment,
                            ml2_models.PortBindingLevel.segment_id == segment_models.NetworkSegment.id)
         query = query.outerjoin(trunk_models.SubPort,
-                                trunk_models.SubPort.port_id == ml2_models.PortBinding.port_id)
+                                sa.and_(trunk_models.SubPort.port_id == ml2_models.PortBinding.port_id,
+                                        ml2_models.PortBinding.vif_type == cc_const.VIF_TYPE_CC_FABRIC))
+
         if level is not None:
             query = query.filter(ml2_models.PortBindingLevel.level == level)
         if driver is not None:
@@ -95,11 +105,9 @@ class CCDbPlugin(db_base_plugin_v2.NeutronDbPluginV2,
 
             hosts = net_hosts.setdefault(network_id, {})
             if host not in hosts:
-                # FIXME: do we want to take the trunk segmentation id from the SubPort table
-                #        or alternatively from the port's binding profile?
                 hosts[host] = dict(segment_id=segment_id, network_id=network_id, segmentation_id=segmentation_id,
                                    physical_network=physnet, driver=driver, level=level,
-                                   trunk_segmentation_id=trunk_seg_id)
+                                   trunk_segmentation_id=trunk_seg_id, is_bgw=False)
             else:
                 if hosts[host]['segment_id'] != segment_id:
                     LOG.error("Host %s found on two segments! seg1 %s net1 %s seg2 %s net2 %s",
@@ -140,6 +148,18 @@ class CCDbPlugin(db_base_plugin_v2.NeutronDbPluginV2,
             return result[0]
 
         return None
+
+    @db_api.retry_if_session_inactive()
+    def get_segments_by_physnet_network_tuples(self, context, physnet_networks, network_type=nl_const.TYPE_VLAN):
+        """Get all segments which have one of the given combinations of physnet and network_id"""
+        query = context.session.query(segment_models.NetworkSegment)
+        query = query.filter_by(network_type=network_type)
+        query = query.filter(sa.tuple_(segment_models.NetworkSegment.physical_network,
+                                       segment_models.NetworkSegment.network_id).in_(physnet_networks))
+        result = {}
+        for segment in query.all():
+            result[(segment.physical_network, segment.network_id)] = segment
+        return result
 
     @db_api.retry_if_session_inactive()
     def get_azs_for_network(self, context, network_id, extra_binding_hosts=None):
@@ -258,3 +278,159 @@ class CCDbPlugin(db_base_plugin_v2.NeutronDbPluginV2,
 
     def remove_bgw_from_network(self, context, network_id, az):
         return self.remove_interconnect_from_network(context, cc_const.DEVICE_TYPE_BGW, network_id, az)
+
+    @db_api.retry_if_session_inactive()
+    def get_gateways_for_networks(self, context, network_ids, external_only=True):
+        fields = [
+            models_v2.Subnet.network_id, models_v2.Subnet.cidr, models_v2.Subnet.gateway_ip,
+            ascope_models.AddressScope.name
+        ]
+        query = context.session.query(*fields)
+        query = query.filter(models_v2.Subnet.network_id.in_(network_ids))
+        query = query.filter(models_v2.Subnet.cidr.isnot(None))
+        query = query.filter(models_v2.Subnet.gateway_ip.isnot(None))
+        query = query.join(models_v2.SubnetPool,
+                           models_v2.Subnet.subnetpool_id == models_v2.SubnetPool.id)
+        query = query.join(ascope_models.AddressScope,
+                           models_v2.SubnetPool.address_scope_id == ascope_models.AddressScope.id)
+
+        if external_only:
+            query = query.join(extnet_models.ExternalNetwork,
+                               models_v2.Subnet.network_id == extnet_models.ExternalNetwork.network_id)
+
+        if not cfg.CONF.ml2_cc_fabric.handle_all_l3_gateways:
+            # only handle tagged networks
+            query = query.join(models_v2.Network,
+                               models_v2.Subnet.network_id == models_v2.Network.id)
+            query = query.join(tag_models.Tag,
+                               models_v2.Network.standard_attr_id == tag_models.Tag.standard_attr_id)
+            query = query.filter(tag_models.Tag.tag == cc_const.L3_GATEWAY_TAG)
+
+        result = {}
+        for entry in query.all():
+            # we assume that the gateway is always in the network (ensured by openstack)
+            # --> we can just piece the gateway together
+            suffix = entry.cidr.split("/")[1]
+            gw_ip = f"{entry.gateway_ip}/{suffix}"
+            result.setdefault(entry.network_id, []).append((gw_ip, entry.name))
+
+        # make sure the results are sorted
+        for gws in result.values():
+            gws.sort(key=lambda entry: int(ipaddress.ip_interface(entry[0]).ip))
+
+        return result
+
+    def get_gateways_for_network(self, context, network_id, *args, **kwargs):
+        net_gws = self.get_gateways_for_networks(context, [network_id], *args, **kwargs)
+        return net_gws.get(network_id)
+
+    def get_subnet_l3_config_for_networks(self, context, network_ids):
+        """Get l3 config (cidrs, az locality) for networks, grouped by subnet pools"""
+        fields = [
+            models_v2.Subnet.subnetpool_id, models_v2.Subnet.cidr,
+            models_v2.Network.availability_zone_hints,
+        ]
+
+        query = context.session.query(*fields)
+
+        # we only get config for external networks, no reason to bother with anything else
+        # (until we maybe have DAPNET support, but that's something for the future)
+        query = query.join(extnet_models.ExternalNetwork,
+                           models_v2.Subnet.network_id == extnet_models.ExternalNetwork.network_id)
+        query = query.join(models_v2.Network,
+                           models_v2.Subnet.network_id == models_v2.Network.id)
+        query = query.filter(models_v2.Subnet.subnetpool_id.isnot(None))
+
+        # FIXME: the number of networks in the request can get quite large. would it maybe make more sense
+        #        to pre-filter these for external networks and then do the in_() to reduce query size?
+        query = query.filter(models_v2.Subnet.network_id.in_(network_ids))
+
+        # group by subnet pool
+        result = {}
+        for snp_id, cidr, net_az_hint in query.all():
+            az_hint = None
+            try:
+                if net_az_hint:
+                    net_az_hint = json.loads(net_az_hint)
+                    if len(net_az_hint) >= 1:
+                        az_hint = net_az_hint[0]
+            except json.JSONDecodeError:
+                # this is just to protect us from botched DB info, normally OpenStack should prevent this
+                pass
+            result.setdefault(snp_id, []).append((cidr, az_hint))
+
+        return result
+
+    def get_subnetpool_details(self, context, subnetpool_ids):
+        # get az from tags
+        fields = [models_v2.SubnetPool.id, tag_models.Tag.tag]
+        query = context.session.query(*fields)
+        query = query.join(tag_models.Tag,
+                           models_v2.SubnetPool.standard_attr_id == tag_models.Tag.standard_attr_id)
+        query = query.filter(models_v2.SubnetPool.id.in_(subnetpool_ids))
+        query = query.filter(tag_models.Tag.tag.like(f'{cc_const.AZ_TAG_PREFIX}%'))
+
+        snp_az = {}
+        for snp_id, tag in query.all():
+            snp_az[snp_id] = tag[len(cc_const.AZ_TAG_PREFIX):]
+
+        # get the subnet pools
+        fields = [
+            models_v2.SubnetPool.id, models_v2.SubnetPoolPrefix.cidr,
+            ascope_models.AddressScope.name,
+        ]
+        query = context.session.query(*fields)
+
+        query = query.join(models_v2.SubnetPoolPrefix,
+                           models_v2.SubnetPool.id == models_v2.SubnetPoolPrefix.subnetpool_id)
+        query = query.join(ascope_models.AddressScope,
+                           models_v2.SubnetPool.address_scope_id == ascope_models.AddressScope.id)
+
+        query = query.filter(models_v2.SubnetPool.id.in_(subnetpool_ids))
+        query = query.order_by(models_v2.SubnetPool.id, models_v2.SubnetPoolPrefix.cidr)
+
+        # sort pools by address scope
+        result = {}
+        for snp_id, cidr, ascope_name in query.all():
+            if snp_id not in result:
+                result[snp_id] = {
+                    "cidrs": [],
+                    "az": snp_az.get(snp_id),
+                    "address_scope": ascope_name,
+                }
+            result[snp_id]['cidrs'].append(cidr)
+
+        return result
+
+    @db_api.retry_if_session_inactive()
+    def get_subport_trunk_vlan_id(self, context, port_id):
+        query = context.session.query(trunk_models.SubPort.segmentation_id)
+        query = query.filter(trunk_models.SubPort.port_id == port_id)
+        subport = query.first()
+        if subport:
+            return subport.segmentation_id
+        return None
+
+    @db_api.retry_if_session_inactive()
+    def get_trunks_with_binding_host(self, context, host):
+        fields = [
+            trunk_models.Trunk.id,
+            trunk_models.Trunk.port_id,
+            ml2_models.PortBinding.host,
+            ml2_models.PortBinding.profile,
+        ]
+        query = context.session.query(*fields)
+        query = query.join(ml2_models.PortBinding,
+                           trunk_models.Trunk.port_id == ml2_models.PortBinding.port_id)
+        query = query.filter(sa.or_(ml2_models.PortBinding.host == host,
+                                    ml2_models.PortBinding.profile.like(f"%{host}%")))
+
+        trunk_ids = []
+        for trunk_id, port_id, port_host, port_profile in query.all():
+            port_profile_host = helper.get_binding_host_from_profile(port_profile, port_id)
+            if port_profile_host:
+                port_host = port_profile_host
+            if port_host != host:
+                continue
+            trunk_ids.append(trunk_id)
+        return trunk_ids

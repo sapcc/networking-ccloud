@@ -21,6 +21,26 @@ LOG = logging.getLogger(__name__)
 cc_fabric_opts = [
     cfg.StrOpt("driver_config_path",
                help="Path to yaml config file"),
+    cfg.BoolOpt("handle_all_l3_gateways", default=True,
+                help="Spawn l3 gateways for all external networks. If this is disabled only networks with "
+                     "the tag 'gateway-host::cc-fabric' will be considered"),
+    cfg.BoolOpt("subnet_subnetpool_az_check_enabled", default=True,
+                help="Check if a subnet's network az hint matches the subnetpool's az hint (tag) on "
+                     "creation of an external subnet"),
+]
+
+cc_fabric_agent_opts = [
+    cfg.IntOpt('persist_config_loop_interval', default=15 * 60,
+               help="Interval between config persists (use -1 to disable)"),
+    cfg.IntOpt('switch_syncloop_interval', default=15 * 60,
+               help="How often to run a full sync of all switches in the fabric (use -1 to disable)"),
+
+    cfg.BoolOpt('prometheus_enabled', default=True,
+                help='Enable internal Prometheus metric exporter'),
+    cfg.IPOpt('prometheus_listen_address', default='0.0.0.0',
+              help='Address to listen on for internal Prometheus metric exporter'),
+    cfg.PortOpt('prometheus_listen_port', default=9090,
+                help='Port to listen on for internal Prometheus metric exporter'),
 ]
 
 # make sure we have ml2 vlan opts available before this option is parsed
@@ -28,3 +48,4 @@ cc_fabric_opts = [
 register_ml2_drivers_vlan_opts()
 
 cfg.CONF.register_opts(cc_fabric_opts, "ml2_cc_fabric")
+cfg.CONF.register_opts(cc_fabric_agent_opts, "ml2_cc_fabric_agent")

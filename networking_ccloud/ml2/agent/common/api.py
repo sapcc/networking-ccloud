@@ -17,7 +17,6 @@ from oslo_log import log as logging
 import oslo_messaging
 
 from networking_ccloud.common import constants as cc_const
-from networking_ccloud.ml2.driver_rpc_api import CCFabricDriverRPCClient
 
 LOG = logging.getLogger(__name__)
 
@@ -29,16 +28,19 @@ class CCFabricSwitchAgentAPI:
     def status(self, context):
         return {"agent_responding": True}
 
-    def ping_back_driver(self, context):
-        rpc_client = CCFabricDriverRPCClient()
-        return {
-            'ml2-driver-status': rpc_client.status(context),
-        }
-
     def get_switch_status(self, context, switches=None):
         raise NotImplementedError
 
     def apply_config_update(self, context, config):
+        raise NotImplementedError
+
+    def get_switch_config(self, context, switches):
+        raise NotImplementedError
+
+    def get_syncloop_status(self, context):
+        raise NotImplementedError
+
+    def set_syncloop_enabled(self, context, enabled):
         raise NotImplementedError
 
 
@@ -64,14 +66,24 @@ class CCFabricSwitchAgentRPCClient:
         cctxt = self.client.prepare()
         return cctxt.call(context, 'status')
 
-    def ping_back_driver(self, context):
-        cctxt = self.client.prepare()
-        return cctxt.call(context, 'ping_back_driver')
-
     def get_switch_status(self, context, switches=None):
         cctxt = self.client.prepare()
         return cctxt.call(context, 'get_switch_status', switches=switches)
 
-    def apply_config_update(self, context, config):
+    def apply_config_update(self, context, config, synchronous=True):
         cctxt = self.client.prepare()
-        return cctxt.call(context, 'apply_config_update', config=[c.dict() for c in config])
+        meth_name = "call" if synchronous else "cast"
+        meth = getattr(cctxt, meth_name)
+        return meth(context, 'apply_config_update', config=[c.dict() for c in config])
+
+    def get_switch_config(self, context, switches=None):
+        cctxt = self.client.prepare()
+        return cctxt.call(context, 'get_switch_config', switches=switches)
+
+    def get_syncloop_status(self, context):
+        cctxt = self.client.prepare()
+        return cctxt.call(context, 'get_syncloop_status')
+
+    def set_syncloop_enabled(self, context, enabled):
+        cctxt = self.client.prepare()
+        return cctxt.call(context, 'set_syncloop_enabled', enabled=enabled)

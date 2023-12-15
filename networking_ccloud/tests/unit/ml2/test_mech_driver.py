@@ -14,23 +14,31 @@
 
 import copy
 from operator import itemgetter
+import re
 from unittest import mock
 
+from neutron.db.models import address_scope as ascope_models
+from neutron.db.models import tag as tag_models
+from neutron.db import models_v2
 from neutron.db import segments_db
 from neutron.plugins.ml2 import driver_context
 from neutron.plugins.ml2 import models as ml2_models
+from neutron.services.trunk import models as trunk_models
 from neutron.tests.common import helpers as neutron_test_helpers
 from neutron.tests.unit.plugins.ml2 import test_plugin
 
+from neutron_lib.api.definitions import external_net as extnet_api
 from neutron_lib.api.definitions import provider_net as pnet
 from neutron_lib.callbacks import events
 from neutron_lib.callbacks import registry
 from neutron_lib import context
 from neutron_lib import exceptions as nl_exc
 from neutron_lib.plugins import directory
+from neutron_lib.services.trunk import constants as trunk_const
 from oslo_config import cfg
 
 from networking_ccloud.common.config import _override_driver_config
+from networking_ccloud.common.config import config_driver
 from networking_ccloud.common.config import config_oslo  # noqa, make sure config opts are there
 from networking_ccloud.common import constants as cc_const
 from networking_ccloud.common import exceptions as cc_exc
@@ -50,18 +58,24 @@ class CCFabricMechanismDriverTestBase(test_plugin.Ml2PluginV2TestCase, base.Port
         self.agent2 = neutron_test_helpers.register_dhcp_agent(host='network-agent-b-1', az='qa-de-1b')
         self.agent3 = neutron_test_helpers.register_dhcp_agent(host='network-agent-c-1', az='qa-de-1c')
 
-    def _test_bind_port(self, fake_host, fake_segments=None, network=None, subnet=None, binding_levels=None):
+    def _test_bind_port(self, fake_host, fake_segments=None, network=None, subnet=None, binding_levels=None,
+                        port_extra={}, port_created_cb=None):
         if network is None:
             with self.network() as network:
-                return self._test_bind_port(fake_host, fake_segments, network, binding_levels=binding_levels)
+                return self._test_bind_port(fake_host, fake_segments, network, binding_levels=binding_levels,
+                                            port_extra=port_extra, port_created_cb=port_created_cb)
         if subnet is None:
             with self.subnet(network=network) as subnet:
-                return self._test_bind_port(fake_host, fake_segments, network, subnet, binding_levels)
+                return self._test_bind_port(fake_host, fake_segments, network, subnet, binding_levels,
+                                            port_extra=port_extra, port_created_cb=port_created_cb)
 
-        with self.port(subnet=subnet) as port:
+        with self.port(subnet=subnet, network=network, **port_extra) as port:
             port['port']['binding:host_id'] = fake_host
             if fake_segments is None:
                 fake_segments = [self._vxlan_segment]
+
+            if port_created_cb:
+                port_created_cb(port=port, subnet=subnet, network=network)
 
             with mock.patch('neutron.plugins.ml2.driver_context.PortContext.binding_levels',
                             new_callable=mock.PropertyMock) as bl_mock:
@@ -101,12 +115,17 @@ class TestCCFabricMechanismDriver(CCFabricMechanismDriverTestBase):
         #   squirrel - used for vlan exhaustion test and non-lacp hosts
         hg_seagull = cfix.make_metagroup("seagull")
         hg_crow = cfix.make_metagroup("crow")
-        hg_cat = cfix.make_hostgroups("cat")
+        hg_cat_direct_multitrunk = config_driver.Hostgroup(binding_hosts=["node101-cat"],
+                                                           members=[config_driver.SwitchPort(switch="cat-sw1",
+                                                                                             name="e1/1/1")],
+                                                           allow_multiple_trunk_ports=True)
+        hg_cat = cfix.make_hostgroups("cat") + [hg_cat_direct_multitrunk]
         hg_squirrel = cfix.make_metagroup("squirrel")
 
         hostgroups = hg_seagull + hg_crow + hg_cat + hg_squirrel
 
-        self.conf_drv = cfix.make_config(switchgroups=switchgroups, hostgroups=hostgroups)
+        extra_vrfs = [{"name": "cc-earth", "address_scopes": ["the-open-sea"], "number": 23}]
+        self.conf_drv = cfix.make_config(switchgroups=switchgroups, hostgroups=hostgroups, extra_vrfs=extra_vrfs)
         _override_driver_config(self.conf_drv)
 
         self.setup_parent()
@@ -116,6 +135,11 @@ class TestCCFabricMechanismDriver(CCFabricMechanismDriverTestBase):
 
         mm = directory.get_plugin().mechanism_manager
         self.mech_driver = mm.mech_drivers[cc_const.CC_DRIVER_NAME].obj
+
+        ctx = context.get_admin_context()
+        with ctx.session.begin(subtransactions=True):
+            self._address_scope = ascope_models.AddressScope(name="the-open-sea", ip_version=4)
+            ctx.session.add(self._address_scope)
 
     def test_bind_port_direct_level_0(self):
         with mock.patch.object(self.mech_driver, 'handle_binding_host_changed') as mock_bhc:
@@ -157,6 +181,84 @@ class TestCCFabricMechanismDriver(CCFabricMechanismDriverTestBase):
             context.continue_binding.assert_not_called()
             mock_bhc.assert_not_called()
             context.set_binding.assert_not_called()
+
+    def test_bind_port_trunking_direct_level_1(self):
+        ctx = context.get_admin_context()
+
+        fake_segments = [{'id': 'fake-segment-id', 'physical_network': 'seagull', 'segmentation_id': 42,
+                          'network_type': 'vlan'}]
+        binding_levels = [{'driver': 'cc-fabric', 'bound_segment': self._vxlan_segment}]
+
+        with mock.patch.object(CCFabricSwitchAgentRPCClient, 'apply_config_update') as mock_acu:
+            def _create_trunk(port, network, **kwargs):
+                with ctx.session.begin():
+                    subport = trunk_models.SubPort(port_id=port['port']['id'], segmentation_type='vlan',
+                                                   segmentation_id=1234)
+                    trunk_port = self._make_port(net_id=network['network']['id'], fmt="json")
+                    trunk = trunk_models.Trunk(name='random-trunk', port_id=trunk_port['port']['id'],
+                                               sub_ports=[subport])
+                    ctx.session.add(trunk)
+            p_context = self._test_bind_port(fake_host='node001-seagull',
+                                             fake_segments=fake_segments, binding_levels=binding_levels,
+                                             port_extra={'device_owner': trunk_const.TRUNK_SUBPORT_OWNER},
+                                             port_created_cb=_create_trunk)
+            p_context.continue_binding.assert_not_called()
+            mock_acu.assert_called()
+            p_context.set_binding.assert_called()
+
+            # check config
+            swcfgs = mock_acu.call_args[0][1]
+            self.assertEqual(2, len(swcfgs))
+            for swcfg in swcfgs:
+                self.assertEqual(agent_msg.OperationEnum.add, swcfg.operation)
+                self.assertTrue(swcfg.switch_name.startswith("seagull-sw"))
+                self.assertEqual((23, 42), (swcfg.vxlan_maps[0].vni, swcfg.vxlan_maps[0].vlan))
+                self.assertIsNone(swcfg.ifaces[0].native_vlan)
+                self.assertEqual([42], swcfg.ifaces[0].trunk_vlans)
+                self.assertEqual(1, len(swcfg.ifaces[0].vlan_translations))
+                self.assertEqual({'inside': 42, 'outside': 1234}, swcfg.ifaces[0].vlan_translations[0].dict())
+
+    def test_bind_port_trunking_without_subport_direct_level_1(self):
+        fake_segments = [{'id': 'fake-segment-id', 'physical_network': 'cat', 'segmentation_id': 42,
+                          'network_type': 'vlan'}]
+        binding_levels = [{'driver': 'cc-fabric', 'bound_segment': self._vxlan_segment}]
+        with mock.patch.object(CCFabricSwitchAgentRPCClient, 'apply_config_update') as mock_acu:
+            context = self._test_bind_port(fake_host='node101-cat',
+                                           fake_segments=fake_segments, binding_levels=binding_levels)
+            context.continue_binding.assert_not_called()
+            mock_acu.assert_called()
+            context.set_binding.assert_called()
+
+            # check config
+            swcfg = mock_acu.call_args[0][1]
+            self.assertEqual(agent_msg.OperationEnum.add, swcfg[0].operation)
+            self.assertEqual(1, len(swcfg))
+            self.assertEqual("cat-sw1", swcfg[0].switch_name)
+            self.assertEqual('add', swcfg[0].operation.name)
+            self.assertIsNone(swcfg[0].ifaces[0].native_vlan)
+            self.assertEqual([42], swcfg[0].ifaces[0].trunk_vlans)
+
+    def test_bind_port_direct_no_native_vlan_if_multitrunk_set(self):
+        fake_segments = [{'id': 'fake-segment-id', 'physical_network': 'seagull', 'segmentation_id': 42,
+                          'network_type': 'vlan'}]
+        binding_levels = [{'driver': 'cc-fabric', 'bound_segment': self._vxlan_segment}]
+        with mock.patch.object(CCFabricSwitchAgentRPCClient, 'apply_config_update') as mock_acu:
+            context = self._test_bind_port(fake_host='node001-seagull',
+                                           fake_segments=fake_segments, binding_levels=binding_levels,
+                                           port_extra={'device_owner': trunk_const.TRUNK_SUBPORT_OWNER})
+            context.continue_binding.assert_not_called()
+            mock_acu.assert_called()
+            context.set_binding.assert_called()
+
+            # check config
+            swcfgs = mock_acu.call_args[0][1]
+            self.assertEqual(2, len(swcfgs))
+            for swcfg in swcfgs:
+                self.assertEqual(agent_msg.OperationEnum.add, swcfg.operation)
+                self.assertTrue(swcfg.switch_name.startswith("seagull-sw"))
+                self.assertEqual((23, 42), (swcfg.vxlan_maps[0].vni, swcfg.vxlan_maps[0].vlan))
+                self.assertEqual(42, swcfg.ifaces[0].native_vlan)
+                self.assertEqual([42], swcfg.ifaces[0].trunk_vlans)
 
     def test_bind_port_hpb(self):
         # only one stage bound
@@ -483,6 +585,277 @@ class TestCCFabricMechanismDriver(CCFabricMechanismDriverTestBase):
                     acp.assert_called()
                     self.assertEqual(res.status_int, 201)
 
+    def test_create_subnet_az_hint_matches(self):
+        net_kwargs = {'arg_list': (extnet_api.EXTERNAL,), extnet_api.EXTERNAL: True}
+        with self.network(**net_kwargs) as network:
+            with self.subnetpool(["1.1.0.0/16", "1.2.0.0/24"], name="foo", tenant_id="foo", admin=True) as snp:
+                with self.subnet(network=network, cidr="1.1.1.0/24", gateway_ip="1.1.1.1",
+                                 subnetpool_id=snp['subnetpool']['id']) as subnet:
+                    self.assertIsNotNone(subnet)
+
+    def test_create_subnet_network_az_snp_no_az_fails(self):
+        net_kwargs = {'arg_list': (extnet_api.EXTERNAL,), extnet_api.EXTERNAL: True}
+        with self.network(availability_zone_hints=["qa-de-1a"], **net_kwargs) as network:
+            with self.subnetpool(["1.1.0.0/16", "1.2.0.0/24"], address_scope_id=self._address_scope['id'], name="foo",
+                                 tenant_id="foo", admin=True) as snp:
+                resp = self._create_subnet(self.fmt, cidr="1.1.1.0/24", gateway_ip="1.1.1.1",
+                                           name="foo",
+                                           net_id=network['network']['id'], tenant_id=network['network']['tenant_id'],
+                                           subnetpool_id=snp['subnetpool']['id'])
+                self.assertEqual(400, resp.status_code)
+                self.assertEqual("SubnetSubnetPoolAZAffinityError", resp.json['NeutronError']['type'])
+                self.assertIsNotNone(re.search(f"network {network['network']['id']} has AZ hint qa-de-1a,.*"
+                                               f"{snp['subnetpool']['id']} has AZ None set, which do not match",
+                                               resp.json['NeutronError']['message']))
+
+    def test_create_subnet_network_no_az_snp_az_fails(self):
+        net_kwargs = {'arg_list': (extnet_api.EXTERNAL,), extnet_api.EXTERNAL: True}
+        with self.network(**net_kwargs) as network:
+            with self.subnetpool(["1.1.0.0/16", "1.2.0.0/24"], address_scope_id=self._address_scope['id'], name="foo",
+                                 tenant_id="foo", admin=True) as snp:
+                ctx = context.get_admin_context()
+                with ctx.session.begin():
+                    snp_db = ctx.session.query(models_v2.SubnetPool).get(snp['subnetpool']['id'])
+                    ctx.session.add(tag_models.Tag(standard_attr_id=snp_db.standard_attr_id,
+                                    tag="availability-zone::qa-de-1a"))
+                resp = self._create_subnet(self.fmt, cidr="1.1.1.0/24", gateway_ip="1.1.1.1",
+                                           name="foo",
+                                           net_id=network['network']['id'], tenant_id=network['network']['tenant_id'],
+                                           subnetpool_id=snp['subnetpool']['id'])
+                self.assertEqual(400, resp.status_code)
+                self.assertEqual("SubnetSubnetPoolAZAffinityError", resp.json['NeutronError']['type'])
+                self.assertIsNotNone(re.search(f"network {network['network']['id']} has AZ hint None,.*"
+                                               f"{snp['subnetpool']['id']} has AZ qa-de-1a set, which do not match",
+                                               resp.json['NeutronError']['message']))
+
+    def test_create_subnet_network_snp_az_hint_works_when_turned_off(self):
+        cfg.CONF.set_override('subnet_subnetpool_az_check_enabled', False, group='ml2_cc_fabric')
+        net_kwargs = {'arg_list': (extnet_api.EXTERNAL,), extnet_api.EXTERNAL: True}
+        with self.network(availability_zone_hints=["qa-de-1a"], **net_kwargs) as network:
+            with self.subnetpool(["1.1.0.0/16", "1.2.0.0/24"], address_scope_id=self._address_scope['id'], name="foo",
+                                 tenant_id="foo", admin=True) as snp:
+                with self.subnet(network=network, cidr="1.1.1.0/24", gateway_ip="1.1.1.1",
+                                 subnetpool_id=snp['subnetpool']['id']) as subnet:
+                    self.assertIsNotNone(subnet)
+
+    def test_bind_port_external_network(self):
+        net_kwargs = {'arg_list': (extnet_api.EXTERNAL,), extnet_api.EXTERNAL: True}
+        with self.network(**net_kwargs) as network:
+            with self.subnetpool(["1.1.0.0/16", "1.2.0.0/24"], address_scope_id=self._address_scope.id, name="foo",
+                                 tenant_id="foo", admin=True) as snp:
+                with self.subnet(network=network, cidr="1.1.1.0/24", gateway_ip="1.1.1.1",
+                                 subnetpool_id=snp['subnetpool']['id']) as subnet:
+                    with mock.patch.object(CCFabricSwitchAgentRPCClient, 'apply_config_update') as mock_acu:
+                        context1 = self._test_bind_port(fake_host='nova-compute-seagull',
+                                                        network=network, subnet=subnet)
+                        context1.continue_binding.assert_called()
+                        mock_acu.assert_called()
+                        swcfgs = mock_acu.call_args[0][1]
+                        for swcfg in swcfgs:
+                            # check for vlan ids
+                            vlan_id = swcfg.bgp.vlans[0].vlan
+                            self.assertEqual([
+                                agent_msg.VlanIface(vlan=vlan_id, vrf="cc-earth", primary_ip="1.1.1.1/24",
+                                                    secondary_ips=[]),
+                            ], swcfg.vlan_ifaces)
+
+                            # check bgp config
+                            self.assertEqual([
+                                agent_msg.BGPVRF(
+                                    name="cc-earth",
+                                    networks=[
+                                        agent_msg.BGPVRFNetwork(network='1.1.1.0/24',
+                                                                az_local=False, ext_announcable=False),
+                                    ],
+                                    aggregates=[
+                                        agent_msg.BGPVRFAggregate(network='1.1.0.0/16', az_local=False),
+                                        agent_msg.BGPVRFAggregate(network='1.2.0.0/24', az_local=False),
+                                    ],
+                                ),
+                            ], swcfg.bgp.vrfs)
+
+    def test_bind_port_external_network_with_ext_announcable(self):
+        net_kwargs = {'arg_list': (extnet_api.EXTERNAL,), extnet_api.EXTERNAL: True}
+        with self.network(**net_kwargs) as network:
+            with self.subnetpool(["1.1.1.0/24", "1.2.0.0/24"], address_scope_id=self._address_scope.id, name="foo",
+                                 tenant_id="foo", admin=True) as snp:
+                with self.subnet(network=network, cidr="1.1.1.0/24", gateway_ip="1.1.1.1",
+                                 subnetpool_id=snp['subnetpool']['id']) as subnet:
+                    with mock.patch.object(CCFabricSwitchAgentRPCClient, 'apply_config_update') as mock_acu:
+                        context1 = self._test_bind_port(fake_host='nova-compute-seagull',
+                                                        network=network, subnet=subnet)
+                        context1.continue_binding.assert_called()
+                        mock_acu.assert_called()
+                        swcfgs = mock_acu.call_args[0][1]
+                        for swcfg in swcfgs:
+                            # check for vlan ids
+                            vlan_id = swcfg.bgp.vlans[0].vlan
+                            self.assertEqual([
+                                agent_msg.VlanIface(vlan=vlan_id, vrf="cc-earth", primary_ip="1.1.1.1/24",
+                                                    secondary_ips=[]),
+                            ], swcfg.vlan_ifaces)
+
+                            # check bgp config
+                            self.assertEqual([
+                                agent_msg.BGPVRF(
+                                    name="cc-earth",
+                                    networks=[
+                                        agent_msg.BGPVRFNetwork(network='1.1.1.0/24',
+                                                                az_local=False, ext_announcable=True),
+                                    ],
+                                    aggregates=[
+                                        agent_msg.BGPVRFAggregate(network='1.2.0.0/24', az_local=False),
+                                    ],
+                                ),
+                            ], swcfg.bgp.vrfs)
+
+    def test_bind_port_external_network_az_local(self):
+        ctx = context.get_admin_context()
+        net_kwargs = {'arg_list': (extnet_api.EXTERNAL,), extnet_api.EXTERNAL: True}
+        with self.network(availability_zone_hints=["qa-de-1a"], **net_kwargs) as network:
+            with self.subnetpool(["1.1.0.0/16", "1.2.0.0/24"], address_scope_id=self._address_scope.id, name="foo",
+                                 tenant_id="foo", admin=True) as snp:
+                with ctx.session.begin():
+                    snp_db = ctx.session.query(models_v2.SubnetPool).get(snp['subnetpool']['id'])
+                    ctx.session.add(tag_models.Tag(standard_attr_id=snp_db.standard_attr_id,
+                                    tag="availability-zone::qa-de-1a"))
+
+                with self.subnet(network=network, cidr="1.1.1.0/24", gateway_ip="1.1.1.1",
+                                 subnetpool_id=snp['subnetpool']['id']) as subnet:
+                    with mock.patch.object(CCFabricSwitchAgentRPCClient, 'apply_config_update') as mock_acu:
+                        context1 = self._test_bind_port(fake_host='nova-compute-seagull',
+                                                        network=network, subnet=subnet)
+                        context1.continue_binding.assert_called()
+                        mock_acu.assert_called()
+                        swcfgs = mock_acu.call_args[0][1]
+                        for swcfg in swcfgs:
+                            # check for vlan ids
+                            vlan_id = swcfg.bgp.vlans[0].vlan
+                            self.assertEqual([
+                                agent_msg.VlanIface(vlan=vlan_id, vrf="cc-earth", primary_ip="1.1.1.1/24",
+                                                    secondary_ips=[]),
+                            ], swcfg.vlan_ifaces)
+
+                            # check bgp config
+                            self.assertEqual([
+                                agent_msg.BGPVRF(
+                                    name="cc-earth",
+                                    networks=[
+                                        agent_msg.BGPVRFNetwork(network='1.1.1.0/24',
+                                                                az_local=True, ext_announcable=False),
+                                    ],
+                                    aggregates=[
+                                        agent_msg.BGPVRFAggregate(network='1.1.0.0/16', az_local=True),
+                                        agent_msg.BGPVRFAggregate(network='1.2.0.0/24', az_local=True),
+                                    ],
+                                ),
+                            ], swcfg.bgp.vrfs)
+
+    def test_delete_port_external_network_segment_not_in_use(self):
+        net_kwargs = {'arg_list': (extnet_api.EXTERNAL,), extnet_api.EXTERNAL: True}
+        with self.network(**net_kwargs) as network:
+            # create existing binding, so we have something to delete
+            seg_0 = {'network_id': network['network']['id'], 'network_type': 'vxlan', 'segmentation_id': 232323}
+            seg_1 = {'network_id': network['network']['id'], 'network_type': 'vlan', 'physical_network': 'seagull',
+                     'segmentation_id': 1000}
+            segments_db.add_network_segment(self.context, network['network']['id'], seg_0)
+            segments_db.add_network_segment(self.context, network['network']['id'], seg_1, 1, True)
+            with self.subnetpool(["1.1.0.0/16", "1.2.0.0/24"], address_scope_id=self._address_scope.id, name="foo",
+                                 tenant_id="foo", admin=True) as snp:
+                with self.subnet(network=network, cidr="1.1.1.0/24", gateway_ip="1.1.1.1",
+                                 subnetpool_id=snp['subnetpool']['id']) as subnet:
+                    with self.port(subnet=subnet) as port:
+                        port['port']['binding:host_id'] = "nova-compute-seagull"
+                        with mock.patch('neutron.plugins.ml2.driver_context.PortContext.binding_levels',
+                                        new_callable=mock.PropertyMock) as bl_mock, \
+                                mock.patch.object(CCFabricSwitchAgentRPCClient, 'apply_config_update') as mock_acu:
+                            bindings = ml2_models.PortBinding()
+                            pc = driver_context.PortContext(self.plugin, self.context, port['port'], network['network'],
+                                                            bindings, binding_levels=None)
+                            bl_mock.return_value = [dict(bound_segment=seg_0), dict(bound_segment=seg_1)]
+
+                            pc.release_dynamic_segment = mock.Mock()
+                            pc._plugin_context = self.context
+                            self.mech_driver.delete_port_postcommit(pc)
+                            pc.release_dynamic_segment.assert_called()
+                            self.assertEqual(seg_1['id'], pc.release_dynamic_segment.call_args[0][0])
+                            mock_acu.assert_called()
+                            swcfgs = mock_acu.call_args[0][1]
+
+                            for swcfg in swcfgs:
+                                self.assertEqual(agent_msg.OperationEnum.remove, swcfg.operation)
+
+                                # check for vlan ids
+                                vlan_id = swcfg.bgp.vlans[0].vlan
+                                self.assertEqual([
+                                    agent_msg.VlanIface(vlan=vlan_id, vrf="cc-earth", primary_ip="1.1.1.1/24",
+                                                        secondary_ips=[]),
+                                ], swcfg.vlan_ifaces)
+
+                                # check bgp config
+                                self.assertEqual([
+                                    agent_msg.BGPVRF(
+                                        name="cc-earth",
+                                        networks=[
+                                            agent_msg.BGPVRFNetwork(network='1.1.1.0/24',
+                                                                    az_local=False, ext_announcable=False),
+                                        ],
+                                        # no aggregates on delete
+                                        aggregates=[],
+                                    ),
+                                ], swcfg.bgp.vrfs)
+
+    def test_on_subnet_crud_network_sync_if_external(self):
+        net_kwargs = {'arg_list': (extnet_api.EXTERNAL,), extnet_api.EXTERNAL: True}
+        with mock.patch.object(self.mech_driver, '_sync_network') as mock_sn, self.network(**net_kwargs) as network:
+            with self.subnet(network=network, cidr="1.1.1.0/24", gateway_ip="1.1.1.1",
+                             allocation_pools=[{'start': '1.1.1.2', 'end': '1.1.1.22'}]) as subnet:
+                subnet_id = subnet['subnet']['id']
+
+                # create call
+                mock_sn.assert_called()
+                mock_sn.reset_mock()
+
+                # modify name, nothing happens
+                req = self.new_update_request('subnets', {'subnet': {'name': 'tern'}}, subnet_id)
+                res = req.get_response(self.api)
+                self.assertEqual(200, res.status_code)
+                mock_sn.assert_not_called()
+
+                # modify gateway, sync happens
+                req = self.new_update_request('subnets', {'subnet': {'gateway_ip': '1.1.1.23'}}, subnet_id)
+                res = req.get_response(self.api)
+                self.assertEqual(200, res.status_code)
+                mock_sn.assert_called()
+                mock_sn.reset_mock()
+
+                # delete
+                req = self.new_delete_request('subnets', subnet_id)
+                res = req.get_response(self.api)
+                self.assertEqual(204, res.status_code)
+                mock_sn.assert_called()
+
+    def test_on_subnet_crud_no_network_sync_if_internal(self):
+        with mock.patch.object(self.mech_driver, '_sync_network') as mock_sn, self.network() as network:
+            with self.subnet(network=network, cidr="1.1.1.0/24", gateway_ip="1.1.1.1",
+                             allocation_pools=[{'start': '1.1.1.2', 'end': '1.1.1.22'}]) as subnet:
+                subnet_id = subnet['subnet']['id']
+
+                # create call
+                mock_sn.assert_not_called()
+
+                # modify gateway, sync happens
+                req = self.new_update_request('subnets', {'subnet': {'gateway_ip': '1.1.1.23'}}, subnet_id)
+                res = req.get_response(self.api)
+                self.assertEqual(200, res.status_code)
+                mock_sn.assert_not_called()
+
+                # delete
+                req = self.new_delete_request('subnets', subnet_id)
+                res = req.get_response(self.api)
+                self.assertEqual(204, res.status_code)
+                mock_sn.assert_not_called()
+
 
 class TestCCFabricMechanismDriverInterconnects(CCFabricMechanismDriverTestBase):
     def setUp(self):
@@ -523,13 +896,19 @@ class TestCCFabricMechanismDriverInterconnects(CCFabricMechanismDriverTestBase):
 
         hostgroups = hg_seagull + hg_crow + hg_cat + interconnects
 
-        self.conf_drv = cfix.make_config(switchgroups=switchgroups, hostgroups=hostgroups)
+        extra_vrfs = [{"name": "cc-earth", "address_scopes": ["the-open-sea"], "number": 23}]
+        self.conf_drv = cfix.make_config(switchgroups=switchgroups, hostgroups=hostgroups, extra_vrfs=extra_vrfs)
         _override_driver_config(self.conf_drv)
 
         self.setup_parent()
         self._register_azs()
         self.plugin = directory.get_plugin()
         self.context = context.get_admin_context()
+
+        ctx = context.get_admin_context()
+        with ctx.session.begin(subtransactions=True):
+            self._address_scope = ascope_models.AddressScope(name="the-open-sea", ip_version=4)
+            ctx.session.add(self._address_scope)
 
         mm = directory.get_plugin().mechanism_manager
         self.mech_driver = mm.mech_drivers[cc_const.CC_DRIVER_NAME].obj
@@ -556,12 +935,50 @@ class TestCCFabricMechanismDriverInterconnects(CCFabricMechanismDriverTestBase):
                 self.assertEqual(1, len(s.vlans), "Only one VLAN config expected")
                 self.assertEqual(1, len(s.bgp.vlans))
                 if s.switch_name.startswith("bgw"):
-                    self.assertTrue(s.bgp.vlans[0].bgw_mode)
-                else:
-                    # transit
-                    for iface in s.ifaces:
-                        self.assertIsNone(iface.native_vlan, "No native vlan for transits")
-                        self.assertEqual(1, len(iface.trunk_vlans))
+                    self.assertTrue(s.bgp.vlans[0].rd_evpn_domain_all)
+                # bgws don't have any interfaces
+                # transits are currently marked as unmanaged by default
+                # --> both don't have any iface config attached
+                self.assertIsNone(s.ifaces)
+
+    def test_transit_bgw_allocated_on_network_create_for_external(self):
+        with mock.patch.object(CCFabricSwitchAgentRPCClient, 'apply_config_update') as mock_acu:
+            net_attrs = {pnet.NETWORK_TYPE: "vxlan", pnet.SEGMENTATION_ID: 23,
+                         extnet_api.EXTERNAL: True}
+            with self.network("net1", arg_list=(pnet.NETWORK_TYPE, pnet.SEGMENTATION_ID, extnet_api.EXTERNAL),
+                              **net_attrs) as network:
+                with self.subnetpool(["1.1.0.0/16", "1.2.0.0/24"], name="foo", tenant_id="foo", admin=True,
+                                     address_scope_id=self._address_scope.id) as snp:
+                    with self.subnet(network=network, cidr="1.1.1.0/24", gateway_ip="1.1.1.1",
+                                     subnetpool_id=snp['subnetpool']['id']):
+                        net = network['network']
+                        mock_acu.assert_called()
+
+                        # check DB
+                        interconnects = self.mech_driver.fabric_plugin.get_interconnects(self.context, net['id'])
+                        self.assertEqual(self._ic_hosts, sorted(d.host for d in interconnects))
+
+                        # check config
+                        swcfg = mock_acu.call_args[0][1]
+                        self.assertEqual(5, len(swcfg))
+                        self.assertEqual(sorted({f"{dev}-sw1" for dev in self._ic_devices}),
+                                         sorted([s.switch_name for s in swcfg]))
+                        for s in swcfg:
+                            self.assertEqual(agent_msg.OperationEnum.add, s.operation)
+                            self.assertEqual(1, len(s.vlans), "Only one VLAN config expected")
+                            self.assertEqual(1, len(s.bgp.vlans))
+                            if s.switch_name.startswith("bgw"):
+                                self.assertTrue(s.bgp.vlans[0].rd_evpn_domain_all)
+                            # bgws don't have any interfaces
+                            # transits are currently marked as unmanaged by default
+                            # --> both don't have any iface config attached
+                            self.assertIsNone(s.ifaces)
+
+                            # cheap l3 check
+                            self.assertIsNotNone(s.vlan_ifaces)
+                            self.assertEqual("cc-earth", s.bgp.vrfs[0].name)
+                            self.assertNotEqual(0, len(s.bgp.vrfs[0].networks))
+                            self.assertNotEqual(0, len(s.bgp.vrfs[0].aggregates))
 
     def test_transit_bgw_deallocation_on_network_delete(self):
         with mock.patch.object(CCFabricSwitchAgentRPCClient, 'apply_config_update') as mock_acu:

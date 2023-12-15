@@ -1,4 +1,4 @@
-# Copyright 2021 SAP SE
+# Copyright 2022 SAP SE
 #
 #    Licensed under the Apache License, Version 2.0 (the "License"); you may
 #    not use this file except in compliance with the License. You may obtain
@@ -14,34 +14,29 @@
 
 from oslo_log import log as logging
 
-from networking_ccloud.common import constants as cc_const
 from networking_ccloud.ml2.agent.common.agent import CCFabricSwitchAgent
-from networking_ccloud.ml2.agent.nxos.switch import NXOSSwitch
+from networking_ccloud.ml2.agent.test.switch import TestSwitch
 
 LOG = logging.getLogger(__name__)
 
 
-class CCFabricNXOSSwitchAgent(CCFabricSwitchAgent):
-    """Switch Agent implementing NXOS functions"""
+class CCFabricTestSwitchAgent(CCFabricSwitchAgent):
+    """Switch Agent for testing purposes only"""
 
     @classmethod
     def get_binary_name(cls):
-        return 'cc-nxos-switch-agent'
+        return 'cc-test-switch-agent'
 
     @classmethod
     def get_agent_topic(cls):
-        return cc_const.SWITCH_AGENT_NXOS_TOPIC
+        return 'cc-fabric-switch-agent-test'
 
     @classmethod
     def get_switch_class(cls):
-        return NXOSSwitch
+        return TestSwitch
 
     def status(self, context):
         status = super().status(context=context)
-        status['nxos'] = "Present"
+        status['eos'] = "Present"
 
         return status
-
-
-def main():
-    CCFabricNXOSSwitchAgent.run_agent_main()

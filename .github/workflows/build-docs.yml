@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - stable/yoga-m3
   pull_request:
 
 jobs:
@@ -23,7 +24,7 @@ jobs:
         run: tox -e docs
       - name: Deploy
         uses: peaceiris/actions-gh-pages@v3
-        if: ${{ github.ref == 'refs/heads/main' }}
+        if: ${{ github.ref == 'refs/heads/stable/yoga-m3' }}
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: ./doc/build/html

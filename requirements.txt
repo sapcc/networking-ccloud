@@ -6,15 +6,18 @@ pbr>=2.0 # Apache-2.0
 
 # general requirements
 oslo.config
-pydantic
+pydantic<2
 pyyaml
 
 # driver requirements
+futurist
+manhole
 neutron-lib
 neutron
+prometheus_client
 
 # arista agent
-pyeapi
+pygnmi==0.8.3
 
 # nxos agent
 requests

@@ -18,14 +18,19 @@ from operator import itemgetter
 
 from neutron.api import extensions
 from neutron.api.v2.resource import Resource
+from neutron.extensions import tagging
 from neutron import policy
 from neutron import wsgi
+from neutron_lib.api.definitions import external_net as extnet_api
 from neutron_lib.api import extensions as api_extensions
 from neutron_lib.api import faults
+from neutron_lib.callbacks import events
+from neutron_lib.callbacks import registry
 from neutron_lib import exceptions as nl_exc
 from neutron_lib.plugins import directory
-from neutron_lib.plugins.ml2 import api as ml2_api
+from oslo_config import cfg
 from oslo_log import log as logging
+from oslo_messaging import RemoteError
 from webob import exc as web_exc
 
 from networking_ccloud.common.config import get_driver_config
@@ -36,7 +41,8 @@ from networking_ccloud.ml2.agent.common import messages as agent_msg
 from networking_ccloud.ml2.plugin import FabricPlugin
 
 
-LOG = logging.getLogger(__name__)
+# we can't use __name__ for this logger, as stevedore only loads us as "fabricoperations"
+LOG = logging.getLogger("networking_ccloud.extensions.fabricoperations")
 
 
 ACCESS_RULE = "context_is_cloud_admin"
@@ -69,11 +75,12 @@ class Fabricoperations(api_extensions.APIExtensionDescriptor):
     api_definition = FabricAPIDefinition
 
     @classmethod
-    def _add_controller(cls, endpoints, ctrl, path, parent=None, path_prefix='cc-fabric'):
+    def _add_controller(cls, endpoints, ctrl, path, parent=None, path_prefix='/cc-fabric'):
         member_actions = getattr(ctrl, "MEMBER_ACTIONS", None)
+        collection_actions = getattr(ctrl, "COLLECTION_ACTIONS", None)
         res = Resource(ctrl, faults.FAULT_MAP)
         ep = extensions.ResourceExtension(path, res, parent=parent, path_prefix=path_prefix,
-                                          member_actions=member_actions)
+                                          member_actions=member_actions, collection_actions=collection_actions)
         endpoints.append(ep)
 
     @classmethod
@@ -87,12 +94,10 @@ class Fabricoperations(api_extensions.APIExtensionDescriptor):
 
         cls._add_controller(endpoints, StatusController(), 'status')
         cls._add_controller(endpoints, ConfigController(), 'config')
-        cls._add_controller(endpoints, AgentCheckController(), 'agent-check')
-
-        # "the new ones"
         cls._add_controller(endpoints, FabricNetworksController(fabric_plugin), 'networks')
         cls._add_controller(endpoints, SwitchesController(fabric_plugin), 'switches')
         cls._add_controller(endpoints, SwitchgroupsController(fabric_plugin), 'switchgroups')
+        cls._add_controller(endpoints, AgentSyncloopController(), 'agent-syncloop')
 
         return endpoints
 
@@ -104,13 +109,15 @@ def register_api_extension():
 
 class FabricNetworksController(wsgi.Controller):
     """Show network info"""
-    MEMBER_ACTIONS = {'diff': 'GET', 'sync': 'PUT', 'ensure_interconnects': 'PUT'}
+    MEMBER_ACTIONS = {'diff': 'GET', 'sync': 'PUT', 'ensure_interconnects': 'PUT', 'os_config': 'GET',
+                      'move_gateway_to_fabric': 'PUT'}
 
     def __init__(self, fabric_plugin):
         super().__init__()
         self.fabric_plugin = fabric_plugin
         self.drv_conf = get_driver_config()
         self.plugin = directory.get_plugin()
+        self.tag_plugin = directory.get_plugin(tagging.TAG_PLUGIN_TYPE)
 
     @check_cloud_admin
     def index(self, request, **kwargs):
@@ -162,8 +169,11 @@ class FabricNetworksController(wsgi.Controller):
         self.plugin.get_network(request.context, network_id)
 
         LOG.info("Got API request for syncing network %s", network_id)
-        scul = self._make_config_from_network(request.context, network_id)
-        config_generated = scul.execute(request.context)
+        scul = self._make_network_config(request.context, network_id)
+        try:
+            config_generated = scul.execute(request.context)
+        except RemoteError as e:
+            raise web_exc.HTTPInternalServerError(f"{e.exc_type} {e.value}")
         return {'sync_sent': config_generated}
 
     @check_cloud_admin
@@ -180,54 +190,75 @@ class FabricNetworksController(wsgi.Controller):
             'error_on_allocation': errors,
         }
 
-    def _make_config_from_network(self, context, network_id):
-        scul = agent_msg.SwitchConfigUpdateList(agent_msg.OperationEnum.add, self.drv_conf)
-
-        top_segments = self.fabric_plugin.get_top_level_vxlan_segments(context, network_ids=[network_id])
-        if network_id not in top_segments:
-            raise web_exc.HTTPInternalServerError(f"Network id {network_id} is missing its top level vxlan segment")
-        vni = top_segments[network_id]['segmentation_id']
-
-        net_segments = self.fabric_plugin.get_hosts_on_segments(context, network_ids=[network_id])
-        if network_id not in net_segments:
-            raise web_exc.HTTPInternalServerError(f"Network id {network_id} has segments attached to it")
-
-        for binding_host, segment_1 in net_segments[network_id].items():
-            vlan = segment_1['segmentation_id']
-            hg_config = self.drv_conf.get_hostgroup_by_host(binding_host)
-            if not hg_config:
-                LOG.error("Got a port binding for binding host %s in network %s, which was not found in config",
-                          binding_host, network_id)
-                continue
-            # FIXME: handle trunk_vlans
-            # FIXME: exclude_hosts
-            # FIXME: direct binding hosts? are they included?
-            scul.add_binding_host_to_config(hg_config, network_id, vni, vlan)
-
-        interconnects = self.fabric_plugin.get_interconnects(context, network_id=network_id)
-        for device in interconnects:
-            device_hg = self.drv_conf.get_hostgroup_by_host(device.host)
-            if not device_hg:
-                LOG.error("Could not bind device type %s host %s in network %s: Host not found in config",
-                          device.device_type, device.host, network_id)
-                continue
-
-            device_physnet = device_hg.get_vlan_pool_name(self.drv_conf)
-            device_segment = self.fabric_plugin.get_segment_by_host(context, network_id, device_physnet)
-            if not device_segment:
-                LOG.error("Missing network segment for interconnect %s physnet %s in network %s",
-                          device.host, device_physnet, network_id)
-                continue
-
-            scul.add_binding_host_to_config(device_hg, network_id, vni, device_segment[ml2_api.SEGMENTATION_ID],
-                                            is_bgw=device.device_type == cc_const.DEVICE_TYPE_BGW)
-
+    def _make_network_config(self, context, network_id):
+        scul = self.fabric_plugin.make_network_config(context, network_id)
+        if scul is None:
+            raise web_exc.HTTPInternalServerError(f"The config for network {network_id} could not be generated "
+                                                  "(see logs)")
         return scul
+
+    @check_cloud_admin
+    def os_config(self, request, **kwargs):
+        network_id = kwargs.pop('id')
+        self.plugin.get_network(request.context, network_id)
+
+        scul = self.fabric_plugin.make_network_config(request.context, network_id)
+        if not scul:
+            return None
+
+        configs = {}
+        for switch_name, scu in scul.switch_config_updates.items():
+            config = scu.dict(exclude_unset=True, exclude_defaults=True)
+            del config['operation']
+            configs[switch_name] = config
+
+        return configs
+
+    @check_cloud_admin
+    def move_gateway_to_fabric(self, request, **kwargs):
+        if cfg.CONF.ml2_cc_fabric.handle_all_l3_gateways:
+            raise web_exc.HTTPConflict("Fabric driver is currently handling all gateways by default, "
+                                       "moving gateways is only available when 'ml2_cc_fabric.handle_all_l3_gateways' "
+                                       "is unset in config")
+        # make sure network exists
+        network_id = kwargs.pop('id')
+        network = self.plugin.get_network(request.context, network_id)
+
+        # ...and that it is an external network
+        if not network[extnet_api.EXTERNAL]:
+            raise web_exc.HTTPConflict(f"Network {network_id} is not an external network")
+
+        # ...and that it is not already on the fabric
+        if cc_const.L3_GATEWAY_TAG in network['tags']:
+            raise web_exc.HTTPConflict(f"Network {network_id} was already moved to fabric")
+
+        LOG.info("Starting move of l3 gateway for network %s to cc-fabric", network_id)
+
+        # send event to other drivers
+        payload_metadata = {
+            'network_id': network_id,
+            'move-to-cc-fabric': True,
+        }
+        payload = events.DBEventPayload(request.context, metadata=payload_metadata)
+        registry.publish(cc_const.CC_NET_GW, events.BEFORE_UPDATE, self, payload=payload)
+
+        # tag network
+        self.tag_plugin.update_tag(request.context, "networks", network_id, cc_const.L3_GATEWAY_TAG)
+
+        # send out network sync for this network (as now the tag has been set)
+        scul = self._make_network_config(request.context, network_id)
+        try:
+            config_generated = scul.execute(request.context)
+        except RemoteError as e:
+            raise web_exc.HTTPInternalServerError(f"{e.exc_type} {e.value}")
+
+        return {'sync_sent': config_generated}
 
 
 class SwitchesController(wsgi.Controller):
     """List and show Switches from config"""
-    MEMBER_ACTIONS = {'diff': 'GET', 'sync': 'PUT', 'sync_infra_networks': 'PUT'}
+    MEMBER_ACTIONS = {'diff': 'GET', 'sync': 'PUT', 'sync_infra_networks': 'PUT', 'config': 'GET', 'os_config': 'GET'}
+    COLLECTION_ACTIONS = {'create_all_portchannels': 'PUT'}
 
     def __init__(self, fabric_plugin):
         super().__init__()
@@ -246,6 +277,27 @@ class SwitchesController(wsgi.Controller):
                     return switch, sg
         else:
             raise nl_exc.ObjectNotFound(id=switch_name)
+
+    @check_cloud_admin
+    def create_all_portchannels(self, request, **kwargs):
+        scul = agent_msg.SwitchConfigUpdateList(agent_msg.OperationEnum.add, self.drv_conf)
+
+        for hg in self.drv_conf.hostgroups:
+            if hg.metagroup:
+                continue
+            for switchport in hg.members:
+                if not switchport.lacp:
+                    continue
+                cfg_switch = scul.get_or_create_switch(switchport.switch)
+                cfg_iface = cfg_switch.get_or_create_iface_from_switchport(switchport)
+                # clear members, as they would cause a reference error on first config
+                cfg_iface.members = []
+
+        try:
+            config_generated = scul.execute(request.context)
+        except RemoteError as e:
+            raise web_exc.HTTPInternalServerError(f"{e.exc_type} {e.value}")
+        return {'sync_sent': config_generated}
 
     @check_cloud_admin
     def index(self, request, **kwargs):
@@ -276,8 +328,11 @@ class SwitchesController(wsgi.Controller):
         switch, sg = self._get_switch(kwargs.pop('id'))
 
         LOG.info("Got API request for syncing switch %s", switch.name)
-        scul = self._make_switch_config(request.context, switch, sg)
-        config_generated = scul.execute(request.context)
+        scul = self.fabric_plugin.make_switch_config(request.context, switch, sg)
+        try:
+            config_generated = scul.execute(request.context)
+        except RemoteError as e:
+            raise web_exc.HTTPInternalServerError(f"{e.exc_type} {e.value}")
         return {'sync_sent': config_generated}
 
     @check_cloud_admin
@@ -286,14 +341,39 @@ class SwitchesController(wsgi.Controller):
 
         LOG.info("Got API request for syncing infra networks of %s", switch.name)
         scul = agent_msg.SwitchConfigUpdateList(agent_msg.OperationEnum.replace, self.drv_conf)
-        for hg in self.drv_conf.get_hostgroups_by_switch(switch.name):
+        for hg in self.drv_conf.get_hostgroups_by_switches([switch.name]):
             if hg.infra_networks:
-                for inet in hg.infra_networks:
-                    # FIXME: exclude hosts
-                    scul.add_binding_host_to_config(hg, inet.name, inet.vni, inet.vlan)
-        self._clean_switches(scul, switch)
-        config_generated = scul.execute(request.context)
+                scul.add_infra_networks_from_hostgroup(hg, sg)
+            if hg.extra_vlans:
+                scul.add_extra_vlans(hg)
+        scul.clean_switches(switch.name)
+        try:
+            config_generated = scul.execute(request.context)
+        except RemoteError as e:
+            raise web_exc.HTTPInternalServerError(f"{e.exc_type} {e.value}")
         return {'sync_sent': config_generated}
+
+    @check_cloud_admin
+    def config(self, request, **kwargs):
+        switch, sg = self._get_switch(kwargs.pop('id'))
+        client = CCFabricSwitchAgentRPCClient.get_for_platform(switch.platform)
+        config = client.get_switch_config(request.context, switches=[switch.name])
+        config = config['switches'].get(switch.name)
+        if config and 'operation' in config.get('config', {}):
+            del config['config']['operation']
+        return config
+
+    @check_cloud_admin
+    def os_config(self, request, **kwargs):
+        switch, sg = self._get_switch(kwargs.pop('id'))
+        config = self.fabric_plugin.make_switch_config(request.context, switch, sg)
+        config = config.switch_config_updates.get(switch.name)
+        if not config:
+            return None
+        config.sort()
+        config = config.dict(exclude_unset=True, exclude_defaults=True)
+        del config['operation']
+        return dict(config=config)
 
     def _add_device_info(self, context, switches):
         for platform, switches in groupby(sorted(switches, key=itemgetter('platform')), key=itemgetter('platform')):
@@ -316,44 +396,11 @@ class SwitchesController(wsgi.Controller):
                 else:
                     switch['device_info'] = {'found': False}
 
-    def _make_switch_config(self, context, switch, sg):
-        scul = agent_msg.SwitchConfigUpdateList(agent_msg.OperationEnum.replace, self.drv_conf)
-
-        # physnets of this switch, which is the switch's switchgroup's vlan pool
-        physnets = [sg.vlan_pool]
-
-        # get all binding hosts bound onto that switch
-        #   + interconnects
-        #   + infra networks
-        net_segments = self.fabric_plugin.get_hosts_on_segments(context, physical_networks=physnets)
-        top_segments = self.fabric_plugin.get_top_level_vxlan_segments(context, network_ids=list(net_segments.keys()))
-        scul.add_segments(net_segments, top_segments)
-
-        for hg in self.drv_conf.get_hostgroups_by_switch(switch.name):
-            if hg.infra_networks:
-                for inet in hg.infra_networks:
-                    # FIXME: exclude hosts
-                    scul.add_binding_host_to_config(hg, inet.name, inet.vni, inet.vlan)
-            if hg.role:
-                # transits/BGWs don't have bindings, so bind all physnets
-                # find all physnets or interconnects scheduled
-                interconnects = self.fabric_plugin.get_interconnects(context, host=hg.binding_hosts[0])
-                scul.add_interconnects(context, self.fabric_plugin, interconnects)
-
-        self._clean_switches(scul, switch)
-        return scul
-
-    def _clean_switches(self, scul, switch):
-        # make sure we only sync that one switch
-        for cfg_switch in list(scul.switch_config_updates):
-            if cfg_switch != switch.name:
-                del scul.switch_config_updates[cfg_switch]
-
 
 class SwitchgroupsController(wsgi.Controller):
     """List and show SwitchGroups from config"""
 
-    MEMBER_ACTIONS = {'diff': 'GET', 'sync': 'PUT', 'sync_infra_networks': 'PUT'}
+    MEMBER_ACTIONS = {'diff': 'GET', 'sync': 'PUT', 'sync_infra_networks': 'PUT', 'config': 'GET', 'os_config': 'GET'}
 
     def __init__(self, fabric_plugin):
         super().__init__()
@@ -385,10 +432,14 @@ class SwitchgroupsController(wsgi.Controller):
     @check_cloud_admin
     def sync(self, request, **kwargs):
         sg = self._get_switchgroup(kwargs.pop('id'))
-        result = {}
-        for member in sg.members:
-            result[member.name] = self._swctrl.sync(request, id=member.name)
-        return result
+
+        LOG.info("Got API request for syncing switchgroup %s (%s)", sg.name, ", ".join(sw.name for sw in sg.members))
+        scul = self.fabric_plugin.make_switchgroup_config(request.context, sg)
+        try:
+            config_generated = scul.execute(request.context)
+        except RemoteError as e:
+            raise web_exc.HTTPInternalServerError(f"{e.exc_type} {e.value}")
+        return {'sync_sent': config_generated}
 
     @check_cloud_admin
     def sync_infra_networks(self, request, **kwargs):
@@ -398,12 +449,66 @@ class SwitchgroupsController(wsgi.Controller):
             result[member.name] = self._swctrl.sync_infra_networks(request, id=member.name)
         return result
 
+    @check_cloud_admin
+    def config(self, request, **kwargs):
+        sg = self._get_switchgroup(kwargs.pop('id'))
+        result = {}
+        for member in sg.members:
+            result[member.name] = self._swctrl.config(request, id=member.name)
+        return result
+
+    @check_cloud_admin
+    def os_config(self, request, **kwargs):
+        sg = self._get_switchgroup(kwargs.pop('id'))
+        result = {}
+        for member in sg.members:
+            result[member.name] = self._swctrl.os_config(request, id=member.name)
+        return result
+
     def _get_switchgroup(self, sg_name):
         for sg in self.drv_conf.switchgroups:
             if sg.name == sg_name:
                 return sg
         else:
             raise nl_exc.ObjectNotFound(id=sg_name)
+
+
+class AgentSyncloopController(wsgi.Controller):
+    def __init__(self):
+        super().__init__()
+        self.drv_conf = get_driver_config()
+
+    @check_cloud_admin
+    def index(self, request, **kwargs):
+        result = {}
+        for platform in self.drv_conf.get_platforms():
+            rpc_client = CCFabricSwitchAgentRPCClient.get_for_platform(platform)
+            result[platform] = rpc_client.get_syncloop_status(request.context)
+
+        return result
+
+    @check_cloud_admin
+    def show(self, request, **kwargs):
+        platform = kwargs.pop("id")
+        if platform not in self.drv_conf.get_platforms():
+            raise nl_exc.ObjectNotFound(id=platform)
+        rpc_client = CCFabricSwitchAgentRPCClient.get_for_platform(platform)
+        return rpc_client.get_syncloop_status(request.context)
+
+    @check_cloud_admin
+    def update(self, request, **kwargs):
+        platform = kwargs.pop("id")
+        if platform not in self.drv_conf.get_platforms():
+            raise nl_exc.ObjectNotFound(id=platform)
+        enabled = request.params.get('enabled')
+        # FIXME: is this right? does put take parameters via url? or is there a different "default" way to do this?
+        if enabled is None or enabled.lower() not in ('0', '1', 'false', 'true'):
+            raise web_exc.HTTPBadRequest("Please provide the parameter 'enabled' with a value of 0/1/true/false")
+        enabled = enabled.lower() in ('1', 'true')
+        rpc_client = CCFabricSwitchAgentRPCClient.get_for_platform(platform)
+        rpc_client.set_syncloop_enabled(request.context, enabled)
+
+        return {'request_sent': True}
 
 
 class StatusController(wsgi.Controller):
@@ -430,26 +535,3 @@ class ConfigController(wsgi.Controller):
     @check_cloud_admin
     def show(self, request, **kwargs):
         return "Soon"
-
-
-class AgentCheckController(wsgi.Controller):
-    def __init__(self):
-        super().__init__()
-        self.drv_conf = get_driver_config()
-
-    @check_cloud_admin
-    def index(self, request, **kwargs):
-        LOG.info("agent-check request %s kwargs %s", request, kwargs)
-        resp = []
-        for platform in self.drv_conf.get_platforms():
-            agent_resp = dict(platform=platform)
-            try:
-                rpc_client = CCFabricSwitchAgentRPCClient.get_for_platform(platform)
-                agent_resp['response'] = rpc_client.ping_back_driver(request.context)
-                agent_resp['success'] = True
-            except Exception as e:
-                agent_resp['response'] = f"{type(e.__class__.__name__)}: {e}"
-                agent_resp['success'] = False
-            resp.append(agent_resp)
-
-        return resp
