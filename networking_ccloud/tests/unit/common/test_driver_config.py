@@ -55,7 +55,8 @@ class TestDriverConfigValidation(base.TestCase):
                                config.SwitchPort, lacp=False, portchannel_id=23, **defargs)
 
     def test_switchport_pc_id_parsing(self):
-        cases = [("Port-Channel23", 23), ("port-channel42", 42), ("port-Channel 1337", 1337)]
+        cases = [
+            ("Port-Channel23", 23), ("port-channel42", 42), ("port-Channel 1337", 1337), ("po23", 23)]
         for pc_name, pc_id in cases:
             sp = config.SwitchPort(switch='sw-seagull', name=pc_name, lacp=True, members=["krakrakra"])
             self.assertEqual(pc_id, sp.portchannel_id, f"Could not parse pc id from {pc_name}")

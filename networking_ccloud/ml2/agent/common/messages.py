@@ -97,6 +97,8 @@ class Vlan(pydantic.BaseModel):
 
 
 class VXLANMapping(pydantic.BaseModel):
+    # FIXME: medidate over if we really need this as a separate config object
+    #        could the VNI just be part of the vlan and that's that?
     vni: pydantic.conint(gt=0, lt=2**24)
     vlan: pydantic.conint(gt=0, lt=4094)
 
