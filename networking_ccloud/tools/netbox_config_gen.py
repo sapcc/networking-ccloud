@@ -816,10 +816,17 @@ class ConfigGenerator:
         if minimum_common_extra_vlans:
             metagroup.extra_vlans = sorted(minimum_common_extra_vlans)
 
-    def generate_config(self):
+    def generate_config(self, use_dummy_credentials: bool = False):
 
-        switch_user = self.args.switch_user
-        switch_password = self.args.switch_password
+        # We cannot instantiate a conf.Switch without user and password, hence remove dummies that we
+        # drop later in the raw dict
+        if use_dummy_credentials:
+            switch_user = 'DUMMY_USER'
+            switch_password = 'DUMMY_PASSWORD'
+        else:
+            switch_user = self.args.switch_user
+            switch_password = self.args.switch_password
+
         address_scope_vrf_maps_path = self.args.address_scope_vrf_map
 
         nb_switches = list(self.switch_filter(self.netbox.dcim.devices.filter(region=self.region, role=self.leaf_role,
@@ -861,6 +868,25 @@ class ConfigGenerator:
 
         return config
 
+    def generate_credentials(self, sgs: List[conf.SwitchGroup],
+                             switch_user: str, switch_password: str) -> conf.DriverCredentials:
+        credentials: Dict[str, conf.Credentials] = {}
+        for sg in sgs:
+            for switch in sg.members:
+                credentials[switch.name] = conf.Credentials(user=switch_user, password=switch_password)
+        return conf.DriverCredentials(switch_credentials=credentials)
+
+    def sanitize_conf_data(self, conf_data: Dict[str, Any]):
+        for sg in conf_data['switchgroups']:
+            for member in sg['members']:
+                del member['user']
+                del member['password']
+
+    def wrap_dict(self, data: Dict[str, Any], path: List[str]) -> Dict[str, Any]:
+        for key in reversed(path):
+            data = {key: data}
+        return data
+
     def do_sanity_check(self, config):
         # FIXME: after config has been created, load it with the normal driver verification stuff
         pass
@@ -876,9 +902,13 @@ def main():
     parser.add_argument("-p", "--switch-password", help="Default switch password")
     parser.add_argument('-V', '--vault-ref',
                         help="Instead of a password, use this vault references, formatted like <path>:<field>")
-
-    parser.add_argument('-w', '--wrap-in', help='Keys under which the generated config should be nested under. '
-                                                'Format should be: <key1>/<key2>...')
+    parser.add_argument('-c', "--credential-file",
+                        help="Path for a file containing switch credentials. If this is set, all credentials will be "
+                             "removed from the generated config and persisted in this file instead.")
+    parser.add_argument('--wrap-config-in', help='Keys under which the generated config should be nested under. '
+                                                 'Format should be: <key1>/<key2>...')
+    parser.add_argument('--wrap-credentials-in', help='Keys under which the generated credentials should be nested. '
+                        'Same as --wrap-config-in')
     parser.add_argument("-a", "--address-scope-vrf-map", type=Path, nargs="+",
                         help="Path to file containing a mapping of address scope names to VRFs. If this is omitted, "
                              "no mapping will be generated.")
@@ -900,25 +930,43 @@ def main():
         else:
             parser.error(f'Invalid vault reference should be <path>:<field>, got {args.vault_ref}')
 
-    if args.wrap_in:
-        m = re.match(r'^(?:\w+/)*(?:\w+)$', args.wrap_in)
+    for wrap_in in [args.wrap_config_in, args.wrap_credentials_in]:
+        if not wrap_in:
+            continue
+        m = re.match(r'^(?:\w+/)*(?:\w+)$', wrap_in)
         if not m:
-            parser.error(f'Invalid format for --wrap-in. Should be like <key1>/<key2>..., got {args.wrap_in}')
+            parser.error('Invalid format for --wrap-config-in or --wrap-credentials-in. '
+                         f'Should be like <key1>/<key2>..., got {wrap_in}')
 
     cfggen = ConfigGenerator(args.region, args, args.verbose)
-    cfg = cfggen.generate_config()
+    cfg = cfggen.generate_config(use_dummy_credentials=bool(args.credential_file))
+
+    if args.credential_file:
+        credentials = cfggen.generate_credentials(cfg.switchgroups, args.switch_user, args.switch_password)
+        cred_data = credentials.dict()
+        if args.wrap_credentials_in:
+            cred_data = cfggen.wrap_dict(cred_data, args.wrap_credentials_in.split('/'))
+        with open(args.credential_file, "w") as f:
+            yaml_data = yaml.safe_dump(cred_data)
+            if args.vault_ref:
+                yaml_data = yaml_data.replace(VAULT_REF_REPLACEMENT,
+                                              f'*vault(path: {vault_path}, field: {vault_field})')  # type: ignore
+            f.write(yaml_data)
 
     if args.output:
         conf_data = cfg.dict(exclude_unset=True, exclude_defaults=True, exclude_none=True)
 
-        if args.wrap_in:
-            for k in reversed(args.wrap_in.split('/')):
-                conf_data = {k: conf_data}
+        if args.credential_file:
+            cfggen.sanitize_conf_data(conf_data)
+
+        if args.wrap_config_in:
+            conf_data = cfggen.wrap_dict(conf_data, args.wrap_config_in.split('/'))
 
         yaml_data = yaml.safe_dump(conf_data)
-        if args.vault_ref:
+        if args.vault_ref and not args.credential_file:
             yaml_data = yaml_data.replace(VAULT_REF_REPLACEMENT,
                                           f'*vault(path: {vault_path}, field: {vault_field})')  # type: ignore
+
         if args.output == '-':
             print(yaml_data)
         else:
