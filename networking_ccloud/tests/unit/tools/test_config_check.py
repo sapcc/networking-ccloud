@@ -12,7 +12,10 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
+import tempfile
 from unittest import mock
+
+import yaml
 
 from networking_ccloud.tests import base
 from networking_ccloud.tools import config_check
@@ -28,3 +31,28 @@ class TestConfigValidationTool(base.TestCase):
         args = ["cc-config-check", "-y", "examples/cc-driver-config.yaml"]
         with mock.patch('sys.argv', args):
             config_check.main()
+
+    def test_validation_with_credentials_file(self):
+        drv_conf = yaml.safe_load(open("examples/cc-driver-config.yaml"))
+        for sg in drv_conf['switchgroups']:
+            for sw in sg['members']:
+                del sw['user']
+                del sw['password']
+
+        creds_conf = {
+            "switch_credentials": {
+                "qa-de-3-sw1111a-bb206": {"user": "cat", "password": "meow"},
+                "qa-de-3-sw1111b-bb206": {"user": "cat", "password": "meow"},
+            },
+        }
+
+        with tempfile.NamedTemporaryFile(mode="w", delete=False) as conf_file, \
+                tempfile.NamedTemporaryFile(mode="w", delete=False) as creds_file:
+            conf_file.write(yaml.dump(drv_conf))
+            conf_file.close()
+            creds_file.write(yaml.dump(creds_conf))
+            creds_file.close()
+
+            args = ["cc-config-check", "-y", conf_file.name, "--credentials-file", creds_file.name]
+            with mock.patch('sys.argv', args):
+                config_check.main()

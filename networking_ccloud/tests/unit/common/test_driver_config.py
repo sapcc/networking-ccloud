@@ -12,7 +12,13 @@
 # License for the specific language governing permissions and limitations
 # under the License.
 
-from networking_ccloud.common.config import _override_driver_config
+import copy
+import json
+import tempfile
+
+from oslo_config import cfg
+
+from networking_ccloud.common.config import _override_driver_config, get_driver_config
 from networking_ccloud.common.config import config_driver as config
 from networking_ccloud.common import constants as cc_const
 from networking_ccloud.tests import base
@@ -292,3 +298,60 @@ class TestDriverConfig(base.TestCase):
         self.assertEqual({2000, 2001, 2002}, sgs[0].get_managed_vlans(drv_conf, with_infra_nets=False))
         self.assertEqual({42, 2000, 2001, 2002}, sgs[0].get_managed_vlans(drv_conf, with_infra_nets=True))
         self.assertEqual({1337, 1338, 1339, 3333}, sgs[1].get_managed_vlans(drv_conf, with_infra_nets=False))
+
+
+class TestDriverConfigLoading(base.TestCase):
+    def setUp(self):
+        super().setUp()
+        switchgroups = [
+            cfix.make_switchgroup("seagull", availability_zone="qa-de-1a"),
+            cfix.make_switchgroup("crow", availability_zone="qa-de-1b"),
+            cfix.make_switchgroup("bgw2", availability_zone="qa-de-1b"),
+        ]
+        hg_seagull = cfix.make_metagroup("seagull")
+        hg_crow = cfix.make_hostgroups("crow")
+        hostgroups = hg_seagull + hg_crow
+
+        self.drv_conf = cfix.make_config(switchgroups=switchgroups, hostgroups=hostgroups)
+        self.drv_conf_data = self.drv_conf.dict(exclude_unset=True, exclude_defaults=True)
+
+    def test_config_loading(self):
+        with tempfile.NamedTemporaryFile(mode="w", delete=False) as f:
+            f.write(json.dumps(self.drv_conf_data))
+            f.close()
+            c = get_driver_config(f.name, cached=False)
+        self.assertEqual(3, len(c.switchgroups))
+
+    def test_credentials_loading(self):
+        drv_conf_data = copy.deepcopy(self.drv_conf_data)
+        for sg in drv_conf_data['switchgroups']:
+            for sw in sg['members']:
+                del sw['user']
+                del sw['password']
+
+        creds = {
+            "seagull-sw1": {"user": "herring-gull", "password": "fries"},
+            "seagull-sw2": {"user": "mew-gull", "password": "fish"},
+            "crow-sw1": {"user": "hooded-crow", "password": "walnut"},
+            "crow-sw2": {"user": "rook", "password": "seeds"},
+            "bgw2-sw1": {"user": "weesiknich", "password": "weesikochnich"},
+            "bgw2-sw2": {"user": "watsolls", "password": "bestimmtwatjutes"},
+        }
+
+        with tempfile.NamedTemporaryFile(mode="w", delete=False) as f, \
+                tempfile.NamedTemporaryFile(mode="w", delete=False) as creds_file:
+            f.write(json.dumps(drv_conf_data))
+            f.close()
+            creds_file.write(json.dumps({"switch_credentials": creds}))
+            creds_file.close()
+            cfg.CONF.set_override('driver_config_credentials_path', creds_file.name, group='ml2_cc_fabric')
+            c = get_driver_config(f.name, cached=False)
+        self.assertEqual(3, len(c.switchgroups))
+
+        checked_switches = set()
+        for sg in c.switchgroups:
+            for sw in sg.members:
+                self.assertEqual(creds[sw.name], dict(user=sw.user, password=sw.password))
+                checked_switches.add(sw.name)
+
+        self.assertEqual(set(creds), checked_switches)

@@ -756,3 +756,12 @@ class DriverConfig(pydantic.BaseModel):
 
     def list_availability_zones(self):
         return sorted(az.name for az in self.global_config.availability_zones)
+
+
+class Credentials(pydantic.BaseModel):
+    user: str
+    password: str
+
+
+class DriverCredentials(pydantic.BaseModel):
+    switch_credentials: Dict[str, Credentials] = None
