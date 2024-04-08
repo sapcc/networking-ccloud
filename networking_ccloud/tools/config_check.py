@@ -28,13 +28,14 @@ def main():
     )
     parser.add_argument("-c", "--config-file")
     parser.add_argument("-y", "--yaml-file")
+    parser.add_argument("--credentials-file")
 
     args = parser.parse_args()
 
     if not (args.config_file or args.yaml_file):
         parser.error("Please specify either a config file or a yaml file to check")
-    elif args.config_file and args.yaml_file:
-        parser.error("Config file and yaml file checks via cli are mutually exclusive")
+    elif args.config_file and (args.yaml_file or args.credentials_file):
+        parser.error("Config file and yaml file / credentials file checks via cli are mutually exclusive")
 
     if args.config_file:
         # register necessary opts by importing our olso config
@@ -48,6 +49,9 @@ def main():
             sys.exit(1)
 
         print("OK - oslo.config could load driver config")
+
+    if args.credentials_file:
+        cfg.CONF.set_override('driver_config_credentials_path', args.credentials_file, group='ml2_cc_fabric')
 
     # load yaml config (either via oslo config (args.yaml_file is None) or via path)
     drv_conf = get_driver_config(path=args.yaml_file, cached=False)

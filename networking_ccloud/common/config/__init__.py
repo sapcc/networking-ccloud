@@ -16,7 +16,7 @@ from neutron_lib.plugins import utils as plugin_utils
 from oslo_config import cfg
 import yaml
 
-from networking_ccloud.common.config.config_driver import DriverConfig
+from networking_ccloud.common.config.config_driver import DriverConfig, DriverCredentials
 from networking_ccloud.common.config import config_oslo  # noqa: F401
 from networking_ccloud.common import exceptions as cc_exc
 _FABRIC_CONF = None
@@ -50,6 +50,18 @@ def get_driver_config(path=None, cached=True):
         # FIXME: error handling
         with open(path) as f:
             conf_data = yaml.safe_load(f)
+
+        if cfg.CONF.ml2_cc_fabric.driver_config_credentials_path:
+            with open(cfg.CONF.ml2_cc_fabric.driver_config_credentials_path) as f:
+                creds_data = yaml.safe_load(f)
+                creds = DriverCredentials.parse_obj(creds_data)
+            if creds.switch_credentials:
+                for sg in conf_data.get('switchgroups', []):
+                    for sw in sg.get('members'):
+                        cred = creds.switch_credentials.get(sw.get('name'))
+                        if cred:
+                            sw['user'] = cred.user
+                            sw['password'] = cred.password
 
         # FIXME: error handling
         _FABRIC_CONF = DriverConfig.parse_obj(conf_data)
