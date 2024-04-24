@@ -206,7 +206,7 @@ class FabricPlugin(CCDbPlugin):
         # add interconnects, infra networks and extra vlans
         for hg in self.drv_conf.get_hostgroups_by_switches([sw.name for sw in sg.members]):
             if hg.infra_networks:
-                scul.add_infra_networks_from_hostgroup(hg, sg)
+                scul.add_infra_networks_from_hostgroup(hg, sg, process_untagged=True)
             if hg.extra_vlans:
                 scul.add_extra_vlans(hg)
             if hg.role:

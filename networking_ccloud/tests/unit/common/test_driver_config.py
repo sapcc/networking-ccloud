@@ -212,6 +212,16 @@ class TestDriverConfigValidation(base.TestCase):
                                config.DriverConfig, switchgroups=[switchgroup], hostgroups=hostgroups,
                                global_config=global_config)
 
+    def test_hostgroup_no_two_untagged_networks(self):
+        sg = cfix.make_switchgroup("seagull", availability_zone="qa-de-1a"),
+        untagged_1 = config.InfraNetwork(name="mew-gull", vlan=23, vni=100023, untagged=True)
+        untagged_2 = config.InfraNetwork(name="herring-gull", vlan=42, vni=100042, untagged=True)
+        regular_1 = config.InfraNetwork(name="sparrow", vlan=2, vni=2)
+        cfix.make_hostgroups(sg, infra_networks=[untagged_1])
+        cfix.make_hostgroups(sg, infra_networks=[untagged_1, regular_1])
+        self.assertRaisesRegex(ValueError, "on same hostgroup: mew-gull and herring-gull",
+                               cfix.make_hostgroups, sg, infra_networks=[untagged_1, regular_1, untagged_2])
+
     def test_duplicate_vrf_name(self):
         vrfs = cfix.make_vrfs(['ROUTE-ME', 'ROUTE-ME'])
 

@@ -227,6 +227,8 @@ class InfraNetwork(pydantic.BaseModel):
     networks: List[str] = []
     aggregates: List[str] = []
     vni: pydantic.conint(gt=0, lt=2**24)
+
+    # note that untagged OpenStack network will take precedence over untagged infra networks
     untagged: bool = False
     dhcp_relays: List[str] = []
 
@@ -325,6 +327,19 @@ class Hostgroup(pydantic.BaseModel):
     def ensure_at_least_one_member(cls, v):
         if len(v) == 0:
             raise ValueError("Hostgroup needs to have at least one member")
+        return v
+
+    @pydantic.validator('infra_networks')
+    def ensure_only_one_untagged_infra_network(cls, v):
+        untagged_net = None
+        for infra_net in v or []:
+            if not infra_net.untagged:
+                continue
+            if untagged_net is None:
+                untagged_net = infra_net.name
+            else:
+                raise ValueError("Found two untagged InfraNetworks on same hostgroup: "
+                                 f"{untagged_net} and {infra_net.name}")
         return v
 
     @pydantic.root_validator()

@@ -343,7 +343,9 @@ class SwitchesController(wsgi.Controller):
         scul = agent_msg.SwitchConfigUpdateList(agent_msg.OperationEnum.replace, self.drv_conf)
         for hg in self.drv_conf.get_hostgroups_by_switches([switch.name]):
             if hg.infra_networks:
-                scul.add_infra_networks_from_hostgroup(hg, sg)
+                # as we don't know if a direct-binding deployment is on a port we cannot
+                # process native vlans here --> needs to be done in a full switch sync
+                scul.add_infra_networks_from_hostgroup(hg, sg, process_untagged=False)
             if hg.extra_vlans:
                 scul.add_extra_vlans(hg)
         scul.clean_switches(switch.name)
