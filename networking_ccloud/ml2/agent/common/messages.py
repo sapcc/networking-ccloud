@@ -377,7 +377,8 @@ class SwitchConfigUpdateList:
         return self.switch_config_updates[switch_name]
 
     def add_binding_host_to_config(self, hg_config, network_id, seg_vni, seg_vlan, trunk_vlan=None,
-                                   keep_mapping=False, exclude_hosts=None, is_bgw=False, gateways=None):
+                                   keep_mapping=False, exclude_hosts=None, is_bgw=False, gateways=None,
+                                   override_native=False):
         """Add binding host config to all required switches
 
         Given a hostgroup config this method generates and adds config to this
@@ -422,10 +423,13 @@ class SwitchConfigUpdateList:
                     iface = scu.get_or_create_iface_from_switchport(sp)
                     iface.add_trunk_vlan(seg_vlan)
 
-                    if hg_config.direct_binding and not hg_config.role:
-                        if trunk_vlan:
-                            iface.add_vlan_translation(seg_vlan, trunk_vlan)
-                        elif not hg_config.allow_multiple_trunk_ports:
+                    if not hg_config.role:
+                        if hg_config.direct_binding:
+                            if trunk_vlan:
+                                iface.add_vlan_translation(seg_vlan, trunk_vlan)
+                            elif not hg_config.allow_multiple_trunk_ports:
+                                iface.native_vlan = seg_vlan
+                        elif not hg_config.direct_binding and override_native:
                             iface.native_vlan = seg_vlan
 
     def add_vrf_bgp_config(self, switch_names, vrf_name, vrf_networks, vrf_aggregates):
@@ -447,7 +451,7 @@ class SwitchConfigUpdateList:
                     aggregates.append(BGPVRFAggregate(network=network, az_local=az_local))
             vrf.add_aggregates(aggregates)
 
-    def add_infra_networks_from_hostgroup(self, hg_config, sg):
+    def add_infra_networks_from_hostgroup(self, hg_config, sg, process_untagged=False):
         for inet in hg_config.infra_networks or []:
             # FIXME: exclude hosts
             gateways = None
@@ -455,7 +459,7 @@ class SwitchConfigUpdateList:
                 gateways = {'vrf': inet.vrf, 'ips': inet.networks}
 
             self.add_binding_host_to_config(hg_config, inet.name, inet.vni, inet.vlan,
-                                            gateways=gateways)
+                                            gateways=gateways, override_native=inet.untagged and process_untagged)
 
             if inet.vrf:
                 # get network address from network (clear host bits); they are az-local and non-ext-announcable
