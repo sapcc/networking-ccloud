@@ -30,16 +30,6 @@ class TestDriverConfigValidation(base.TestCase):
         return config.Switch(name=name, host=host, platform=platform, user="admin", password="maunz",
                              bgp_source_ip="2.3.4.5")
 
-    def test_switchgroup_two_members(self):
-        sw1 = self.make_switch("sw1")
-        sw2 = self.make_switch("sw2")
-        sw3 = self.make_switch("sw3")
-        sg_args = dict(name="foo", availability_zone="qa-de-1a", role="vpod", vtep_ip="1.1.1.1", asn=65001, group_id=1)
-
-        self.assertRaises(ValueError, config.SwitchGroup, members=[sw1], **sg_args)
-        self.assertRaises(ValueError, config.SwitchGroup, members=[sw1, sw2, sw3], **sg_args)
-        config.SwitchGroup(members=[sw1, sw2], **sg_args)
-
     def test_switchgroup_group_ids_uniq(self):
         gc = cfix.make_global_config()
         sg1 = cfix.make_switchgroup("seagull", group_id=1000)

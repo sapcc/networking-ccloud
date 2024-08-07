@@ -140,17 +140,9 @@ class SwitchGroup(pydantic.BaseModel):
 
     @pydantic.validator('members')
     def validate_members(cls, v):
-        # we currently plan with having exactly two members in each group
-        if len(v) != 2:
-            raise ValueError(f"Expected two switch members, got {len(v)} - "
-                             "the code should work with other member counts, but this "
-                             "should be checked beforehand")
-
-        # members need to be of the same platform
-        platforms = set(s.platform for s in v)
-        if len(platforms) > 1:
-            raise ValueError("Switchgroup members need to have the same platform! Found {}"
-                             .format(", ".join(f"{s.name} of type {s.platform}" for s in v)))
+        # we currently plan having two or more members in each group
+        if len(v) < 2:
+            raise ValueError(f"Expected two or more switch members, got {len(v)}")
 
         return v
 
