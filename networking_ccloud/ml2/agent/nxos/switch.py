@@ -139,6 +139,7 @@ class NXOSSwitch(SwitchBase):
                     'vni': vx.vni,
                     'suppressARP': 'enabled',
                     'IngRepl-items': {'proto': 'bgp'},
+                    'multisiteIngRepl': 'enabled' if vx.enable_multisite else 'disabled',
                 }
                 nve_list.append(nve_item)
             config_req.update.append(("/System/eps-items/epId-items/Ep-list[epId=1]/nws-items/vni-items",

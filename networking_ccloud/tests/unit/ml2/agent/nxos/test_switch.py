@@ -45,8 +45,10 @@ class TestNXOSSwitch(base.TestCase):
                 {'fabEncap': 'vlan-1000', 'name': 'nest', 'accEncap': 'vxlan-44444'},
                 {'fabEncap': 'vlan-1001', 'name': 'basket', 'accEncap': 'vxlan-55555'}]}),
             ('/System/eps-items/epId-items/Ep-list[epId=1]/nws-items/vni-items', {'Nw-list': [
-                {'vni': 44444, 'suppressARP': 'enabled', 'IngRepl-items': {'proto': 'bgp'}},
-                {'vni': 55555, 'suppressARP': 'enabled', 'IngRepl-items': {'proto': 'bgp'}}]})]
+                {'vni': 44444, 'suppressARP': 'enabled', 'IngRepl-items': {'proto': 'bgp'},
+                 "multisiteIngRepl": "disabled"},
+                {'vni': 55555, 'suppressARP': 'enabled', 'IngRepl-items': {'proto': 'bgp'},
+                 "multisiteIngRepl": "disabled"}]})]
 
         cu = agent_msg.SwitchConfigUpdate(switch_name="seagull-sw1", operation=agent_msg.OperationEnum.add)
         cu.add_vlan(1000, "nest")
@@ -84,8 +86,10 @@ class TestNXOSSwitch(base.TestCase):
                 {'fabEncap': 'vlan-2000', 'name': 'nest', 'accEncap': 'vxlan-44444'},
                 {'fabEncap': 'vlan-2001', 'name': 'basket', 'accEncap': 'vxlan-55555'}]}),
             ('/System/eps-items/epId-items/Ep-list[epId=1]/nws-items/vni-items', {'Nw-list': [
-                {'vni': 44444, 'suppressARP': 'enabled', 'IngRepl-items': {'proto': 'bgp'}},
-                {'vni': 55555, 'suppressARP': 'enabled', 'IngRepl-items': {'proto': 'bgp'}}]})]
+                {'vni': 44444, 'suppressARP': 'enabled', 'IngRepl-items': {'proto': 'bgp'},
+                 "multisiteIngRepl": "disabled"},
+                {'vni': 55555, 'suppressARP': 'enabled', 'IngRepl-items': {'proto': 'bgp'},
+                 "multisiteIngRepl": "disabled"}]})]
 
         cu = agent_msg.SwitchConfigUpdate(switch_name="seagull-sw1", operation=agent_msg.OperationEnum.replace)
         cu.add_vlan(2000, "nest")
