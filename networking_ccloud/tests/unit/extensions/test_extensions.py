@@ -382,7 +382,7 @@ class TestNetworkExtension(test_segment.SegmentTestCase, base.PortBindingHelper,
             swcfgs = mock_acu.call_args[0][1]
             self.assertEqual({"transit1-sw1"}, set(s.switch_name for s in swcfgs))
             for swcfg in swcfgs:
-                self.assertEqual([{'vni': 232323, 'vlan': 111}], swcfg.vxlan_maps)
+                self.assertEqual([{'vni': 232323, 'vlan': 111, 'enable_multisite': False}], swcfg.vxlan_maps)
                 self.assertIsNone(swcfg.ifaces)
 
     def test_switch_get_config(self):

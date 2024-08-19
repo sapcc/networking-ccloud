@@ -99,6 +99,7 @@ class Vlan(pydantic.BaseModel):
 class VXLANMapping(pydantic.BaseModel):
     vni: pydantic.conint(gt=0, lt=2**24)
     vlan: pydantic.conint(gt=0, lt=4094)
+    enable_multisite: bool = False
 
     def __lt__(self, other):
         return self.vlan < other.vlan
@@ -196,6 +197,7 @@ class BGP(pydantic.BaseModel):
         rt = f"{az_num}:{vni}"
         bvargs = dict(rt_imports=[rt], rt_exports=[rt])
         if bgw_mode:
+            # eos-specific bgw config
             bgw_rt = f"{self.asn_region}:{vni}"
             bvargs['rd_evpn_domain_all'] = True
             bvargs['rt_imports_evpn'] = [bgw_rt]
@@ -315,13 +317,13 @@ class SwitchConfigUpdate(pydantic.BaseModel):
                 return
         self.vlans.append(Vlan(vlan=vlan, name=name))
 
-    def add_vxlan_map(self, vni, vlan):
+    def add_vxlan_map(self, vni, vlan, bgw_mode=False):
         if self.vxlan_maps is None:
             self.vxlan_maps = []
         for vm in self.vxlan_maps:
             if vm.vni == vni and vm.vlan == vlan:
                 return
-        self.vxlan_maps.append(VXLANMapping(vni=vni, vlan=vlan))
+        self.vxlan_maps.append(VXLANMapping(vni=vni, vlan=vlan, enable_multisite=bgw_mode))
 
     def add_iface(self, iface):
         if self.ifaces is None:
@@ -408,7 +410,7 @@ class SwitchConfigUpdateList:
             # vlan-vxlan mapping
             if seg_vni and (add or not keep_mapping):
                 scu.add_vlan(seg_vlan, network_id)
-                scu.add_vxlan_map(seg_vni, seg_vlan)
+                scu.add_vxlan_map(seg_vni, seg_vlan, bgw_mode=is_bgw)
 
             # gateways
             if gateways:
