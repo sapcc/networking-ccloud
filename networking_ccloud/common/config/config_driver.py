@@ -206,7 +206,7 @@ class SwitchPort(pydantic.BaseModel):
     @pydantic.root_validator
     def set_portchannel_id_for_lacp(cls, values):
         if values['lacp'] and not values['portchannel_id']:
-            m = re.match(r"^port-channel\s*(?P<pc_id>\d+)$", values['name'].lower())
+            m = re.match(r"^(?:port-channel|po)\s*(?P<pc_id>\d+)$", values['name'].lower())
             if not m:
                 raise ValueError(f"No pc id given for {values['switch']}/{values['name']} and could not parse one "
                                  f"from interface name")
