@@ -29,6 +29,13 @@ LOG = logging.getLogger(__name__)
 # https://github.com/openconfig/reference/blob/1cf43d2146f9ba70abb7f04f6b0f6eaa504cef05/rpc/gnmi/gnmi-specification.md
 
 
+def guess_asn_format(asn):
+    def _num_bytes(n):
+        return 4 if n >> 16 else 2
+    asval, nnval = asn.split(":", 2)
+    return f"as{_num_bytes(int(asval))}-nn{_num_bytes(int(nnval))}"
+
+
 class NXOSGNMIPaths:
     IFACE_VTRANS_ITEM = ("System/intf-items/phys-items/PhysIf-list[id={iface}]/vlanmapping-items/"
                          "vlantranslatetable-items/vlan-items/VlanTranslateEntry-list[vlanid=vlan-{inside}]"
@@ -124,7 +131,11 @@ class NXOSSwitch(SwitchBase):
                 # create the vlan
                 vlan = {
                     'fabEncap': f"vlan-{v.vlan}",
-                    'name': v.name,
+                    # FIXME: name will almost always be uuids, by default we can do 32 chars
+                    #        with "system vlan long-names" we can do more, but for the sake of sanity
+                    #        and debugging gnmi at the moment (Which seems to behave odlyt,
+                    #        it's really weird) we'll just truncate them while devving around
+                    'name': v.name.replace("-", "") if len(v.name) == 36 else v.name,
                 }
                 if v.vlan in vlan_vxmaps:
                     vni = vlan_vxmaps[v.vlan]
@@ -139,7 +150,7 @@ class NXOSSwitch(SwitchBase):
                     'vni': vx.vni,
                     'suppressARP': 'enabled',
                     'IngRepl-items': {'proto': 'bgp'},
-                    'multisiteIngRepl': 'enabled' if vx.enable_multisite else 'disabled',
+                    'multisiteIngRepl': 'enable' if vx.enable_multisite else 'disable',
                 }
                 nve_list.append(nve_item)
             config_req.update.append(("/System/eps-items/epId-items/Ep-list[epId=1]/nws-items/vni-items",
@@ -209,6 +220,7 @@ class NXOSSwitch(SwitchBase):
         if operation in (Op.add, Op.replace):
             # FIXME: implement replace
             #        ...we can't implement a proper replace yet, as we don't know which vnis we manage
+            #        NOTE: replace path could be "/System/evpn-items/bdevi-items/BDEvi-list[encap=vxlan-10091]"
             # self.api.get(path=["/System/evpn-items/bdevi-items/BDEvi-list/encap"], single=False)
             bdevis = []
             for bgp_vlan in bgp.vlans:
@@ -220,7 +232,8 @@ class NXOSSwitch(SwitchBase):
                     'encap': f"vxlan-{vni}",
                     # FIXME: why do the oper value differ from the normal rd in config?
                     # 'rd': f"rd:as2-nn4:{bgp_vlan.rd}",
-                    'rd': f"rd:as2-nn2:{bgp_vlan.rd}",
+                    # 'rd': f"rd:as2-nn2:{bgp_vlan.rd}",
+                    'rd': 'rd:unknown:0:0',  # configure "rd auto"
                 }
 
                 rts = []
@@ -233,7 +246,10 @@ class NXOSSwitch(SwitchBase):
                     for rt in rt_data:
                         # FIXME: why do the oper value differ from the normal rd in config?
                         # rt_list.append({'rtt': f"route-target:as2-nn4:{rt}"})
-                        rt_list.append({'rtt': f"route-target:as2-nn2:{rt}"})
+                        # XXX: HACK FIXME to make it easier, I'm directly putting this hack into here
+                        # uniffyyyyyyyyyyyyyyyy!!!!!!!!!!
+                        rt = f"23:{rt.split(':')[1]}"
+                        rt_list.append({'rtt': f"route-target:{guess_asn_format(rt)}:{rt}"})
 
                     rts_entry = {
                         'type': action,
@@ -243,14 +259,19 @@ class NXOSSwitch(SwitchBase):
 
                 if rts:
                     req['rttp-items'] = {'RttP-list': rts}
+
+                # for a direct replace
+                config_req.replace.append((f"/System/evpn-items/bdevi-items/BDEvi-list[encap=vxlan-{vni}]", req))
+
                 bdevis.append(req)
-            config_req.update.append(('/System/evpn-items/bdevi-items', {'BDEvi-list': bdevis}))
+            # commented out as we're doing a replace
+            # config_req.update.append(('/System/evpn-items/bdevi-items', {'BDEvi-list': bdevis}))
         else:
             for bgp_vlan in bgp.vlans:
                 if bgp_vlan.vlan not in vlan_vxmaps:
                     continue
                 vni = vlan_vxmaps[bgp_vlan.vlan]
-                delete_req = f"/System/evpn-items/bdevi-items/BDEvi-list[encap={vni}]"
+                delete_req = f"/System/evpn-items/bdevi-items/BDEvi-list[encap=vxlan-{vni}]"
                 config_req.delete.append(delete_req)
 
     def get_ifaces_config(self):
@@ -315,8 +336,15 @@ class NXOSSwitch(SwitchBase):
                 ifdata = ifaces.setdefault(m.group('ifname'), {})
                 ifdata['trunks'] = self._explode_vlan_list(trunks['val'])
 
-        data = self.api.get(path=["/System/intf-items/*/*/vlanmapping-items"], unpack=False)
-        for vtrans in data['notification'][0]['update']:
+        try:
+            data = self.api.get(path=["/System/intf-items/*/*/vlanmapping-items"], unpack=False)
+            vtrans_data = data['notification'][0]['update']
+        except Exception as e:
+            # FIXME: we should not catch exception but something relevant
+            LOG.warning("No translations found on switch, skipping, exception was %s %s", e, e.__class__.__name__)
+            vtrans_data = []
+
+        for vtrans in vtrans_data:
             if 'vlantranslatetable-items' not in vtrans['val']:
                 continue
             if m := self.IFDN_RE.match(vtrans['path']):
@@ -366,7 +394,8 @@ class NXOSSwitch(SwitchBase):
                             device_vlans_vtrans[iface.name].get('trunks'):
                         device_trunks = device_vlans_vtrans[iface.name]['trunks']
                         vlans_to_remove = (set(device_trunks) & self.managed_vlans) - set(iface.trunk_vlans)
-                        iface_config['trunkVlans'].append(f"-{','.join(map(str, vlans_to_remove))}")
+                        if vlans_to_remove:
+                            iface_config['trunkVlans'].append(f"-{','.join(map(str, vlans_to_remove))}")
 
                 if iface.vlan_translations:
                     vt_entries = []
@@ -469,7 +498,8 @@ class NXOSSwitch(SwitchBase):
     def _get_config(self) -> agent_msg.SwitchConfigUpdate:
         config = agent_msg.SwitchConfigUpdate(switch_name=self.name, operation=Op.add)
         config.vlans, config.vxlan_maps = self.get_vlan_and_vxmap_config()
-        config.bgp = self.get_bgp_config()
+        # FIXME: still broken https://sentry.qa-de-1.cloud.sap/monsoon/neutron/issues/1801879/?query=is%3Aunresolved  # noqa
+        # config.bgp = self.get_bgp_config(config.vxlan_maps)
         config.ifaces = self.get_ifaces_config()
         # FIXME: vlan ifaces
         return config
@@ -481,9 +511,18 @@ class NXOSSwitch(SwitchBase):
 
         config_req = self._make_config_from_update(config)
         try:
-            LOG.info("Applying config update %s",
-                     dict(delete=config_req.delete, replace=config_req.replace, update=config_req.update))
-            self.api.set(delete=config_req.delete, replace=config_req.replace, update=config_req.update)
+            run_separate = True
+            if run_separate:
+                for op in "delete", "replace", "update":
+                    upd = dict(delete=[], replace=[], update=[])
+                    for entry in getattr(config_req, op):
+                        LOG.debug("Applying config op %s with %s", op, entry)
+                        upd[op] = [entry]
+                        self.api.set(**upd)
+            else:
+                LOG.debug("Applying config update %s",
+                          dict(delete=config_req.delete, replace=config_req.replace, update=config_req.update))
+                self.api.set(delete=config_req.delete, replace=config_req.replace, update=config_req.update)
             self.metric_apply_config_update_success.labels(**self._def_labels).inc()
         except Exception as e:
             self.metric_apply_config_update_error.labels(exc_class=e.__class__.__name__, **self._def_labels).inc()
