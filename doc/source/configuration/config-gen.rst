@@ -4,7 +4,7 @@ Netbox Config Generator
 
 
 Netbox Config Generator will fetch all devices that belong to below Netbox roles. It will then fetch all interfaces and create hostgroups from clusters that are connected to the interfaces.
-The driver configuration is generated based on input from external tooling (Netbox). 
+The driver configuration is generated based on input from external tooling (Netbox).
 
 A reference how the Config Generator expects Netbox objects can be found in `netbox_model.py`_
 
@@ -13,7 +13,7 @@ Run
 
 The config generator is available under :code:`networking_ccloud/tools/netbox_config_gen.py` using the entrypoint :code:`cc-netbox-config-gen`.
 
-It does support nesting the configuration under certain YAML keys if the config need to be picked up by helm. Use the :code:`--wrap-in` parameter for that.
+It does support nesting the configuration under certain YAML keys if the config need to be picked up by helm. Use the :code:`--wrap-config-in` parameter for that.
 
 Vault references can also be injected instead of plain-text passwords using the :code:`--vault-ref` parameter.
 
@@ -25,7 +25,7 @@ Example
 
 ::
 
-   cc-netbox-config-gen -r $OS_REGION_NAME -u MYAPIUSER -V $OS_REGION_NAME/my/vault/path -a $PYCCLOUD_SECRETS_REPO_PATH/global/values/neutron-networking-global.yaml -w cc_fabric/driver_config -o $PATH_TO_HELM_VALUES/$OS_REGION_NAME/values/neutron-cc-fabric.yaml
+   cc-netbox-config-gen -r $OS_REGION_NAME -u MYAPIUSER -V $OS_REGION_NAME/my/vault/path -a $PYCCLOUD_SECRETS_REPO_PATH/global/values/neutron-networking-global.yaml --wrap-config-in cc_fabric/driver_config -o $PATH_TO_HELM_VALUES/$OS_REGION_NAME/values/neutron-cc-fabric.yaml
 
 
 
@@ -47,7 +47,7 @@ Leaf pair hostnames must be compliant with the following regex::
     ^(?P<region>\w{2}-\w{2}-\d)-sw(?P<az>\d)(?P<pod>\d)(?P<switchgroup>\d{2})(?P<leaf>[ab])(?:-(?P<role>[a-z]+(?P<bb_no>[0-9]+)?))$
 
 Or in a more readable way::
-    
+
     [region]-sw[az][pod][switchgroup][leaf][role]
     i.e.: eu-de-1-sw4223a-bb147
 
@@ -67,7 +67,7 @@ Each leaf pair (MLAG/VPC) requires a fabric unique 4 digit ID ([az][pod][switchg
     - a 2 digit number uniquely identifying the leaf pair in a region
   * - leaf
     - a=fist leaf in pair, b=second leaf in pair
-  * - role 
+  * - role
     - any sequence of lower case characters followed by digits as a pod identifier, such as bb147. The pod identifier is optional.
 
 Each leaf pair (MLAG/VPC) requires a fabric unique 4 digit ID :code:`(f{az}{pod}{switchgroup})` with an a/b identifier for leaf in group per leaf pair used to generate device specific configuration settings (ASN etc.)
@@ -89,7 +89,7 @@ Any leaf connecting any CC platform equipment must be tagged with the applicable
 
 CND EVPN Leaf Types:
 .....................
-The driver needs to identify certain non-pod leaf pairs to 
+The driver needs to identify certain non-pod leaf pairs to
 push tenant configuration:
 
 * **CND-NET-EVPN-BL**: Border leaf connecting to core routing, required for subnet pool summarization
@@ -142,7 +142,7 @@ If an Infrastructure Network shall be layer 3 enabled, the following conditions 
 * The *VLAN* object must have a prefix associated,
 * the prefix must have the correct VRF assigned,
 * the prefix should be subnetted from the pod-specific management supernet if applicable,
-* the prefix must have a parent prefix associated which will be added as an BGP aggregate to the config. 
+* the prefix must have a parent prefix associated which will be added as an BGP aggregate to the config.
 
 In addition, we expect all layer 3 Infrastructure Networks to be anycast-gateway routed. As these anycast gateways live on the TOR leaf, those must be moddeled as follows:
 
@@ -153,7 +153,7 @@ In addition, we expect all layer 3 Infrastructure Networks to be anycast-gateway
 
 DHCP Relay (not implemented so far)
 ....................................
-For infra networks requiring a DHCP relay one or more Netbox *Tags* 
+For infra networks requiring a DHCP relay one or more Netbox *Tags*
 must be added to the *VLAN* object, one for each DHCP relay server
 in the form::
 
@@ -172,7 +172,7 @@ Whenever an extra VLAN is required, it needs to be modelled in Netbox in order t
 * There must be a *VLAN* object existing,
 * the *VLAN* must be assigned to the logical port in *tagged* mode,
 * the *VLAN* or its associated VLAN group must have the :code:`cc-net-driver-extra-vlan`.
-  
+
 As our Netbox version currently does not yet support tags on VLAN groups, we additionally consider the following VLANs as extra VLANs as long as Netbox is not upgraded:
 
 * *VLAN group* name starts with region and ends with :code:`cp`
@@ -246,7 +246,7 @@ The driver will assemble all lags that are known to it in its config. Within CCl
 which is not policy enforced at the moment. However the netbox modeller will generate LAG-ids based on this.
 
 LAGs can either have ports only on one leaf or be spanned across two leaves (MLAG/vPC).
-The following convention will be used to distinguish the two 
+The following convention will be used to distinguish the two
 variants::
 
     port-channel100 defined on device 1110a only: a regular port-channel will be configured
