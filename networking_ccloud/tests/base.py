@@ -19,6 +19,7 @@ import json
 from neutron.common import config
 from neutron.plugins.ml2 import models as ml2_models
 from neutron_lib import context
+from neutron_lib.db import api as db_api
 from oslo_config import cfg, fixture as config_fixture
 from oslotest import base
 
@@ -49,7 +50,7 @@ class PortBindingHelper:
         if not port:
             port = self._make_port('json', segments[0][0]['network_id'], host=host, **kwargs)['port']
         ctx = context.get_admin_context()
-        with ctx.session.begin():
+        with db_api.CONTEXT_WRITER.using(ctx):
             pbinding = ml2_models.PortBinding(port_id=port['id'], host=host, profile=profile, vif_type=vif_type)
             ctx.session.add(pbinding)
 

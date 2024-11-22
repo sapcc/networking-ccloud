@@ -12,10 +12,11 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 from neutron.db import models_v2
+from neutron_lib.db import api as db_api
 
 
 def fix_net_mtu(ctx, network, mtu=1500):
-    with ctx.session.begin():
+    with db_api.CONTEXT_WRITER.using(ctx):
         net = ctx.session.query(models_v2.Network).get(network['id'])
         net.mtu = mtu
         ctx.session.add(net)
