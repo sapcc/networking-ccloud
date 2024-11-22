@@ -24,6 +24,7 @@ from neutron.services.tag import tag_plugin
 from neutron.services.trunk import models as trunk_models
 from neutron.tests.unit.extensions import test_segment
 from neutron_lib import context
+from neutron_lib.db import api as db_api
 from neutron_lib.plugins import directory
 from oslo_config import cfg
 
@@ -117,7 +118,7 @@ class TestDBPluginNetworkSyncData(test_segment.SegmentTestCase, base.PortBinding
         fix_net_mtu(ctx, self._net_c)
         self._port_c_1 = self._make_port('json', self._net_c['id'])['port']  # bindings don't matter
         self._port_c_2 = self._make_port('json', self._net_c['id'])['port']  # bindings don't matter
-        with ctx.session.begin():
+        with db_api.CONTEXT_WRITER.using(ctx):
             subport = trunk_models.SubPort(port_id=self._port_b_5['id'], segmentation_type='vlan', segmentation_id=1000)
             trunk = trunk_models.Trunk(name='random-trunk', port_id=self._port_c_1['id'], sub_ports=[subport])
             ctx.session.add(trunk)
@@ -133,7 +134,7 @@ class TestDBPluginNetworkSyncData(test_segment.SegmentTestCase, base.PortBinding
         self._subnetpool_reg = self._make_subnetpool("json", prefixes=["1.1.0.0/16", "2.2.0.0/16"], tenant_id="foo",
                                                      name="sp")['subnetpool']
         self._net_c = self._make_network(name="c", admin_state_up=True, fmt='json')['network']
-        with ctx.session.begin():
+        with db_api.CONTEXT_WRITER.using(ctx):
             ctx.session.add(extnet_models.ExternalNetwork(network_id=self._net_c['id']))
 
         self._subnet_c_1 = self._make_subnet("json", {"network": self._net_c}, "1.1.1.1", "1.1.1.0/24",
@@ -146,7 +147,7 @@ class TestDBPluginNetworkSyncData(test_segment.SegmentTestCase, base.PortBinding
                                                     name="sp")['subnetpool']
 
         self._net_d = self._make_network(name="d", admin_state_up=True, fmt='json')['network']
-        with ctx.session.begin():
+        with db_api.CONTEXT_WRITER.using(ctx):
             net = ctx.session.query(models_v2.Network).get(self._net_d['id'])
             net.availability_zone_hints = '["qa-de-1d"]'
             ctx.session.add(extnet_models.ExternalNetwork(network_id=self._net_d['id']))
@@ -165,7 +166,7 @@ class TestDBPluginNetworkSyncData(test_segment.SegmentTestCase, base.PortBinding
                                              subnetpool_id=self._subnetpool_az['id'])['subnet']
 
         # fix segment index
-        with ctx.session.begin():
+        with db_api.CONTEXT_WRITER.using(ctx):
             objs = ctx.session.query(segment_models.NetworkSegment).filter_by(physical_network=None,
                                                                               network_type='vxlan')
             objs.update({'segment_index': 0})
@@ -328,7 +329,7 @@ class TestDBPluginNetworkSyncData(test_segment.SegmentTestCase, base.PortBinding
         with self.port() as trunkport, self.port() as subport:
             self.assertIsNone(self._db.get_subport_trunk_vlan_id(ctx, subport['port']['id']))
 
-            with ctx.session.begin():
+            with db_api.CONTEXT_WRITER.using(ctx):
                 subport = trunk_models.SubPort(port_id=subport['port']['id'], segmentation_type='vlan',
                                                segmentation_id=1000)
                 trunk = trunk_models.Trunk(name='random-trunk', port_id=trunkport['port']['id'], sub_ports=[subport])
@@ -340,7 +341,7 @@ class TestDBPluginNetworkSyncData(test_segment.SegmentTestCase, base.PortBinding
     def test_get_trunks_with_binding_host(self):
         ctx = context.get_admin_context()
         with self.port() as trunkport1, self.port() as trunkport2:
-            with ctx.session.begin():
+            with db_api.CONTEXT_WRITER.using(ctx):
                 trunk1 = trunk_models.Trunk(name='random-trunk1', port_id=trunkport1['port']['id'], sub_ports=[])
                 binding1 = (ctx.session.query(ml2_models.PortBinding)
                             .filter(ml2_models.PortBinding.port_id == trunkport1['port']['id']).first())

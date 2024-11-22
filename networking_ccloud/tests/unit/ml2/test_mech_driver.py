@@ -32,6 +32,7 @@ from neutron_lib.api.definitions import provider_net as pnet
 from neutron_lib.callbacks import events
 from neutron_lib.callbacks import registry
 from neutron_lib import context
+from neutron_lib.db import api as db_api
 from neutron_lib import exceptions as nl_exc
 from neutron_lib.plugins import directory
 from neutron_lib.services.trunk import constants as trunk_const
@@ -137,7 +138,7 @@ class TestCCFabricMechanismDriver(CCFabricMechanismDriverTestBase):
         self.mech_driver = mm.mech_drivers[cc_const.CC_DRIVER_NAME].obj
 
         ctx = context.get_admin_context()
-        with ctx.session.begin(subtransactions=True):
+        with db_api.CONTEXT_WRITER.using(ctx):
             self._address_scope = ascope_models.AddressScope(name="the-open-sea", ip_version=4)
             ctx.session.add(self._address_scope)
 
@@ -191,7 +192,7 @@ class TestCCFabricMechanismDriver(CCFabricMechanismDriverTestBase):
 
         with mock.patch.object(CCFabricSwitchAgentRPCClient, 'apply_config_update') as mock_acu:
             def _create_trunk(port, network, **kwargs):
-                with ctx.session.begin():
+                with db_api.CONTEXT_WRITER.using(ctx):
                     subport = trunk_models.SubPort(port_id=port['port']['id'], segmentation_type='vlan',
                                                    segmentation_id=1234)
                     trunk_port = self._make_port(net_id=network['network']['id'], fmt="json")
@@ -614,7 +615,7 @@ class TestCCFabricMechanismDriver(CCFabricMechanismDriverTestBase):
             with self.subnetpool(["1.1.0.0/16", "1.2.0.0/24"], address_scope_id=self._address_scope['id'], name="foo",
                                  tenant_id="foo", admin=True) as snp:
                 ctx = context.get_admin_context()
-                with ctx.session.begin():
+                with db_api.CONTEXT_WRITER.using(ctx):
                     snp_db = ctx.session.query(models_v2.SubnetPool).get(snp['subnetpool']['id'])
                     ctx.session.add(tag_models.Tag(standard_attr_id=snp_db.standard_attr_id,
                                     tag="availability-zone::qa-de-1a"))
@@ -715,7 +716,7 @@ class TestCCFabricMechanismDriver(CCFabricMechanismDriverTestBase):
         with self.network(availability_zone_hints=["qa-de-1a"], **net_kwargs) as network:
             with self.subnetpool(["1.1.0.0/16", "1.2.0.0/24"], address_scope_id=self._address_scope.id, name="foo",
                                  tenant_id="foo", admin=True) as snp:
-                with ctx.session.begin():
+                with db_api.CONTEXT_WRITER.using(ctx):
                     snp_db = ctx.session.query(models_v2.SubnetPool).get(snp['subnetpool']['id'])
                     ctx.session.add(tag_models.Tag(standard_attr_id=snp_db.standard_attr_id,
                                     tag="availability-zone::qa-de-1a"))
@@ -906,7 +907,7 @@ class TestCCFabricMechanismDriverInterconnects(CCFabricMechanismDriverTestBase):
         self.context = context.get_admin_context()
 
         ctx = context.get_admin_context()
-        with ctx.session.begin(subtransactions=True):
+        with db_api.CONTEXT_WRITER.using(ctx):
             self._address_scope = ascope_models.AddressScope(name="the-open-sea", ip_version=4)
             ctx.session.add(self._address_scope)
 

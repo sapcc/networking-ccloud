@@ -26,6 +26,7 @@ from neutron.tests.unit.extensions import test_segment
 from neutron_lib.callbacks import events
 from neutron_lib.callbacks import registry
 from neutron_lib import context
+from neutron_lib.db import api as db_api
 from neutron_lib.plugins import directory
 from neutron_lib.plugins.ml2 import api as ml2_api
 from oslo_config import cfg
@@ -165,7 +166,7 @@ class TestNetworkExtension(test_segment.SegmentTestCase, base.PortBindingHelper,
         self._subnet_b_1 = self._make_subnet("json", network={'network': self._net_b}, subnetpool_id=self._snp_b['id'],
                                              cidr="1.1.1.0/24", gateway="1.1.1.1")
 
-        with self.ctx.session.begin():
+        with db_api.CONTEXT_WRITER.using(self.ctx):
             self.ctx.session.add(extnet_models.ExternalNetwork(network_id=self._net_b['id']))
             ascope = ascope_models.AddressScope(name="seagull", ip_version=4)
             self.ctx.session.add(ascope)
@@ -223,11 +224,12 @@ class TestNetworkExtension(test_segment.SegmentTestCase, base.PortBindingHelper,
             self._make_segment(network_id=network_id, network_type='vxlan',
                                segmentation_id=424242,
                                tenant_id="test-tenant", fmt='json')['segment']
-            objs = self.ctx.session.query(segment_models.NetworkSegment).filter_by(physical_network=None,
-                                                                                   network_type='vxlan')
-            objs.update({'segment_index': 0})
+            from neutron_lib.db import api as db_api
+            with db_api.CONTEXT_WRITER.using(self.ctx):
+                objs = self.ctx.session.query(segment_models.NetworkSegment).filter_by(physical_network=None,
+                                                                                       network_type='vxlan')
+                objs.update({'segment_index': 0})
 
-            # make sure nothing is allocated
             self.assertEqual([], self.db.get_interconnects(self.ctx, network_id))
 
             # make apicall
@@ -541,7 +543,7 @@ class TestNetworkExtension(test_segment.SegmentTestCase, base.PortBindingHelper,
         cfg.CONF.set_override('handle_all_l3_gateways', False, group='ml2_cc_fabric')
         with self.network() as net:
             net_id = net['network']['id']
-            with self.ctx.session.begin():
+            with db_api.CONTEXT_WRITER.using(self.ctx):
                 self.ctx.session.add(extnet_models.ExternalNetwork(network_id=net_id))
             self.tag_plugin.update_tag(self.ctx, "networks", net_id, cc_const.L3_GATEWAY_TAG)
             resp = self.app.put(f"/cc-fabric/networks/{net_id}/move_gateway_to_fabric", expect_errors=True)

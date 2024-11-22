@@ -50,6 +50,7 @@ class CCDbPlugin(db_base_plugin_v2.NeutronDbPluginV2,
         self.drv_conf = get_driver_config()
 
     @db_api.retry_if_session_inactive()
+    @db_api.CONTEXT_READER
     def get_hosts_on_segments(self, context, segment_ids=None, network_ids=None, physical_networks=None, level=1,
                               driver=None):
         """Get all binding hosts plus their segment info
@@ -126,6 +127,7 @@ class CCDbPlugin(db_base_plugin_v2.NeutronDbPluginV2,
         return net_hosts[network_id]
 
     @db_api.retry_if_session_inactive()
+    @db_api.CONTEXT_READER
     def get_top_level_vxlan_segments(self, context, network_ids):
         query = context.session.query(segment_models.NetworkSegment)
         query = query.filter_by(network_type=nl_const.TYPE_VXLAN, physical_network=None, segment_index=0)
@@ -138,6 +140,7 @@ class CCDbPlugin(db_base_plugin_v2.NeutronDbPluginV2,
         return net_seg
 
     @db_api.retry_if_session_inactive()
+    @db_api.CONTEXT_READER
     def get_segment_by_host(self, context, network_id, physical_network, network_type=nl_const.TYPE_VLAN):
         """Return a single segment defined by network, host and network_type"""
         query = context.session.query(segment_models.NetworkSegment)
@@ -150,6 +153,7 @@ class CCDbPlugin(db_base_plugin_v2.NeutronDbPluginV2,
         return None
 
     @db_api.retry_if_session_inactive()
+    @db_api.CONTEXT_READER
     def get_segments_by_physnet_network_tuples(self, context, physnet_networks, network_type=nl_const.TYPE_VLAN):
         """Get all segments which have one of the given combinations of physnet and network_id"""
         query = context.session.query(segment_models.NetworkSegment)
@@ -162,6 +166,7 @@ class CCDbPlugin(db_base_plugin_v2.NeutronDbPluginV2,
         return result
 
     @db_api.retry_if_session_inactive()
+    @db_api.CONTEXT_READER
     def get_azs_for_network(self, context, network_id, extra_binding_hosts=None):
         """Get all AZs in this network bound on this driver"""
         # get binding hosts on network
@@ -179,6 +184,7 @@ class CCDbPlugin(db_base_plugin_v2.NeutronDbPluginV2,
         return azs
 
     @db_api.retry_if_session_inactive()
+    @db_api.CONTEXT_READER
     def get_interconnects(self, context, network_id=None, device_type=None, host=None):
         query = context.session.query(cc_models.CCNetworkInterconnects)
         filter_args = {}
@@ -209,7 +215,7 @@ class CCDbPlugin(db_base_plugin_v2.NeutronDbPluginV2,
         (but also services this AZ) - this can only happen for Transits as they are
         the only devices servicing a different AZ.
         """
-        with context.session.begin(subtransactions=True):
+        with db_api.CONTEXT_WRITER.using(context):
             query = context.session.query(cc_models.CCNetworkInterconnects)
             query = query.filter_by(device_type=device_type, network_id=network_id, availability_zone=az)
             if query.count() > 0:
@@ -264,6 +270,7 @@ class CCDbPlugin(db_base_plugin_v2.NeutronDbPluginV2,
         return self.ensure_interconnect_for_network(context, cc_const.DEVICE_TYPE_BGW, network_id, az)
 
     @db_api.retry_if_session_inactive()
+    @db_api.CONTEXT_WRITER
     def remove_interconnect_from_network(self, context, device_type, network_id, az):
         """Remove a transit from a network"""
         query = context.session.query(cc_models.CCNetworkInterconnects)
@@ -280,6 +287,7 @@ class CCDbPlugin(db_base_plugin_v2.NeutronDbPluginV2,
         return self.remove_interconnect_from_network(context, cc_const.DEVICE_TYPE_BGW, network_id, az)
 
     @db_api.retry_if_session_inactive()
+    @db_api.CONTEXT_READER
     def get_gateways_for_networks(self, context, network_ids, external_only=True):
         fields = [
             models_v2.Subnet.network_id, models_v2.Subnet.cidr, models_v2.Subnet.gateway_ip,
@@ -324,6 +332,7 @@ class CCDbPlugin(db_base_plugin_v2.NeutronDbPluginV2,
         net_gws = self.get_gateways_for_networks(context, [network_id], *args, **kwargs)
         return net_gws.get(network_id)
 
+    @db_api.CONTEXT_READER
     def get_subnet_l3_config_for_networks(self, context, network_ids):
         """Get l3 config (cidrs, az locality) for networks, grouped by subnet pools"""
         fields = [
@@ -361,6 +370,7 @@ class CCDbPlugin(db_base_plugin_v2.NeutronDbPluginV2,
 
         return result
 
+    @db_api.CONTEXT_READER
     def get_subnetpool_details(self, context, subnetpool_ids):
         # get az from tags
         fields = [models_v2.SubnetPool.id, tag_models.Tag.tag]
@@ -403,6 +413,7 @@ class CCDbPlugin(db_base_plugin_v2.NeutronDbPluginV2,
         return result
 
     @db_api.retry_if_session_inactive()
+    @db_api.CONTEXT_READER
     def get_subport_trunk_vlan_id(self, context, port_id):
         query = context.session.query(trunk_models.SubPort.segmentation_id)
         query = query.filter(trunk_models.SubPort.port_id == port_id)
@@ -412,6 +423,7 @@ class CCDbPlugin(db_base_plugin_v2.NeutronDbPluginV2,
         return None
 
     @db_api.retry_if_session_inactive()
+    @db_api.CONTEXT_READER
     def get_trunks_with_binding_host(self, context, host):
         fields = [
             trunk_models.Trunk.id,
