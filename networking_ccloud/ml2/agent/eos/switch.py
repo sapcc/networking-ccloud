@@ -40,8 +40,13 @@ class EOSGNMIPaths:
     VLAN = "network-instances/network-instance[name=default]/vlans/vlan[vlan-id={vlan}]"
 
     VXMAPS = "interfaces/interface[name=Vxlan1]/arista-exp-eos-vxlan:arista-vxlan/config/vlan-to-vnis"
+    VXMAPS_ALL_4_32 = ("interfaces/interface[name=Vxlan1]/arista-exp-eos-vxlan:arista-vxlan/vlan-to-vnis/"
+                       "vlan-to-vni/config")
+    VXMAPS_CONFIG_4_32 = "interfaces/interface[name=Vxlan1]/arista-exp-eos-vxlan:arista-vxlan/vlan-to-vnis"
     VXMAP_VLAN = ("interfaces/interface[name=Vxlan1]/arista-exp-eos-vxlan:arista-vxlan/config/vlan-to-vnis"
                   "/vlan-to-vni[vlan={vlan}]")
+    VXMAP_VLAN_4_32 = ("interfaces/interface[name=Vxlan1]/arista-exp-eos-vxlan:arista-vxlan/vlan-to-vnis"
+                       "/vlan-to-vni[vlan={vlan}]")
     VRF_VXMAPS = "interfaces/interface[name=Vxlan1]/arista-exp-eos-vxlan:arista-vxlan/config/vrf-to-vnis"
     VRF_VXMAP_VRF = ("interfaces/interface[name=Vxlan1]/arista-exp-eos-vxlan:arista-vxlan/config/vrf-to-vnis/"
                      "vrf-to-vni[vrf={vrf}]")
@@ -49,13 +54,14 @@ class EOSGNMIPaths:
     EVPN_INSTANCES = "arista/eos/arista-exp-eos-evpn:evpn/evpn-instances"
     EVPN_INSTANCE = "arista/eos/arista-exp-eos-evpn:evpn/evpn-instances/evpn-instance[name={vlan}]"
     EVPN_INSTANCES_VIA_SYSDB = "eos_native:Sysdb/routing/bgp/macvrf/config"
-    PROTO_BGP = "network-instances/network-instance[name=default]/protocols/protocol[name=BGP]"
+    PROTO_BGP = "network-instances/network-instance[name=default]/protocols/protocol[name=BGP][identifier=BGP]"
     NETWORK_INSTANCES = "network-instances"
     NETWORK_INSTANCE_IFACES = "network-instances/network-instance[name={vrf}]/interfaces"
-    BGP_VRF_AGGREGATES = ("network-instances/network-instance[name={vrf}]/protocols/protocol[name=BGP]/"
+    BGP_VRF_AGGREGATES = ("network-instances/network-instance[name={vrf}]/protocols/protocol[name=BGP][identifier=BGP]/"
                           "bgp/global/afi-safis/afi-safi[afi-safi-name=openconfig-bgp-types:IPV4_UNICAST]/"
                           "aggregate-addresses")
-    BGP_VRF_AGGREGATE_PREFIX = ("network-instances/network-instance[name={vrf}]/protocols/protocol[name=BGP]/"
+    BGP_VRF_AGGREGATE_PREFIX = ("network-instances/network-instance[name={vrf}]/protocols/"
+                                "protocol[name=BGP][identifier=BGP]/"
                                 "bgp/global/afi-safis/afi-safi[afi-safi-name=openconfig-bgp-types:IPV4_UNICAST]/"
                                 "aggregate-addresses/aggregate-address[aggregate-address={prefix}]")
     PREFIX_LISTS = "routing-policy/defined-sets/prefix-sets"
@@ -105,11 +111,30 @@ class EOSSwitch(SwitchBase):
     # PL-CC-CLOUD02 | PL-CC-CLOUD02-A | PL-CC-CLOUD02-EXTERNAL | PL-CC-CLOUD02-A-EXTERNAL
     PREFIX_LIST_RE = re.compile("PL-(?P<vrf>.*?)(?:-(?P<az>[A-Z]))?(?:-(?P<external>EXTERNAL))?$")
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        self._reset_version_detection()
+
+    def _reset_version_detection(self):
+        self._version_min_4_32 = None
+
+    @property
+    def version_min_4_32(self):
+        if self._version_min_4_32 is None:
+            ver_data = self.api.get(path=["cli:/show version"])
+            ver = ver_data['version'].split(".")
+            ver_tuple = (int(ver[0]), int(ver[1]))
+            self._version_min_4_32 = ver_tuple >= (4, 32)
+        return self._version_min_4_32
+
     @classmethod
     def get_platform(cls):
         return cc_const.PLATFORM_EOS
 
     def login(self):
+        self._reset_version_detection()
+
         self._api = CCGNMIClient(switch_name=self.name, host=self.host, port=6030,
                                  username=self.user, password=self._password, platform=self.get_platform(),
                                  insecure=False, skip_verify=True)
@@ -208,9 +233,15 @@ class EOSSwitch(SwitchBase):
                 config_req.delete.append(vpath)
 
     def get_vxlan_mappings(self, with_unmanaged=False) -> List[agent_msg.VXLANMapping]:
-        swdata = self.api.get(EOSGNMIPaths.VXMAPS)['arista-exp-eos-vxlan:vlan-to-vni']
-        vxlan_maps = [agent_msg.VXLANMapping(vni=v['vni'], vlan=v['vlan']) for v in swdata
-                      if with_unmanaged or v['vlan'] in self.managed_vlans]
+        if self.version_min_4_32:
+            swdata = self.api.get(EOSGNMIPaths.VXMAPS_ALL_4_32, single=False)
+            vxlan_maps = [agent_msg.VXLANMapping(vni=v['arista-exp-eos-vxlan:vni'], vlan=v['arista-exp-eos-vxlan:vlan'])
+                          for v in swdata
+                          if with_unmanaged or v['arista-exp-eos-vxlan:vlan'] in self.managed_vlans]
+        else:
+            swdata = self.api.get(EOSGNMIPaths.VXMAPS)['arista-exp-eos-vxlan:vlan-to-vni']
+            vxlan_maps = [agent_msg.VXLANMapping(vni=v['vni'], vlan=v['vlan']) for v in swdata
+                          if with_unmanaged or v['vlan'] in self.managed_vlans]
         vxlan_maps.sort()
         return vxlan_maps
 
@@ -218,6 +249,8 @@ class EOSSwitch(SwitchBase):
                                    operation: Op) -> None:
         if vxlan_maps is None:
             return
+
+        VXMAP_VLAN_PATH = EOSGNMIPaths.VXMAP_VLAN_4_32 if self.version_min_4_32 else EOSGNMIPaths.VXMAP_VLAN
 
         curr_maps = self.get_vxlan_mappings(with_unmanaged=True)
         if operation in (Op.add, Op.replace):
@@ -229,7 +262,7 @@ class EOSSwitch(SwitchBase):
                 for vlan in vmaps_to_remove:
                     LOG.debug("Removing stale vlan mapping for vlan %s from %s (%s) on config replace",
                               vlan, self.name, self.host)
-                    config_req.delete.append(EOSGNMIPaths.VXMAP_VLAN.format(vlan=vlan))
+                    config_req.delete.append(VXMAP_VLAN_PATH.format(vlan=vlan))
 
             # delete all mappings for VNIs we want to repurpose, but are used by a different vlan
             for curr_map in curr_maps:
@@ -238,18 +271,22 @@ class EOSSwitch(SwitchBase):
                         LOG.warning("Removing stale vxlan map <vlan %s vni %s> in favor of <vlan %s vni %s> "
                                     "on switch %s (%s)",
                                     curr_map.vlan, curr_map.vni, os_map.vlan, os_map.vni, self.name, self.host)
-                        del_map = EOSGNMIPaths.VXMAP_VLAN.format(vlan=curr_map.vlan)
+                        del_map = VXMAP_VLAN_PATH.format(vlan=curr_map.vlan)
                         config_req.delete.append(del_map)
 
-            mapcfgs = [{'vlan': vmap.vlan, 'vni': vmap.vni} for vmap in vxlan_maps]
-            config_req.update.append((EOSGNMIPaths.VXMAPS, {'vlan-to-vni': mapcfgs}))
+            if self.version_min_4_32:
+                mapcfgs = [{'vlan': vmap.vlan, 'config': {'vlan': vmap.vlan, 'vni': vmap.vni}} for vmap in vxlan_maps]
+                config_req.update.append((EOSGNMIPaths.VXMAPS_CONFIG_4_32, {'vlan-to-vni': mapcfgs}))
+            else:
+                mapcfgs = [{'vlan': vmap.vlan, 'vni': vmap.vni} for vmap in vxlan_maps]
+                config_req.update.append((EOSGNMIPaths.VXMAPS, {'vlan-to-vni': mapcfgs}))
         else:
             # delete vlan mapping only if it has the right vni
             for os_map in vxlan_maps:
                 for curr_map in curr_maps:
                     if curr_map.vlan == os_map.vlan:
                         if curr_map.vni == os_map.vni:
-                            config_req.delete.append(EOSGNMIPaths.VXMAP_VLAN.format(vlan=curr_map.vlan))
+                            config_req.delete.append(VXMAP_VLAN_PATH.format(vlan=curr_map.vlan))
                         else:
                             LOG.warning("Not deleting vlan %s from switch %s (%s), as it points to vni %s "
                                         "(delete requested vni %s)",
