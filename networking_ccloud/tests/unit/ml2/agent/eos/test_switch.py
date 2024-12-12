@@ -54,8 +54,14 @@ class TestEOSConfigUpdates(base.TestCase):
         self.switch._api.set.assert_called_with(update=expected_update, delete=[], replace=[])
 
     def test_add_everything(self):
-        def _get(prefix, unpack=True):
-            if prefix == 'interfaces/interface[name=Vxlan1]/arista-exp-eos-vxlan:arista-vxlan/config/vlan-to-vnis':
+        def _get(prefix=None, path=None, unpack=True):
+            if prefix and path:
+                raise ValueError("Cannot set prefix and path at the same time")
+            elif path and path[0] == "cli:/show version":
+                return {
+                    "version": "4.28.3M"
+                }
+            elif prefix == 'interfaces/interface[name=Vxlan1]/arista-exp-eos-vxlan:arista-vxlan/config/vlan-to-vnis':
                 return {'arista-exp-eos-vxlan:vlan-to-vni': [{'vlan': 1337, 'vni': 232323}]}
             elif prefix == 'interfaces':
                 return {
@@ -87,8 +93,8 @@ class TestEOSConfigUpdates(base.TestCase):
                                           'import': ['1:232323']}},
               'vlans': {'vlan': [{'config': {'vlan-id': 1000},
                                   'vlan-id': 1000}]}}),
-            ('network-instances/network-instance[name=CC-SEAGULL]/protocols/protocol[name=BGP]/bgp/global/'
-             'afi-safis/afi-safi[afi-safi-name=openconfig-bgp-types:IPV4_UNICAST]/aggregate-addresses', {
+            ('network-instances/network-instance[name=CC-SEAGULL]/protocols/protocol[name=BGP][identifier=BGP]/'
+             'bgp/global/afi-safis/afi-safi[afi-safi-name=openconfig-bgp-types:IPV4_UNICAST]/aggregate-addresses', {
                  'aggregate-address': [
                      {'aggregate-address': '8.8.8.0/24',
                       'config': {'aggregate-address': '8.8.8.0/24', 'attribute-map': 'RM-CC-SEAGULL-AGGREGATE'}},
@@ -318,8 +324,14 @@ class TestEOSConfigUpdates(base.TestCase):
                                                 delete=expected_delete_config)
 
     def test_remove_everything(self):
-        def _get(prefix, unpack=True):
-            if prefix == 'interfaces/interface[name=Vxlan1]/arista-exp-eos-vxlan:arista-vxlan/config/vlan-to-vnis':
+        def _get(prefix=None, path=None, unpack=True):
+            if prefix and path:
+                raise ValueError("Cannot set prefix and path at same time")
+            elif path and path[0] == "cli:/show version":
+                return {
+                    "version": "4.28.3M"
+                }
+            elif prefix == 'interfaces/interface[name=Vxlan1]/arista-exp-eos-vxlan:arista-vxlan/config/vlan-to-vnis':
                 return {'arista-exp-eos-vxlan:vlan-to-vni': [
                         {'vlan': 1000, 'vni': 171717},
                         {'vlan': 2000, 'vni': 232323},
@@ -376,11 +388,11 @@ class TestEOSConfigUpdates(base.TestCase):
                 'prefixes/prefix[ip-prefix=7.7.7.0/24]',
                 'routing-policy/defined-sets/prefix-sets/prefix-set[name=PL-CC-SEAGULL-A-EXTERNAL]/'
                 'prefixes/prefix[ip-prefix=10.10.10.0/24]',
-                'network-instances/network-instance[name=CC-SEAGULL]/protocols/protocol[name=BGP]/bgp/global/'
-                'afi-safis/afi-safi[afi-safi-name=openconfig-bgp-types:IPV4_UNICAST]/'
+                'network-instances/network-instance[name=CC-SEAGULL]/protocols/protocol[name=BGP][identifier=BGP]/'
+                'bgp/global/afi-safis/afi-safi[afi-safi-name=openconfig-bgp-types:IPV4_UNICAST]/'
                 'aggregate-addresses/aggregate-address[aggregate-address=8.8.8.0/24]',
-                'network-instances/network-instance[name=CC-SEAGULL]/protocols/protocol[name=BGP]/bgp/global/'
-                'afi-safis/afi-safi[afi-safi-name=openconfig-bgp-types:IPV4_UNICAST]/'
+                'network-instances/network-instance[name=CC-SEAGULL]/protocols/protocol[name=BGP][identifier=BGP]/'
+                'bgp/global/afi-safis/afi-safi[afi-safi-name=openconfig-bgp-types:IPV4_UNICAST]/'
                 'aggregate-addresses/aggregate-address[aggregate-address=9.9.9.0/24]',
                 'interfaces/interface[name=Port-Channel23]/aggregation/switched-vlan/config/native-vlan',
                 'interfaces/interface[name=Port-Channel23]/aggregation/switched-vlan/vlan-translation/'
@@ -466,8 +478,14 @@ class TestEOSConfigUpdates(base.TestCase):
         self.switch._api.set.assert_called_with(**expected_config)
 
     def test_add_vlan_map_with_existing(self):
-        def _get(prefix):
-            if prefix == 'interfaces/interface[name=Vxlan1]/arista-exp-eos-vxlan:arista-vxlan/config/vlan-to-vnis':
+        def _get(prefix=None, path=None):
+            if prefix and path:
+                raise ValueError("Cannot set prefix and path at same time")
+            elif path and path[0] == "cli:/show version":
+                return {
+                    "version": "4.28.3M"
+                }
+            elif prefix == 'interfaces/interface[name=Vxlan1]/arista-exp-eos-vxlan:arista-vxlan/config/vlan-to-vnis':
                 return {'arista-exp-eos-vxlan:vlan-to-vni': [
                         {'vlan': 2000, 'vni': 31337},
                         {'vlan': 2500, 'vni': 232323},
@@ -534,8 +552,14 @@ class TestEOSConfigUpdates(base.TestCase):
         self.switch._api.set.assert_called_with(**expected_config)
 
     def test_update_vxlan_maps(self):
-        def _get(prefix):
-            if prefix == 'interfaces/interface[name=Vxlan1]/arista-exp-eos-vxlan:arista-vxlan/config/vlan-to-vnis':
+        def _get(prefix=None, path=None):
+            if prefix and path:
+                raise ValueError("Cannot set prefix and path at same time")
+            elif path and path[0] == "cli:/show version":
+                return {
+                    "version": "4.28.3M"
+                }
+            elif prefix == 'interfaces/interface[name=Vxlan1]/arista-exp-eos-vxlan:arista-vxlan/config/vlan-to-vnis':
                 return {'arista-exp-eos-vxlan:vlan-to-vni': [
                         {'vlan': 42, 'vni': 23},
                         {'vlan': 444, 'vni': 2000},
@@ -560,9 +584,52 @@ class TestEOSConfigUpdates(base.TestCase):
         self.switch.apply_config_update(cu).result()
         self.switch._api.set.assert_called_with(**expected_config)
 
+    def test_update_vxlan_maps_eos_4_32(self):
+        def _get(prefix=None, path=None, single=True):
+            if prefix and path:
+                raise ValueError("Cannot set prefix and path at same time")
+            elif path and path[0] == "cli:/show version":
+                return {
+                    "version": "4.32.3M"
+                }
+            elif prefix == ('interfaces/interface[name=Vxlan1]/arista-exp-eos-vxlan:arista-vxlan/'
+                            'vlan-to-vnis/vlan-to-vni/config') \
+                    and not single:
+                return [
+                    {'arista-exp-eos-vxlan:vlan': 42, 'arista-exp-eos-vxlan:vni': 23},
+                    {'arista-exp-eos-vxlan:vlan': 444, 'arista-exp-eos-vxlan:vni': 2000},
+                    {'arista-exp-eos-vxlan:vlan': 2000, 'arista-exp-eos-vxlan:vni': 232323},
+                ]
+        self.switch._api.get.side_effect = _get
+
+        expected_config = {
+            'delete': [
+                'interfaces/interface[name=Vxlan1]/arista-exp-eos-vxlan:arista-vxlan/vlan-to-vnis/'
+                'vlan-to-vni[vlan=2000]'
+            ],
+            'update': [('interfaces/interface[name=Vxlan1]/arista-exp-eos-vxlan:arista-vxlan/vlan-to-vnis',
+                        {'vlan-to-vni': [{'vlan': 42, 'config': {'vlan': 42, 'vni': 23}},
+                                         {'vlan': 1337, 'config': {'vlan': 1337, 'vni': 232323}}]})],
+            'replace': [],
+        }
+
+        cu = messages.SwitchConfigUpdate(switch_name="seagull-sw1", operation=messages.OperationEnum.add)
+        # vlans
+        cu.add_vxlan_map(23, 42)
+        cu.add_vxlan_map(232323, 1337)
+
+        self.switch.apply_config_update(cu).result()
+        self.switch._api.set.assert_called_with(**expected_config)
+
     def test_replace_vxlan_maps(self):
-        def _get(prefix):
-            if prefix == 'interfaces/interface[name=Vxlan1]/arista-exp-eos-vxlan:arista-vxlan/config/vlan-to-vnis':
+        def _get(prefix=None, path=None):
+            if prefix and path:
+                raise ValueError("Cannot set prefix and path at same time")
+            elif path and path[0] == "cli:/show version":
+                return {
+                    "version": "4.28.3M"
+                }
+            elif prefix == 'interfaces/interface[name=Vxlan1]/arista-exp-eos-vxlan:arista-vxlan/config/vlan-to-vnis':
                 return {'arista-exp-eos-vxlan:vlan-to-vni': [
                         {'vlan': 42, 'vni': 23},
                         {'vlan': 444, 'vni': 200444},
@@ -636,11 +703,11 @@ class TestEOSConfigUpdates(base.TestCase):
 
         expected_config = {
             'delete': [
-                'network-instances/network-instance[name=CC-SEAGULL]/protocols/protocol[name=BGP]/bgp/global/'
-                'afi-safis/afi-safi[afi-safi-name=openconfig-bgp-types:IPV4_UNICAST]/'
+                'network-instances/network-instance[name=CC-SEAGULL]/protocols/protocol[name=BGP][identifier=BGP]/'
+                'bgp/global/afi-safis/afi-safi[afi-safi-name=openconfig-bgp-types:IPV4_UNICAST]/'
                 'aggregate-addresses/aggregate-address[aggregate-address=1.1.1.0/24]',
-                'network-instances/network-instance[name=CC-SEAGULL]/protocols/protocol[name=BGP]/bgp/global/'
-                'afi-safis/afi-safi[afi-safi-name=openconfig-bgp-types:IPV4_UNICAST]/'
+                'network-instances/network-instance[name=CC-SEAGULL]/protocols/protocol[name=BGP][identifier=BGP]/'
+                'bgp/global/afi-safis/afi-safi[afi-safi-name=openconfig-bgp-types:IPV4_UNICAST]/'
                 'aggregate-addresses/aggregate-address[aggregate-address=2.2.2.0/24]',
             ],
             'replace': [
@@ -658,8 +725,8 @@ class TestEOSConfigUpdates(base.TestCase):
                   'prefixes': {'prefix': []}}),
             ],
             'update': [
-                ('network-instances/network-instance[name=CC-SEAGULL]/protocols/protocol[name=BGP]/bgp/global/'
-                 'afi-safis/afi-safi[afi-safi-name=openconfig-bgp-types:IPV4_UNICAST]/aggregate-addresses',
+                ('network-instances/network-instance[name=CC-SEAGULL]/protocols/protocol[name=BGP][identifier=BGP]'
+                 '/bgp/global/afi-safis/afi-safi[afi-safi-name=openconfig-bgp-types:IPV4_UNICAST]/aggregate-addresses',
                     {'aggregate-address': [
                         {'aggregate-address': '8.8.8.0/24',
                          'config': {'aggregate-address': '8.8.8.0/24', 'attribute-map': 'RM-CC-SEAGULL-AGGREGATE'}},
@@ -994,8 +1061,14 @@ class TestEOSSwitch(base.TestCase):
         self.switch._api.execute.return_value = {'result': [{}]}
 
     def test_get_switch_config(self):
-        def _get(prefix, unpack=True):
-            if prefix == 'network-instances/network-instance[name=default]/vlans':
+        def _get(prefix=None, path=None, unpack=True):
+            if prefix and path:
+                raise ValueError("Cannot set prefix and path the at same time")
+            elif path and path[0] == "cli:/show version":
+                return {
+                    "version": "4.28.3M"
+                }
+            elif prefix == 'network-instances/network-instance[name=default]/vlans':
                 return {
                     'openconfig-network-instance:vlan': [
                         {'config': {'vlan-id': 2121, 'name': 'b226a569-e0ed-4d24-b943-c7183288'},
@@ -1005,7 +1078,8 @@ class TestEOSSwitch(base.TestCase):
                     ]}
             elif prefix == 'interfaces/interface[name=Vxlan1]/arista-exp-eos-vxlan:arista-vxlan/config/vlan-to-vnis':
                 return {'arista-exp-eos-vxlan:vlan-to-vni': [{'vlan': 2121, 'vni': 31337}]}
-            elif prefix == ('network-instances/network-instance[name=default]/protocols/protocol[name=BGP]/'
+            elif prefix == ('network-instances/network-instance[name=default]/'
+                            'protocols/protocol[name=BGP][identifier=BGP]/'
                             'bgp/global/config/as'):
                 return 4268363793
             elif prefix == 'arista/eos/arista-exp-eos-evpn:evpn/evpn-instances':
