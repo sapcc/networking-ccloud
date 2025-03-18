@@ -11,6 +11,7 @@
 #    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
 #    License for the specific language governing permissions and limitations
 #    under the License.
+import ipaddress
 import re
 
 from oslo_log import log as logging
@@ -64,6 +65,16 @@ class NXOSSwitch(SwitchBase):
     # path is System/intf-items/phys-items/PhysIf-list[id=eth1/17]/trunkVlans
     #         System/intf-items/aggr-items/AggrIf-list[id=po6]/trunkVlans
     IFDN_RE = re.compile(r"^System/intf-items/(?:aggr-items/AggrIf|phys-items/PhysIf)-list\[id=(?P<ifname>[^\]]+)]")
+    # /System/inst-items/Inst-list[name='CC-CLOUD01']
+    VRF_TDN_RE = re.compile(r"^/System/inst-items/Inst-list\[name='(?P<vrf>[^']+)'\]$")
+    # System/bgp-items/inst-items/dom-items/Dom-list[name=CC-CLOUD01]...
+    BGP_VRF_RE = re.compile(r"^System/bgp-items/inst-items/dom-items/Dom-list\[name=(?P<vrf>[^\]]+)\].*")
+    # RM-CC-CLOUD01-D-AGGREGATE RM-CC-CLOUD01-AGGREGATE
+    BGP_AGGREGATE_RM_RE = re.compile("^RM-(?P<vrf>[A-Z0-9-]+?)(?:-(?P<az>[A-Z]))?-AGGREGATE$")
+    # PL-CC-CLOUD02 | PL-CC-CLOUD02-A | PL-CC-CLOUD02-EXTERNAL | PL-CC-CLOUD02-A-EXTERNAL
+    PREFIX_LIST_RE = re.compile("PL-(?P<vrf>.*?)(?:-(?P<az>[A-Z]))?(?:-(?P<external>EXTERNAL))?$")
+    # System/bd-items/bd-items/BD-list[fabEncap=vlan-3064]...
+    BD_VLAN_RE = re.compile(r"System/bd-items/bd-items/BD-list\[fabEncap=vlan-(?P<vlan>\d+)\].*")
 
     @classmethod
     def get_platform(self):
@@ -106,24 +117,63 @@ class NXOSSwitch(SwitchBase):
         vlans_on_switch = self.api.get(path=["/System/bd-items/bd-items/BD-list/id"], single=False)
         return set(vlans_on_switch) & set(self.managed_vlans)
 
+    def get_all_vlan_vni_maps_on_switch(self):
+        switch_vxmaps = self.api.get(path=['System/bd-items/bd-items/BD-list/accEncap'], single=False, with_path=True)
+        vxmaps = set()
+        for path, vni in switch_vxmaps:
+            if not (m := self.BD_VLAN_RE.match(path)):
+                continue
+            vlan = int(m.group('vlan'))
+
+            if not vni.startswith("vxlan-"):
+                continue
+            vni = int(vni[len("vxlan-"):])
+
+            vxmaps.add((vlan, vni))
+        return vxmaps
+
+    def get_all_nve1_vnis_on_switch(self):
+        return self.api.get(path=["/System/eps-items/epId-items/Ep-list[epId=1]/nws-items/vni-items/Nw-list/vni"],
+                            single=False)
+
     def _make_vlan_and_vxmap_config(self, config_req: NXOSSetConfig, vlans: Optional[List[agent_msg.Vlan]],
-                                    vxlan_maps: Optional[List[agent_msg.VXLANMapping]], operation: Op) -> None:
+                                    vxlan_maps: Optional[List[agent_msg.VXLANMapping]], svi_vlans: List[int],
+                                    operation: Op) -> None:
         if not (vlans and vxlan_maps):
             return
 
         vlan_vxmaps = {vx.vlan: vx.vni for vx in vxlan_maps}
         if set(v.vlan for v in vlans) ^ set(vlan_vxmaps):
-            # FIXME: should we handle this differently?
             LOG.warning("Inconsistent config request: Vlan IDs %s configured alongside vlan <-> vxlan maps %s on %s",
                         [v.vlan for v in vlans], list(vlan_vxmaps), self)
 
         if operation in (Op.add, Op.replace):
             if operation == Op.replace:
-                vlans_to_remove = self.get_all_managed_vlan_ids_on_switch() - set(v.vlan for v in vlans)
+                # remove vlans managed by us that are not part of our mappings
+                # (this is done as an extra block as we want to delete the vlan even if there's no vni mapped to it)
+                vlans_to_remove = self.get_all_managed_vlan_ids_on_switch() - {v.vlan for v in vlans}
                 for vlan in sorted(vlans_to_remove):
                     LOG.debug("Removing stale vlan %s from %s on config replace", vlan, self)
                     config_req.delete.append(f"/System/bd-items/bd-items/BD-list[fabEncap=vlan-{vlan}]")
-                # FIXME: we need to implement this for nve1, but we need the range of "managed VNIs" for that
+
+                # remove the vni off of all vlans where we either manage the vlan and the vni is wrong or
+                # where we manage the vni but not the vlan (and the vlan is not already removed)
+                vxmaps_on_switch = self.get_all_vlan_vni_maps_on_switch() - set(vlan_vxmaps.items())
+                for vlan, vni in vxmaps_on_switch:
+                    if vlan in vlans_to_remove or (vlan not in self.managed_vlans and not self.is_managed_vni(vni)):
+                        continue
+                    LOG.debug("Cleaning stale vni %s off of vlan %s, as the vni is managed by us and is not mapped "
+                              "to the right vlan", vni, vlan)
+                    config_req.delete.append(f"System/bd-items/bd-items/BD-list[fabEncap=vlan-{vlan}]/accEncap")
+
+                # clean nve1
+                all_cfg_vnis = {vx.vni for vx in vxlan_maps}
+                vnis_to_delete = {dev_vni for dev_vni in self.get_all_nve1_vnis_on_switch()
+                                  if dev_vni not in all_cfg_vnis and self.is_managed_vni(dev_vni)}
+                for del_vni in sorted(vnis_to_delete):
+                    LOG.debug("Removing stale vni %s from nve1", del_vni)
+                    config_req.delete.append("/System/eps-items/epId-items/Ep-list[epId=1]/"
+                                             f"nws-items/vni-items/Nw-list[vni={del_vni}]")
 
             # vlan part
             all_vlans = []
@@ -131,10 +181,10 @@ class NXOSSwitch(SwitchBase):
                 # create the vlan
                 vlan = {
                     'fabEncap': f"vlan-{v.vlan}",
-                    # FIXME: name will almost always be uuids, by default we can do 32 chars
-                    #        with "system vlan long-names" we can do more, but for the sake of sanity
-                    #        and debugging gnmi at the moment (Which seems to behave odlyt,
-                    #        it's really weird) we'll just truncate them while devving around
+                    # NOTE: name will almost always be uuids, by default we can do 32 chars
+                    #       with "system vlan long-names" we can do more, but for the sake of sanity
+                    #       and debugging gnmi at the moment (Which seems to behave odlyt,
+                    #       it's really weird) we'll just truncate them while devving around
                     'name': v.name.replace("-", "") if len(v.name) == 36 else v.name,
                 }
                 if v.vlan in vlan_vxmaps:
@@ -148,7 +198,7 @@ class NXOSSwitch(SwitchBase):
             for vx in vxlan_maps:
                 nve_item = {
                     'vni': vx.vni,
-                    'suppressARP': 'enabled',
+                    'suppressARP': 'enabled' if vx.vlan in svi_vlans else 'off',
                     'IngRepl-items': {'proto': 'bgp'},
                     'multisiteIngRepl': 'enable' if vx.enable_multisite else 'disable',
                 }
@@ -179,18 +229,18 @@ class NXOSSwitch(SwitchBase):
                 continue
             vlan = vxmaps[vni]
             # sample rd: rd:as2-nn4:4117:10091 ... or with the current bug rd:as2-nn2:4117:10091
-            rd = bdevis['rd'].split(":", 3)[2]
+            rd = bdevi['rd'].split(":", 3)[2]
 
             rt_exports = []
             rt_imports = []
             for rt_export_import in bdevi.get('rttp-items', {}).get('RttP-list', []):
                 for rt_data in rt_export_import['ent-items']['RttEntry-list']:
                     # sample rt: route-target:as2-nn2:4:10091
-                    rt = rt_data['rtt'].split(":", 3)
+                    rt = rt_data['rtt'].split(":", 2)
                     if rt_export_import['type'] == "export":
-                        rt_exports.append(rt)
+                        rt_exports.append(rt[-1])
                     elif rt_export_import['type'] == "import":
-                        rt_imports.append(rt)
+                        rt_imports.append(rt[-1])
                     else:
                         LOG.warning("Unknown rt type %s found in API of switch %s for vni %s",
                                     rt_export_import['type'], self, vni)
@@ -200,28 +250,89 @@ class NXOSSwitch(SwitchBase):
             bgp_vlans.append(bgp_vlan)
         return bgp_vlans
 
+    def get_bgp_vrf_config(self) -> List[agent_msg.BGPVRF]:
+        bgpvrfs = {}
+
+        # aggregates
+        device_aggrs = self.api.get(path=["/System/bgp-items/inst-items/dom-items/Dom-list/"
+                                          "af-items/DomAf-list/aggaddr-items"],
+                                    single=False, with_path=True)
+        for path, value in device_aggrs:
+            m = self.BGP_VRF_RE.match(path)
+            if not m:
+                LOG.debug("Could not parse VRF from %s, skipping this BGPVRF", path)
+                continue
+
+            vrf = m.group('vrf')
+            if vrf not in bgpvrfs:
+                bgpvrfs[vrf] = agent_msg.BGPVRF(name=vrf)
+
+            for aggr in value['AggAddr-list']:
+                m = self.BGP_AGGREGATE_RM_RE.match(aggr['attrMap'])
+                if not m:
+                    continue
+                if m.group('vrf') != vrf:
+                    LOG.warning("BGPVRF %s routemap %s seems to have different VRF", vrf, m.group('vrf'))
+
+                bgpvrfs[vrf].add_aggregates([
+                    agent_msg.BGPVRFAggregate(network=aggr['addr'], az_local=bool(m.group('az')))
+                ])
+
+        # prefix lists
+        # NOTE: could be refactored to save about 200ms (~320ms vs 120ms)
+        #       sw.grpc_get(path=["/System/rpm-items/pfxlistv4-items/RuleV4-list/ent-items"], unpack=False)
+        for pfx in self.api.get(path=["/System/rpm-items/pfxlistv4-items"])['RuleV4-list']:
+            m = self.PREFIX_LIST_RE.match(pfx['name'])
+            if not m:
+                continue
+
+            vrf = m.group('vrf')
+            if vrf not in bgpvrfs:
+                bgpvrfs[vrf] = agent_msg.BGPVRF(name=vrf)
+
+            for addr in pfx.get('ent-items', {}).get('Entry-list', []):
+                ip_addr = str(ipaddress.ip_network(addr['pfx'], strict=False))
+                bgpvrfs[vrf].add_networks([
+                    agent_msg.BGPVRFNetwork(network=ip_addr, az_local=bool(m.group('az')),
+                                            ext_announcable=bool(m.group('external')))
+                ])
+
+        return sorted(list(bgpvrfs.values()))
+
     def get_bgp_config(self, vxlan_maps: List[agent_msg.VXLANMapping]) -> agent_msg.BGP:
         bgp_asn = self.api.get(path=["/System/bgp-items/inst-items/asn"])
         bgp = agent_msg.BGP(asn=bgp_asn, asn_region=self.asn_region, vlans=self.get_bgp_vlan_config(vxlan_maps))
-        # FIXME: vrfs not implemented yet
-        bgp.vrfs = []
+        bgp.vrfs = self.get_bgp_vrf_config()
 
         return bgp
 
     def _make_bgp_config(self, config_req: NXOSSetConfig, bgp: Optional[agent_msg.BGP],
                          vxlan_maps: Optional[List[agent_msg.VXLANMapping]], operation: Op) -> None:
-        if bgp and vxlan_maps:
-            if bgp.vlans:
-                self._make_bgp_vlans_config(config_req, bgp, vxlan_maps, operation)
+        if not bgp:
+            return
+
+        if vxlan_maps and bgp.vlans:
+            self._make_bgp_vlans_config(config_req, bgp, vxlan_maps, operation)
+
+        if bgp.vrfs:
+            self._make_bgp_vrf_config(config_req, bgp.vrfs, operation)
+
+    def get_all_evpn_vnis_on_switch(self):
+        all_vnis = self.api.get(path=['/System/evpn-items/bdevi-items/BDEvi-list/encap'], single=False)
+        return [int(vni[len("vxlan-"):]) for vni in all_vnis if vni.startswith("vxlan-")]
 
     def _make_bgp_vlans_config(self, config_req: NXOSSetConfig, bgp: Optional[agent_msg.BGP],
                                vxlan_maps: List[agent_msg.VXLANMapping], operation: Op) -> None:
         vlan_vxmaps = {vx.vlan: vx.vni for vx in vxlan_maps}
         if operation in (Op.add, Op.replace):
-            # FIXME: implement replace
-            #        ...we can't implement a proper replace yet, as we don't know which vnis we manage
-            #        NOTE: replace path could be "/System/evpn-items/bdevi-items/BDEvi-list[encap=vxlan-10091]"
-            # self.api.get(path=["/System/evpn-items/bdevi-items/BDEvi-list/encap"], single=False)
+            if operation == Op.replace:
+                all_cfg_vnis = {vx.vni for vx in vxlan_maps}
+                vnis_to_delete = {dev_vni for dev_vni in self.get_all_evpn_vnis_on_switch()
+                                  if dev_vni not in all_cfg_vnis and self.is_managed_vni(dev_vni)}
+                for del_vni in vnis_to_delete:
+                    LOG.debug("Removing stale vni %s from evpn config block", del_vni)
+                    config_req.delete.append(f"/System/evpn-items/bdevi-items/BDEvi-list[encap=vxlan-{del_vni}]")
+
             bdevis = []
             for bgp_vlan in bgp.vlans:
                 if bgp_vlan.vlan not in vlan_vxmaps:
@@ -274,6 +385,83 @@ class NXOSSwitch(SwitchBase):
                 delete_req = f"/System/evpn-items/bdevi-items/BDEvi-list[encap=vxlan-{vni}]"
                 config_req.delete.append(delete_req)
 
+    def gen_prefix_list_name(self, vrf_name, az_local, ext_announcable):
+        name = f"PL-{vrf_name}"
+        if az_local:
+            name += f"-{self.az_suffix.upper()}"
+        if ext_announcable:
+            name += "-EXTERNAL"
+        return name
+
+    def gen_route_map_name(self, vrf_name, az_local):
+        az_data = f"{self.az_suffix.upper()}-" if az_local else ""
+        return f"RM-{vrf_name}-{az_data}AGGREGATE"
+
+    def _make_bgp_vrf_config(self, config_req: NXOSSetConfig, bgp_vrfs: Optional[List[agent_msg.BGPVRF]],
+                             operation: Op):
+        if bgp_vrfs is None:
+            return
+
+        if operation in (Op.add, Op.replace):
+            for bgp_vrf in bgp_vrfs:
+                # FIXME: are we sure we can do a full replace for the aggregates?
+                #        Ben says "let's try it!"
+                # aggregates
+                # System/bgp-items/inst-items/dom-items/Dom-list[name=CC-CLOUD01]/af-items/DomAf-list[type=ipv4-ucast]/aggaddr-items
+
+                aggrs = [
+                    {"addr": bva.network, "attrMap": self.gen_route_map_name(bgp_vrf.name, bva.az_local)}
+                    for bva in bgp_vrf.aggregates or []
+                ]
+                item = (
+                    f"System/bgp-items/inst-items/dom-items/Dom-list[name={bgp_vrf.name}]/"
+                    f"af-items/DomAf-list[type=ipv4-ucast]/aggaddr-items",
+                    {'AggAddr-list': aggrs}
+                )
+                config_req.get_list(operation).append(item)
+
+                pfx_lists = {}
+                if operation == Op.replace:
+                    # on replace make sure we also empty lists where we don't have any prefixes for
+                    for az_local in True, False:
+                        for ext_announcable in True, False:
+                            pfx_name = self.gen_prefix_list_name(bgp_vrf.name, az_local, ext_announcable)
+                            pfx_lists[pfx_name] = []
+
+                for bvn in bgp_vrf.networks or []:
+                    pfx_name = self.gen_prefix_list_name(bgp_vrf.name, bvn.az_local, bvn.ext_announcable)
+                    ipn = ipaddress.ip_network(bvn.network, strict=False)
+                    order = int(ipn.network_address) or 1
+
+                    pfx_lists.setdefault(pfx_name, []).append(
+                        {
+                            "order": order,
+                            "pfx": str(ipn),
+                        }
+                    )
+
+                for pfx_list_name, entries in pfx_lists.items():
+                    if entries:
+                        entry = {"Entry-list": entries}
+                    else:
+                        entry = {}
+
+                    config_req.get_list(operation).append((
+                        f"System/rpm-items/pfxlistv4-items/RuleV4-list[name={pfx_list_name}]/ent-items",
+                        entry
+                    ))
+
+        else:
+            for bgp_vrf in bgp_vrfs:
+                # aggregates
+                for bva in bgp_vrf.aggregates or []:
+                    config_req.delete.append(
+                        f"/System/bgp-items/inst-items/dom-items/Dom-list[name={bgp_vrf.name}]/"
+                        f"af-items/DomAf-list[type=ipv4-ucast]/aggaddr-items/AggAddr-list[addr={bva.network}]"
+                    )
+
+                # prefix lists
+
     def get_ifaces_config(self):
         # fetch physical interfaces, fetch portchannels
         ifaces = []
@@ -291,10 +479,8 @@ class NXOSSwitch(SwitchBase):
                 iface.native_vlan = data['nativeVlan'][len("vlan-"):]
             if data.get('trunkVlans'):
                 iface.trunk_vlans = self._explode_vlan_list(data['trunkVlans'])
-            if data.get('vlanmapping-items'):
-                vmaps = data['vlanmapping-items']
-                vtrans = vmaps['vlantranslatetable-items']['vlan-items']['VlanTranslateEntry-list']
-                for vt in vtrans:
+            if vtrans := data.get('vlanmapping-items', {}).get('vlantranslatetable-items'):
+                for vt in vtrans['vlan-items']['VlanTranslateEntry-list']:
                     vtin = int(vt['vlanid'][len("vlan-"):])
                     vtout = int(vt['translatevlanid'][len("vlan-"):])
                     iface.add_vlan_translation(vtin, vtout)
@@ -302,7 +488,7 @@ class NXOSSwitch(SwitchBase):
             if 'pcId' in data:
                 iface.portchannel_id = data['pcId']
                 iface.members = []
-                for member in data.get('bndlmbrif-items', {}).get('BndlMbrIf-list'):
+                for member in data.get('bndlmbrif-items', {}).get('BndlMbrIf-list', []):
                     iface.members.append(member['id'])
 
             ifaces.append(iface)
@@ -341,6 +527,7 @@ class NXOSSwitch(SwitchBase):
             vtrans_data = data['notification'][0]['update']
         except Exception as e:
             # FIXME: we should not catch exception but something relevant
+            # FIXME: we should ALSO probably disable the retry here?
             LOG.warning("No translations found on switch, skipping, exception was %s %s", e, e.__class__.__name__)
             vtrans_data = []
 
@@ -485,23 +672,127 @@ class NXOSSwitch(SwitchBase):
         if vpc_configs:
             config_req.update.append(("/System/vpc-items/inst-items/dom-items/if-items", {'If-list': vpc_configs}))
 
+    def get_vlan_ifaces(self) -> List[agent_msg.VlanIface]:
+        svi_data = self.api.get(path=["/System/intf-items/svi-items"])['If-list']
+        svis = []
+        for svi in svi_data:
+            vlan_id = int(svi['vlanId'])
+            if vlan_id not in self.managed_vlans:
+                continue
+
+            # parse vrf
+            vrf_tdn = svi['rtvrfMbr-items']['tDn']
+            m = self.VRF_TDN_RE.match(vrf_tdn)
+            if not m:
+                LOG.warning("SVI %s has no parsable vrf tDN, skipping it - tDN was %s", vlan_id, vrf_tdn)
+                continue
+            vrf = m.group("vrf")
+
+            # ip addresses: "/System/ipv4-items/inst-items/dom-items/Dom-list[name=CC-CLOUD01]
+            #                /if-items/If-list[id=vlan2057]"
+            # FIXME: what if the interface does not exist there?
+            ips = self.api.get(path=[f"/System/ipv4-items/inst-items/dom-items/Dom-list[name={vrf}]"
+                                     f"/if-items/If-list[id={svi['id']}]/addr-items"])
+            primary_ip = None
+            secondary_ips = []
+            for ip in ips["Addr-list"]:
+                if ip['type'] == 'primary':
+                    primary_ip = ip['addr']
+                else:
+                    secondary_ips.append(ip['addr'])
+
+            vlan_iface = agent_msg.VlanIface(vlan=vlan_id, vrf=vrf, primary_ip=primary_ip, secondary_ips=secondary_ips)
+            svis.append(vlan_iface)
+        return svis
+
+    def _make_vlan_ifaces_config(self, config_req: NXOSSetConfig, vlan_ifaces: Optional[List[agent_msg.VlanIface]],
+                                 operation: Op):
+        if not vlan_ifaces:
+            return
+
+        if operation in (Op.add, Op.replace):
+            if operation == Op.replace:
+                all_svi_ids = set(self.api.get(path=["/System/intf-items/svi-items/If-list/vlanId"], single=False))
+                keep_svi_ids = {vif.vlan for vif in vlan_ifaces}
+                svi_ids_to_delete = (all_svi_ids & set(self.managed_vlans)) - keep_svi_ids
+                for svi_id in svi_ids_to_delete:
+                    config_req.delete.append(f"/System/intf-items/svi-items/If-list[id=vlan{svi_id}]")
+
+            for vif in vlan_ifaces:
+                vif_id = f"vlan{vif.vlan}"
+                config_req.replace.append((
+                    f"/System/intf-items/svi-items/If-list[id={vif_id}]",
+                    {
+                        "id": vif_id,
+                        "adminSt": "up",
+                        "inbMgmt": "false",
+                        "mtu": 9000,
+                        "rtvrfMbr-items": {
+                            "tDn": f"/System/inst-items/Inst-list[name='{vif.vrf}']"
+                        },
+                        "vlanId": vif.vlan,
+                    }
+                ))
+
+                config_req.replace.append((
+                    f"/System/ipv4-items/inst-items/dom-items/Dom-list[name={vif.vrf}]/"
+                    f"if-items/If-list[id={vif_id}]",
+                    {
+                        "id": vif_id,
+                        "addr-items": {
+                            "Addr-list": [
+                                {
+                                    "addr": ip,
+                                    "type": "primary" if ip == vif.primary_ip else "secondary",
+                                }
+                                for ip in [vif.primary_ip] + vif.secondary_ips or []
+                            ],
+                        },
+                        "directedBroadcast": "disabled",
+                        "forward": "disabled",
+                        "urpf": "disabled"
+                    }
+                ))
+
+                config_req.replace.append((
+                    f"/System/icmpv4-items/inst-items/dom-items/Dom-list[name={vif.vrf}]/"
+                    f"if-items/If-list[id={vif_id}]",
+                    {"id": vif_id, "ctrl": "port-unreachable"}
+                ))
+
+                config_req.replace.append((
+                    f"/System/hmm-items/fwdinst-items/if-items/FwdIf-list[id={vif_id}]",
+                    {
+                        'id': vif_id,
+                        'adminSt': 'enabled',
+                        'hybrid-items': {'advertiseGW': False, 'enable': False},
+                        'mode': 'anycastGW',
+                    }
+                ))
+        else:
+            for vif in vlan_ifaces:
+                config_req.delete.append(f"/System/intf-items/svi-items/If-list[id=vlan{vif.vlan}]")
+
     def _make_config_from_update(self, config: agent_msg.SwitchConfigUpdate) -> NXOSSetConfig:
+        svi_vlans = []
+        if config.vlan_ifaces:
+            svi_vlans = [svi.vlan for svi in config.vlan_ifaces]
+
         # build config
         config_req = NXOSSetConfig()
-        self._make_vlan_and_vxmap_config(config_req, config.vlans, config.vxlan_maps, config.operation)
+        self._make_vlan_and_vxmap_config(config_req, config.vlans, config.vxlan_maps, svi_vlans, config.operation)
         self._make_bgp_config(config_req, config.bgp, config.vxlan_maps, config.operation)
         self._make_ifaces_config(config_req, config.ifaces, config.operation)
-        # FIXME: vlan ifaces
+        self._make_vlan_ifaces_config(config_req, config.vlan_ifaces, config.operation)
 
         return config_req
 
     def _get_config(self) -> agent_msg.SwitchConfigUpdate:
         config = agent_msg.SwitchConfigUpdate(switch_name=self.name, operation=Op.add)
         config.vlans, config.vxlan_maps = self.get_vlan_and_vxmap_config()
-        # FIXME: still broken https://sentry.qa-de-1.cloud.sap/monsoon/neutron/issues/1801879/?query=is%3Aunresolved  # noqa
-        # config.bgp = self.get_bgp_config(config.vxlan_maps)
+        config.bgp = self.get_bgp_config(config.vxlan_maps)
         config.ifaces = self.get_ifaces_config()
-        # FIXME: vlan ifaces
+        config.vlan_ifaces = self.get_vlan_ifaces()
         return config
 
     def _apply_config_update(self, config):
