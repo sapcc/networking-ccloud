@@ -18,6 +18,7 @@ import json
 
 from neutron.common import config
 from neutron.plugins.ml2 import models as ml2_models
+from neutron import policy
 from neutron_lib import context
 from neutron_lib.db import api as db_api
 from oslo_config import cfg, fixture as config_fixture
@@ -28,6 +29,9 @@ class TestCase(base.BaseTestCase):
     """Test case base class for all unit tests."""
 
     def setUp(self):
+        config.register_common_config_options()
+        config.init(args=[])
+        policy.init(suppress_deprecation_warnings=True)
         self.useFixture(config_fixture.Config())
 
         super().setUp()
