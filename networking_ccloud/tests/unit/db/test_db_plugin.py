@@ -138,9 +138,9 @@ class TestDBPluginNetworkSyncData(test_segment.SegmentTestCase, base.PortBinding
             ctx.session.add(extnet_models.ExternalNetwork(network_id=self._net_c['id']))
 
         self._subnet_c_1 = self._make_subnet("json", {"network": self._net_c}, "1.1.1.1", "1.1.1.0/24",
-                                             subnetpool_id=self._subnetpool_reg['id'])['subnet']
+                                             subnetpool_id=self._subnetpool_reg['id'], as_admin=True)['subnet']
         self._subnet_c_2 = self._make_subnet("json", {"network": self._net_c}, "2.2.2.2", "2.2.2.0/24",
-                                             subnetpool_id=self._subnetpool_reg['id'])['subnet']
+                                             subnetpool_id=self._subnetpool_reg['id'], as_admin=True)['subnet']
 
         # az aware network
         self._subnetpool_az = self._make_subnetpool("json", prefixes=["1.3.0.0/16"], tenant_id="foo",
@@ -163,7 +163,7 @@ class TestDBPluginNetworkSyncData(test_segment.SegmentTestCase, base.PortBinding
                                            tag="availability-zone::qa-de-1d"))
 
         self._subnet_d_1 = self._make_subnet("json", {"network": self._net_d}, "1.3.1.1", "1.3.1.0/24",
-                                             subnetpool_id=self._subnetpool_az['id'])['subnet']
+                                             subnetpool_id=self._subnetpool_az['id'], as_admin=True)['subnet']
 
         # fix segment index
         with db_api.CONTEXT_WRITER.using(ctx):

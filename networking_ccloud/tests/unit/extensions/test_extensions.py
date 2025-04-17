@@ -164,7 +164,7 @@ class TestNetworkExtension(test_segment.SegmentTestCase, base.PortBindingHelper,
                                                       host='nova-compute-seagull')
         self._snp_b = self._make_subnetpool("json", prefixes=["1.1.0.0/16"], tenant_id="foo", name="sp")['subnetpool']
         self._subnet_b_1 = self._make_subnet("json", network={'network': self._net_b}, subnetpool_id=self._snp_b['id'],
-                                             cidr="1.1.1.0/24", gateway="1.1.1.1")
+                                             cidr="1.1.1.0/24", gateway="1.1.1.1", as_admin=True)
 
         with db_api.CONTEXT_WRITER.using(self.ctx):
             self.ctx.session.add(extnet_models.ExternalNetwork(network_id=self._net_b['id']))

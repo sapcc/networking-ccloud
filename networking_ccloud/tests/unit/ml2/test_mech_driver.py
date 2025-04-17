@@ -570,39 +570,41 @@ class TestCCFabricMechanismDriver(CCFabricMechanismDriverTestBase):
             self.assertEqual(res.json["NeutronError"]["type"], "AvailabilityZoneNotFound")
 
     def test_bind_port_az_hint_fail_on_mismatch(self):
-        with self.network(availability_zone_hints=["qa-de-1b"]) as network:
-            with self.subnet(network=network):
+        with self.network(availability_zone_hints=["qa-de-1b"], as_admin=True) as network:
+            with self.subnet(network=network, as_admin=True):
                 res = self._create_port(self.fmt, network['network']['id'], expected_res=400,
-                                        arg_list=('binding:host_id',), **{'binding:host_id': 'node001-seagull'})
+                                        arg_list=('binding:host_id',), **{'binding:host_id': 'node001-seagull'},
+                                        is_admin=True)
                 self.assertEqual(res.json["NeutronError"]["type"], "HostNetworkAZAffinityError")
 
     def test_bind_port_az_hint_match(self):
-        with self.network(availability_zone_hints=["qa-de-1a"]) as network:
-            with self.subnet(network=network):
+        with self.network(availability_zone_hints=["qa-de-1a"], as_admin=True) as network:
+            with self.subnet(network=network, as_admin=True):
                 with mock.patch('neutron.plugins.ml2.plugin.Ml2Plugin._after_create_port') as acp:
                     acp.return_value = {}
                     res = self._create_port(self.fmt, network['network']['id'], expected_res=200,
-                                            arg_list=('binding:host_id',), **{'binding:host_id': 'node001-seagull'})
+                                            arg_list=('binding:host_id',), **{'binding:host_id': 'node001-seagull'},
+                                            is_admin=True)
                     acp.assert_called()
                     self.assertEqual(res.status_int, 201)
 
     def test_create_subnet_az_hint_matches(self):
-        net_kwargs = {'arg_list': (extnet_api.EXTERNAL,), extnet_api.EXTERNAL: True}
+        net_kwargs = {'arg_list': (extnet_api.EXTERNAL,), extnet_api.EXTERNAL: True, 'as_admin': True}
         with self.network(**net_kwargs) as network:
             with self.subnetpool(["1.1.0.0/16", "1.2.0.0/24"], name="foo", tenant_id="foo", admin=True) as snp:
                 with self.subnet(network=network, cidr="1.1.1.0/24", gateway_ip="1.1.1.1",
-                                 subnetpool_id=snp['subnetpool']['id']) as subnet:
+                                 subnetpool_id=snp['subnetpool']['id'], as_admin=True) as subnet:
                     self.assertIsNotNone(subnet)
 
     def test_create_subnet_network_az_snp_no_az_fails(self):
-        net_kwargs = {'arg_list': (extnet_api.EXTERNAL,), extnet_api.EXTERNAL: True}
+        net_kwargs = {'arg_list': (extnet_api.EXTERNAL,), extnet_api.EXTERNAL: True, 'as_admin': True}
         with self.network(availability_zone_hints=["qa-de-1a"], **net_kwargs) as network:
             with self.subnetpool(["1.1.0.0/16", "1.2.0.0/24"], address_scope_id=self._address_scope['id'], name="foo",
                                  tenant_id="foo", admin=True) as snp:
                 resp = self._create_subnet(self.fmt, cidr="1.1.1.0/24", gateway_ip="1.1.1.1",
                                            name="foo",
                                            net_id=network['network']['id'], tenant_id=network['network']['tenant_id'],
-                                           subnetpool_id=snp['subnetpool']['id'])
+                                           subnetpool_id=snp['subnetpool']['id'], as_admin=True)
                 self.assertEqual(400, resp.status_code)
                 self.assertEqual("SubnetSubnetPoolAZAffinityError", resp.json['NeutronError']['type'])
                 self.assertIsNotNone(re.search(f"network {network['network']['id']} has AZ hint qa-de-1a,.*"
@@ -610,7 +612,7 @@ class TestCCFabricMechanismDriver(CCFabricMechanismDriverTestBase):
                                                resp.json['NeutronError']['message']))
 
     def test_create_subnet_network_no_az_snp_az_fails(self):
-        net_kwargs = {'arg_list': (extnet_api.EXTERNAL,), extnet_api.EXTERNAL: True}
+        net_kwargs = {'arg_list': (extnet_api.EXTERNAL,), extnet_api.EXTERNAL: True, 'as_admin': True}
         with self.network(**net_kwargs) as network:
             with self.subnetpool(["1.1.0.0/16", "1.2.0.0/24"], address_scope_id=self._address_scope['id'], name="foo",
                                  tenant_id="foo", admin=True) as snp:
@@ -622,7 +624,7 @@ class TestCCFabricMechanismDriver(CCFabricMechanismDriverTestBase):
                 resp = self._create_subnet(self.fmt, cidr="1.1.1.0/24", gateway_ip="1.1.1.1",
                                            name="foo",
                                            net_id=network['network']['id'], tenant_id=network['network']['tenant_id'],
-                                           subnetpool_id=snp['subnetpool']['id'])
+                                           subnetpool_id=snp['subnetpool']['id'], as_admin=True)
                 self.assertEqual(400, resp.status_code)
                 self.assertEqual("SubnetSubnetPoolAZAffinityError", resp.json['NeutronError']['type'])
                 self.assertIsNotNone(re.search(f"network {network['network']['id']} has AZ hint None,.*"
@@ -631,21 +633,21 @@ class TestCCFabricMechanismDriver(CCFabricMechanismDriverTestBase):
 
     def test_create_subnet_network_snp_az_hint_works_when_turned_off(self):
         cfg.CONF.set_override('subnet_subnetpool_az_check_enabled', False, group='ml2_cc_fabric')
-        net_kwargs = {'arg_list': (extnet_api.EXTERNAL,), extnet_api.EXTERNAL: True}
+        net_kwargs = {'arg_list': (extnet_api.EXTERNAL,), extnet_api.EXTERNAL: True, 'as_admin': True}
         with self.network(availability_zone_hints=["qa-de-1a"], **net_kwargs) as network:
             with self.subnetpool(["1.1.0.0/16", "1.2.0.0/24"], address_scope_id=self._address_scope['id'], name="foo",
                                  tenant_id="foo", admin=True) as snp:
                 with self.subnet(network=network, cidr="1.1.1.0/24", gateway_ip="1.1.1.1",
-                                 subnetpool_id=snp['subnetpool']['id']) as subnet:
+                                 subnetpool_id=snp['subnetpool']['id'], as_admin=True) as subnet:
                     self.assertIsNotNone(subnet)
 
     def test_bind_port_external_network(self):
-        net_kwargs = {'arg_list': (extnet_api.EXTERNAL,), extnet_api.EXTERNAL: True}
+        net_kwargs = {'arg_list': (extnet_api.EXTERNAL,), extnet_api.EXTERNAL: True, 'as_admin': True}
         with self.network(**net_kwargs) as network:
             with self.subnetpool(["1.1.0.0/16", "1.2.0.0/24"], address_scope_id=self._address_scope.id, name="foo",
                                  tenant_id="foo", admin=True) as snp:
                 with self.subnet(network=network, cidr="1.1.1.0/24", gateway_ip="1.1.1.1",
-                                 subnetpool_id=snp['subnetpool']['id']) as subnet:
+                                 subnetpool_id=snp['subnetpool']['id'], as_admin=True) as subnet:
                     with mock.patch.object(CCFabricSwitchAgentRPCClient, 'apply_config_update') as mock_acu:
                         context1 = self._test_bind_port(fake_host='nova-compute-seagull',
                                                         network=network, subnet=subnet)
@@ -676,12 +678,12 @@ class TestCCFabricMechanismDriver(CCFabricMechanismDriverTestBase):
                             ], swcfg.bgp.vrfs)
 
     def test_bind_port_external_network_with_ext_announcable(self):
-        net_kwargs = {'arg_list': (extnet_api.EXTERNAL,), extnet_api.EXTERNAL: True}
+        net_kwargs = {'arg_list': (extnet_api.EXTERNAL,), extnet_api.EXTERNAL: True, 'as_admin': True}
         with self.network(**net_kwargs) as network:
             with self.subnetpool(["1.1.1.0/24", "1.2.0.0/24"], address_scope_id=self._address_scope.id, name="foo",
                                  tenant_id="foo", admin=True) as snp:
                 with self.subnet(network=network, cidr="1.1.1.0/24", gateway_ip="1.1.1.1",
-                                 subnetpool_id=snp['subnetpool']['id']) as subnet:
+                                 subnetpool_id=snp['subnetpool']['id'], as_admin=True) as subnet:
                     with mock.patch.object(CCFabricSwitchAgentRPCClient, 'apply_config_update') as mock_acu:
                         context1 = self._test_bind_port(fake_host='nova-compute-seagull',
                                                         network=network, subnet=subnet)
@@ -712,7 +714,7 @@ class TestCCFabricMechanismDriver(CCFabricMechanismDriverTestBase):
 
     def test_bind_port_external_network_az_local(self):
         ctx = context.get_admin_context()
-        net_kwargs = {'arg_list': (extnet_api.EXTERNAL,), extnet_api.EXTERNAL: True}
+        net_kwargs = {'arg_list': (extnet_api.EXTERNAL,), extnet_api.EXTERNAL: True, 'as_admin': True}
         with self.network(availability_zone_hints=["qa-de-1a"], **net_kwargs) as network:
             with self.subnetpool(["1.1.0.0/16", "1.2.0.0/24"], address_scope_id=self._address_scope.id, name="foo",
                                  tenant_id="foo", admin=True) as snp:
@@ -722,7 +724,7 @@ class TestCCFabricMechanismDriver(CCFabricMechanismDriverTestBase):
                                     tag="availability-zone::qa-de-1a"))
 
                 with self.subnet(network=network, cidr="1.1.1.0/24", gateway_ip="1.1.1.1",
-                                 subnetpool_id=snp['subnetpool']['id']) as subnet:
+                                 subnetpool_id=snp['subnetpool']['id'], as_admin=True) as subnet:
                     with mock.patch.object(CCFabricSwitchAgentRPCClient, 'apply_config_update') as mock_acu:
                         context1 = self._test_bind_port(fake_host='nova-compute-seagull',
                                                         network=network, subnet=subnet)
@@ -753,7 +755,7 @@ class TestCCFabricMechanismDriver(CCFabricMechanismDriverTestBase):
                             ], swcfg.bgp.vrfs)
 
     def test_delete_port_external_network_segment_not_in_use(self):
-        net_kwargs = {'arg_list': (extnet_api.EXTERNAL,), extnet_api.EXTERNAL: True}
+        net_kwargs = {'arg_list': (extnet_api.EXTERNAL,), extnet_api.EXTERNAL: True, 'as_admin': True}
         with self.network(**net_kwargs) as network:
             # create existing binding, so we have something to delete
             seg_0 = {'network_id': network['network']['id'], 'network_type': 'vxlan', 'segmentation_id': 232323}
@@ -764,7 +766,7 @@ class TestCCFabricMechanismDriver(CCFabricMechanismDriverTestBase):
             with self.subnetpool(["1.1.0.0/16", "1.2.0.0/24"], address_scope_id=self._address_scope.id, name="foo",
                                  tenant_id="foo", admin=True) as snp:
                 with self.subnet(network=network, cidr="1.1.1.0/24", gateway_ip="1.1.1.1",
-                                 subnetpool_id=snp['subnetpool']['id']) as subnet:
+                                 subnetpool_id=snp['subnetpool']['id'], as_admin=True) as subnet:
                     with self.port(subnet=subnet) as port:
                         port['port']['binding:host_id'] = "nova-compute-seagull"
                         with mock.patch('neutron.plugins.ml2.driver_context.PortContext.binding_levels',
@@ -807,10 +809,10 @@ class TestCCFabricMechanismDriver(CCFabricMechanismDriverTestBase):
                                 ], swcfg.bgp.vrfs)
 
     def test_on_subnet_crud_network_sync_if_external(self):
-        net_kwargs = {'arg_list': (extnet_api.EXTERNAL,), extnet_api.EXTERNAL: True}
+        net_kwargs = {'arg_list': (extnet_api.EXTERNAL,), extnet_api.EXTERNAL: True, 'as_admin': True}
         with mock.patch.object(self.mech_driver, '_sync_network') as mock_sn, self.network(**net_kwargs) as network:
             with self.subnet(network=network, cidr="1.1.1.0/24", gateway_ip="1.1.1.1",
-                             allocation_pools=[{'start': '1.1.1.2', 'end': '1.1.1.22'}]) as subnet:
+                             allocation_pools=[{'start': '1.1.1.2', 'end': '1.1.1.22'}], as_admin=True) as subnet:
                 subnet_id = subnet['subnet']['id']
 
                 # create call
@@ -916,7 +918,7 @@ class TestCCFabricMechanismDriverInterconnects(CCFabricMechanismDriverTestBase):
 
     def test_transit_bgw_allocated_on_network_create(self):
         with mock.patch.object(CCFabricSwitchAgentRPCClient, 'apply_config_update') as mock_acu:
-            net_attrs = {pnet.NETWORK_TYPE: "vxlan", pnet.SEGMENTATION_ID: 23}
+            net_attrs = {pnet.NETWORK_TYPE: "vxlan", pnet.SEGMENTATION_ID: 23, 'as_admin': True}
             net = self._make_network(self.fmt, "net1", True,
                                      arg_list=(pnet.NETWORK_TYPE, pnet.SEGMENTATION_ID),
                                      **net_attrs)['network']
@@ -945,13 +947,13 @@ class TestCCFabricMechanismDriverInterconnects(CCFabricMechanismDriverTestBase):
     def test_transit_bgw_allocated_on_network_create_for_external(self):
         with mock.patch.object(CCFabricSwitchAgentRPCClient, 'apply_config_update') as mock_acu:
             net_attrs = {pnet.NETWORK_TYPE: "vxlan", pnet.SEGMENTATION_ID: 23,
-                         extnet_api.EXTERNAL: True}
+                         extnet_api.EXTERNAL: True, 'as_admin': True}
             with self.network("net1", arg_list=(pnet.NETWORK_TYPE, pnet.SEGMENTATION_ID, extnet_api.EXTERNAL),
                               **net_attrs) as network:
                 with self.subnetpool(["1.1.0.0/16", "1.2.0.0/24"], name="foo", tenant_id="foo", admin=True,
                                      address_scope_id=self._address_scope.id) as snp:
                     with self.subnet(network=network, cidr="1.1.1.0/24", gateway_ip="1.1.1.1",
-                                     subnetpool_id=snp['subnetpool']['id']):
+                                     subnetpool_id=snp['subnetpool']['id'], as_admin=True):
                         net = network['network']
                         mock_acu.assert_called()
 
@@ -984,7 +986,7 @@ class TestCCFabricMechanismDriverInterconnects(CCFabricMechanismDriverTestBase):
     def test_transit_bgw_deallocation_on_network_delete(self):
         with mock.patch.object(CCFabricSwitchAgentRPCClient, 'apply_config_update') as mock_acu:
             # allocate (prerequisite for test)
-            net_attrs = {pnet.NETWORK_TYPE: "vxlan", pnet.SEGMENTATION_ID: 23}
+            net_attrs = {pnet.NETWORK_TYPE: "vxlan", pnet.SEGMENTATION_ID: 23, 'as_admin': True}
             net = self._make_network(self.fmt, "net1", True,
                                      arg_list=(pnet.NETWORK_TYPE, pnet.SEGMENTATION_ID),
                                      **net_attrs)['network']
@@ -1007,7 +1009,7 @@ class TestCCFabricMechanismDriverInterconnects(CCFabricMechanismDriverTestBase):
 
     def test_transit_no_bgw_allocation_and_only_one_transit_for_az_hints(self):
         with mock.patch.object(CCFabricSwitchAgentRPCClient, 'apply_config_update') as mock_acu:
-            net_attrs = {pnet.NETWORK_TYPE: "vxlan", pnet.SEGMENTATION_ID: 23}
+            net_attrs = {pnet.NETWORK_TYPE: "vxlan", pnet.SEGMENTATION_ID: 23, 'as_admin': True}
             net = self._make_network(self.fmt, "net1", True,
                                      availability_zone_hints=["qa-de-1a"],
                                      arg_list=(pnet.NETWORK_TYPE, pnet.SEGMENTATION_ID),
@@ -1025,7 +1027,7 @@ class TestCCFabricMechanismDriverInterconnects(CCFabricMechanismDriverTestBase):
 
     def test_transit_no_bgw_allocation_and_no_transit_if_transit_is_in_other_az(self):
         with mock.patch.object(CCFabricSwitchAgentRPCClient, 'apply_config_update') as mock_acu:
-            net_attrs = {pnet.NETWORK_TYPE: "vxlan", pnet.SEGMENTATION_ID: 23}
+            net_attrs = {pnet.NETWORK_TYPE: "vxlan", pnet.SEGMENTATION_ID: 23, 'as_admin': True}
             net = self._make_network(self.fmt, "net1", True,
                                      availability_zone_hints=["qa-de-1c"],
                                      arg_list=(pnet.NETWORK_TYPE, pnet.SEGMENTATION_ID),
@@ -1056,7 +1058,7 @@ class TestCCFabricMechanismDriverInterconnects(CCFabricMechanismDriverTestBase):
                 registry.subscribe(fake_method, cc_const.CC_TRANSIT, events.AFTER_CREATE)
 
                 # allocate (prerequisite for test)
-                net_attrs = {pnet.NETWORK_TYPE: "vxlan", pnet.SEGMENTATION_ID: 23}
+                net_attrs = {pnet.NETWORK_TYPE: "vxlan", pnet.SEGMENTATION_ID: 23, 'as_admin': True}
                 net = self._make_network(self.fmt, "net1", True,
                                          arg_list=(pnet.NETWORK_TYPE, pnet.SEGMENTATION_ID),
                                          **net_attrs)['network']
