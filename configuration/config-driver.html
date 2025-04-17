@@ -1,16 +1,16 @@
 <!DOCTYPE html>
 
-<html lang="en">
+<html lang="en" data-content_root="../">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
     <title>Driver Configuration &#8212; networking-ccloud 0.0.0 documentation</title>
     <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=fe63c2af" />
-    <link rel="stylesheet" type="text/css" href="../_static/basic.css?v=2a422f08" />
-    <script data-url_root="../" id="documentation_options" src="../_static/documentation_options.js?v=525cde36"></script>
-    <script src="../_static/doctools.js?v=888ff710"></script>
-    <script src="../_static/sphinx_highlight.js?v=4825356b"></script>
+    <link rel="stylesheet" type="text/css" href="../_static/basic.css?v=5c69cfe2" />
+    <script src="../_static/documentation_options.js?v=7026087e"></script>
+    <script src="../_static/doctools.js?v=9bcbadda"></script>
+    <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
     <link rel="next" title="Oslo Config" href="config-oslo.html" />
@@ -114,9 +114,9 @@ ga('send', 'pageview');
               <div class="docs-body" role="main">
 
   <section id="driver-configuration">
-<h1>Driver Configuration<a class="headerlink" href="#driver-configuration" title="Permalink to this heading">¶</a></h1>
+<h1>Driver Configuration<a class="headerlink" href="#driver-configuration" title="Link to this heading">¶</a></h1>
 <section id="example-configuration">
-<h2>Example Configuration<a class="headerlink" href="#example-configuration" title="Permalink to this heading">¶</a></h2>
+<h2>Example Configuration<a class="headerlink" href="#example-configuration" title="Link to this heading">¶</a></h2>
 <p>The top level configuration looks as follows:</p>
 <div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">global_config</span><span class="p">:</span> <span class="o">*</span><span class="k">global</span><span class="o">-</span><span class="n">config</span>
 <span class="n">hostgroups</span><span class="p">:</span> <span class="o">*</span><span class="n">hostgroups</span>
@@ -125,7 +125,7 @@ ga('send', 'pageview');
 </div>
 </section>
 <section id="global-config">
-<h2><code class="code docutils literal notranslate"><span class="pre">global_config</span></code><a class="headerlink" href="#global-config" title="Permalink to this heading">¶</a></h2>
+<h2><code class="code docutils literal notranslate"><span class="pre">global_config</span></code><a class="headerlink" href="#global-config" title="Link to this heading">¶</a></h2>
 <div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">global_config</span><span class="p">:</span> <span class="o">&amp;</span><span class="k">global</span><span class="o">-</span><span class="n">config</span>
   <span class="n">asn_region</span><span class="p">:</span> <span class="s1">&#39;65130&#39;</span>
   <span class="n">availability_zones</span><span class="p">:</span>
@@ -139,7 +139,7 @@ ga('send', 'pageview');
 </div>
 </section>
 <section id="hostgroups">
-<h2><code class="code docutils literal notranslate"><span class="pre">hostgroups</span></code><a class="headerlink" href="#hostgroups" title="Permalink to this heading">¶</a></h2>
+<h2><code class="code docutils literal notranslate"><span class="pre">hostgroups</span></code><a class="headerlink" href="#hostgroups" title="Link to this heading">¶</a></h2>
 <p>Hostgroups map multiple OpenStack binding hosts to a set of switch ports. A hostgroup may be a metagroup in which case its members are hostgroups again. This can be used to aggregate hosts to a group.
 A hostgroup may have the <cite>direct_binding: true</cite> property in which case no further driver will be called to bind the host.
 Members of a hostgroup that is not a metagroups must be references to a switchport.
@@ -186,7 +186,7 @@ A hostgroup’s default physical network is the physical network of the switchgr
 </div>
 </section>
 <section id="infra-networks">
-<span id="infrastructure-network-config"></span><h2><code class="code docutils literal notranslate"><span class="pre">infra_networks</span></code><a class="headerlink" href="#infra-networks" title="Permalink to this heading">¶</a></h2>
+<span id="infrastructure-network-config"></span><h2><code class="code docutils literal notranslate"><span class="pre">infra_networks</span></code><a class="headerlink" href="#infra-networks" title="Link to this heading">¶</a></h2>
 <p>Infrastructure networks (<code class="code docutils literal notranslate"><span class="pre">infra_networks</span></code>) are required to deliver the platform’s control plane communication.
 They can be used for hypervisor specific purposes, management access or provisioning and can be pure layer 2 networks or routed layer 3 networks with an anycast gateway bound on the leaf switch.
 If the network is supposed to be layer 3, a network and VRF must be provided. BGP aggregates may also be provided and will additionally be sourced from all switches the hostgroup is a member of.
@@ -224,7 +224,7 @@ If an Infrastructure Network is defined on a metagroup, it will be configured on
 </div>
 </section>
 <section id="extra-vlans">
-<span id="extra-vlan-config"></span><h2><code class="code docutils literal notranslate"><span class="pre">extra_vlans</span></code><a class="headerlink" href="#extra-vlans" title="Permalink to this heading">¶</a></h2>
+<span id="extra-vlan-config"></span><h2><code class="code docutils literal notranslate"><span class="pre">extra_vlans</span></code><a class="headerlink" href="#extra-vlans" title="Link to this heading">¶</a></h2>
 <p>The driver assumes full control over a managed interface’s allowed VLAN list. Hence any VLAN not known by the driver would be removed from the allowed VLAN list causing unwanted side effects. In the unfortunate case of VLANs that are not driver provisioned but still need to be on a driver managed port, the extra_vlans list comes into play. Extra VLANs on a metagroup will be programmed on all ports of metagroup memebers.</p>
 <div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">extra_vlans</span><span class="p">:</span> <span class="o">&amp;</span><span class="n">extra_vlans</span>
 <span class="o">-</span> <span class="mi">101</span>
@@ -234,7 +234,7 @@ If an Infrastructure Network is defined on a metagroup, it will be configured on
 </div>
 </section>
 <section id="switchgroups">
-<h2><code class="code docutils literal notranslate"><span class="pre">switchgroups</span></code><a class="headerlink" href="#switchgroups" title="Permalink to this heading">¶</a></h2>
+<h2><code class="code docutils literal notranslate"><span class="pre">switchgroups</span></code><a class="headerlink" href="#switchgroups" title="Link to this heading">¶</a></h2>
 <div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">switchgroups</span><span class="p">:</span> <span class="o">&amp;</span><span class="n">switchgroups</span>
 <span class="o">-</span> <span class="n">asn</span><span class="p">:</span> <span class="s1">&#39;65130.4113&#39;</span>
   <span class="n">availability_zone</span><span class="p">:</span> <span class="n">qa</span><span class="o">-</span><span class="n">de</span><span class="o">-</span><span class="mi">1</span><span class="n">d</span>
@@ -272,7 +272,7 @@ If an Infrastructure Network is defined on a metagroup, it will be configured on
           
           </div>
           <div class="row docs-byline bottom">
-            <div class="docs-updated">this page last updated: 2024-11-22 15:19:13</div>
+            <div class="docs-updated">this page last updated: 2025-04-17 11:03:15</div>
           </div>
           <div class="row">
             <div class="col-lg-8 col-md-8 col-sm-8 docs-license">

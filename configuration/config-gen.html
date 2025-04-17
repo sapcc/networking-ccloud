@@ -1,16 +1,16 @@
 <!DOCTYPE html>
 
-<html lang="en">
+<html lang="en" data-content_root="../">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
     <title>Netbox Config Generator &#8212; networking-ccloud 0.0.0 documentation</title>
     <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=fe63c2af" />
-    <link rel="stylesheet" type="text/css" href="../_static/basic.css?v=2a422f08" />
-    <script data-url_root="../" id="documentation_options" src="../_static/documentation_options.js?v=525cde36"></script>
-    <script src="../_static/doctools.js?v=888ff710"></script>
-    <script src="../_static/sphinx_highlight.js?v=4825356b"></script>
+    <link rel="stylesheet" type="text/css" href="../_static/basic.css?v=5c69cfe2" />
+    <script src="../_static/documentation_options.js?v=7026087e"></script>
+    <script src="../_static/doctools.js?v=9bcbadda"></script>
+    <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
     <link rel="next" title="Driver Configuration" href="config-driver.html" />
@@ -114,26 +114,26 @@ ga('send', 'pageview');
               <div class="docs-body" role="main">
 
   <section id="netbox-config-generator">
-<h1>Netbox Config Generator<a class="headerlink" href="#netbox-config-generator" title="Permalink to this heading">¶</a></h1>
+<h1>Netbox Config Generator<a class="headerlink" href="#netbox-config-generator" title="Link to this heading">¶</a></h1>
 <p>Netbox Config Generator will fetch all devices that belong to below Netbox roles. It will then fetch all interfaces and create hostgroups from clusters that are connected to the interfaces.
 The driver configuration is generated based on input from external tooling (Netbox).</p>
 <p>A reference how the Config Generator expects Netbox objects can be found in <a class="reference external" href="https://github.com/sapcc/networking-ccloud/blob/HEAD/networking_ccloud/tools/netbox_modelr.py">netbox_model.py</a></p>
 <section id="run">
-<h2>Run<a class="headerlink" href="#run" title="Permalink to this heading">¶</a></h2>
+<h2>Run<a class="headerlink" href="#run" title="Link to this heading">¶</a></h2>
 <p>The config generator is available under <code class="code docutils literal notranslate"><span class="pre">networking_ccloud/tools/netbox_config_gen.py</span></code> using the entrypoint <code class="code docutils literal notranslate"><span class="pre">cc-netbox-config-gen</span></code>.</p>
 <p>It does support nesting the configuration under certain YAML keys if the config need to be picked up by helm. Use the <code class="code docutils literal notranslate"><span class="pre">--wrap-config-in</span></code> parameter for that.</p>
 <p>Vault references can also be injected instead of plain-text passwords using the <code class="code docutils literal notranslate"><span class="pre">--vault-ref</span></code> parameter.</p>
 <p>In our environment, we also need a mapping from OpenStack address-scopes to externally routable VRFs. We can supply that mapping using the <code class="code docutils literal notranslate"><span class="pre">--address-scope-vrf-map</span></code> parameter.
 Multiple mappings can be supplied. The Config Generator will check the YAML file for any top level key that is <code class="code docutils literal notranslate"><span class="pre">address_scopes</span></code>, <code class="code docutils literal notranslate"><span class="pre">local_address_scopes</span></code> or <code class="code docutils literal notranslate"><span class="pre">global_address_scopes</span></code> and will then try to parse a VRF and an address scope name out of it. For this to work, the list items must have a <code class="code docutils literal notranslate"><span class="pre">name</span></code> and <code class="code docutils literal notranslate"><span class="pre">vrf</span></code> key.</p>
 <section id="example">
-<h3>Example<a class="headerlink" href="#example" title="Permalink to this heading">¶</a></h3>
+<h3>Example<a class="headerlink" href="#example" title="Link to this heading">¶</a></h3>
 <div class="highlight-default notranslate"><div class="highlight"><pre><span></span>cc-netbox-config-gen -r $OS_REGION_NAME -u MYAPIUSER -V $OS_REGION_NAME/my/vault/path -a $PYCCLOUD_SECRETS_REPO_PATH/global/values/neutron-networking-global.yaml --wrap-config-in cc_fabric/driver_config -o $PATH_TO_HELM_VALUES/$OS_REGION_NAME/values/neutron-cc-fabric.yaml
 </pre></div>
 </div>
 </section>
 </section>
 <section id="managed-devices">
-<h2>Managed Devices<a class="headerlink" href="#managed-devices" title="Permalink to this heading">¶</a></h2>
+<h2>Managed Devices<a class="headerlink" href="#managed-devices" title="Link to this heading">¶</a></h2>
 <p>All fabric members must be of the following Netbox roles:</p>
 <ul class="simple">
 <li><p><strong>EVPN Spine</strong>: Used for all spine switches, not configured by driver</p></li>
@@ -141,7 +141,7 @@ Multiple mappings can be supplied. The Config Generator will check the YAML file
 </ul>
 <p>Devices can be explicitly ignored if they are tagged using the <code class="code docutils literal notranslate"><span class="pre">cc-net-driver-ignore</span></code> tag. Devices will be picked up when they are in state <em>staged</em> or <em>active</em>.</p>
 <section id="hostnames">
-<h3>Hostnames<a class="headerlink" href="#hostnames" title="Permalink to this heading">¶</a></h3>
+<h3>Hostnames<a class="headerlink" href="#hostnames" title="Link to this heading">¶</a></h3>
 <p>Leaf pair hostnames must be compliant with the following regex:</p>
 <div class="highlight-default notranslate"><div class="highlight"><pre><span></span>^(?P&lt;region&gt;\w{2}-\w{2}-\d)-sw(?P&lt;az&gt;\d)(?P&lt;pod&gt;\d)(?P&lt;switchgroup&gt;\d{2})(?P&lt;leaf&gt;[ab])(?:-(?P&lt;role&gt;[a-z]+(?P&lt;bb_no&gt;[0-9]+)?))$
 </pre></div>
@@ -178,10 +178,10 @@ Multiple mappings can be supplied. The Config Generator will check the YAML file
 <p>Each leaf pair (MLAG/VPC) requires a fabric unique 4 digit ID <code class="code docutils literal notranslate"><span class="pre">(f{az}{pod}{switchgroup})</span></code> with an a/b identifier for leaf in group per leaf pair used to generate device specific configuration settings (ASN etc.)</p>
 </section>
 <section id="leaf-types">
-<h3>Leaf Types<a class="headerlink" href="#leaf-types" title="Permalink to this heading">¶</a></h3>
+<h3>Leaf Types<a class="headerlink" href="#leaf-types" title="Link to this heading">¶</a></h3>
 <p>All fabric leaf switches must be tagged with exactly one of below subrole identifiers.</p>
 <section id="ccloud-pod-leaves">
-<h4>CCloud Pod Leaves<a class="headerlink" href="#ccloud-pod-leaves" title="Permalink to this heading">¶</a></h4>
+<h4>CCloud Pod Leaves<a class="headerlink" href="#ccloud-pod-leaves" title="Link to this heading">¶</a></h4>
 <p>Any leaf connecting any CC platform equipment must be tagged with the applicable tag of the following:</p>
 <ul class="simple">
 <li><p>CC-APOD</p></li>
@@ -192,7 +192,7 @@ Multiple mappings can be supplied. The Config Generator will check the YAML file
 </ul>
 </section>
 <section id="cnd-evpn-leaf-types">
-<h4>CND EVPN Leaf Types:<a class="headerlink" href="#cnd-evpn-leaf-types" title="Permalink to this heading">¶</a></h4>
+<h4>CND EVPN Leaf Types:<a class="headerlink" href="#cnd-evpn-leaf-types" title="Link to this heading">¶</a></h4>
 <p>The driver needs to identify certain non-pod leaf pairs to
 push tenant configuration:</p>
 <ul class="simple">
@@ -204,9 +204,9 @@ push tenant configuration:</p>
 </section>
 </section>
 <section id="l2-l3-networks">
-<h2>L2/L3 Networks<a class="headerlink" href="#l2-l3-networks" title="Permalink to this heading">¶</a></h2>
+<h2>L2/L3 Networks<a class="headerlink" href="#l2-l3-networks" title="Link to this heading">¶</a></h2>
 <section id="tenant-network-vlan-range">
-<h3>Tenant Network VLAN range<a class="headerlink" href="#tenant-network-vlan-range" title="Permalink to this heading">¶</a></h3>
+<h3>Tenant Network VLAN range<a class="headerlink" href="#tenant-network-vlan-range" title="Link to this heading">¶</a></h3>
 <p>The default VLAN range for any physnet will be assumed to be in the range from <strong>2000-3750</strong>.</p>
 <p>If for a device a different (or reduced) range is in effect it must be expressed in the Netbox device config context as a list of single values or ranges for that device, ranges are including first and last value. This must look like the following:</p>
 <div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="p">{</span>
@@ -224,7 +224,7 @@ push tenant configuration:</p>
 </div>
 </section>
 <section id="infrastructure-networks">
-<span id="infrastructure-networks-from-netbox"></span><h3>Infrastructure Networks<a class="headerlink" href="#infrastructure-networks" title="Permalink to this heading">¶</a></h3>
+<span id="infrastructure-networks-from-netbox"></span><h3>Infrastructure Networks<a class="headerlink" href="#infrastructure-networks" title="Link to this heading">¶</a></h3>
 <p>also see <a class="reference internal" href="config-driver.html#infrastructure-network-config"><span class="std std-ref">infra_networks</span></a>.</p>
 <p>Infrastructure Networks can be pure layer 2 or layer 3. These must be modelled in Netbox as follows in order to be picked up.</p>
 <p>Layer 2 Infrastructure Networks need to have:</p>
@@ -248,7 +248,7 @@ push tenant configuration:</p>
 <li><p>the SVI interface must also have the VLAN it corresponds to set as <em>unatagged_vlan</em>.</p></li>
 </ul>
 <section id="dhcp-relay-not-implemented-so-far">
-<h4>DHCP Relay (not implemented so far)<a class="headerlink" href="#dhcp-relay-not-implemented-so-far" title="Permalink to this heading">¶</a></h4>
+<h4>DHCP Relay (not implemented so far)<a class="headerlink" href="#dhcp-relay-not-implemented-so-far" title="Link to this heading">¶</a></h4>
 <p>For infra networks requiring a DHCP relay one or more Netbox <em>Tags</em>
 must be added to the <em>VLAN</em> object, one for each DHCP relay server
 in the form:</p>
@@ -259,7 +259,7 @@ in the form:</p>
 </section>
 </section>
 <section id="extra-vlans">
-<span id="extra-vlans-from-netbox"></span><h3>Extra VLANs<a class="headerlink" href="#extra-vlans" title="Permalink to this heading">¶</a></h3>
+<span id="extra-vlans-from-netbox"></span><h3>Extra VLANs<a class="headerlink" href="#extra-vlans" title="Link to this heading">¶</a></h3>
 <p>also see <a class="reference internal" href="config-driver.html#extra-vlan-config"><span class="std std-ref">extra_vlans</span></a>.</p>
 <p>Whenever an extra VLAN is required, it needs to be modelled in Netbox in order to be picked up:</p>
 <ul class="simple">
@@ -275,7 +275,7 @@ in the form:</p>
 </ul>
 </section>
 <section id="l2-networks-vlan-to-vni-mapping">
-<span id="vlan-to-vni"></span><h3>L2 Networks VLAN to VNI mapping<a class="headerlink" href="#l2-networks-vlan-to-vni-mapping" title="Permalink to this heading">¶</a></h3>
+<span id="vlan-to-vni"></span><h3>L2 Networks VLAN to VNI mapping<a class="headerlink" href="#l2-networks-vlan-to-vni-mapping" title="Link to this heading">¶</a></h3>
 <p>Netbox does not yet support a model for overlay network VNIs, the following conventions are used:</p>
 <table class="docutils align-default">
 <thead>
@@ -321,16 +321,16 @@ in the form:</p>
 </section>
 </section>
 <section id="ports-and-interfaces">
-<h2>Ports and Interfaces<a class="headerlink" href="#ports-and-interfaces" title="Permalink to this heading">¶</a></h2>
+<h2>Ports and Interfaces<a class="headerlink" href="#ports-and-interfaces" title="Link to this heading">¶</a></h2>
 <p>The driver is responsible for front ports on pod equipment, configures certain infra networks on such ports or
 bundles ports in LAG and MLAG logical interfaces. This section describes Netbox modelling requirements for the driver’s input.</p>
 <section id="cables">
-<h3>Cables<a class="headerlink" href="#cables" title="Permalink to this heading">¶</a></h3>
+<h3>Cables<a class="headerlink" href="#cables" title="Link to this heading">¶</a></h3>
 <p>All cables must be modelled according to physical connections. Cables must be marked as <cite>installed</cite> when installed.
 This does also include Leaf to Spine links, which are necessary for diagnostic tooling.</p>
 </section>
 <section id="rules-for-driver-managed-interfaces">
-<h3>Rules for Driver Managed Interfaces<a class="headerlink" href="#rules-for-driver-managed-interfaces" title="Permalink to this heading">¶</a></h3>
+<h3>Rules for Driver Managed Interfaces<a class="headerlink" href="#rules-for-driver-managed-interfaces" title="Link to this heading">¶</a></h3>
 <p>All interfaces that have a connected endpooint which satisfies the following conditions will be picked up:</p>
 <ul class="simple">
 <li><p><em>connected device</em> -&gt; <em>device role</em> is one of <em>server</em>, <em>neutron-router</em>, <em>loadbalancer</em>, and</p></li>
@@ -352,7 +352,7 @@ This does also include Leaf to Spine links, which are necessary for diagnostic t
 </ul>
 </section>
 <section id="link-aggregation-groups">
-<h3>Link Aggregation Groups<a class="headerlink" href="#link-aggregation-groups" title="Permalink to this heading">¶</a></h3>
+<h3>Link Aggregation Groups<a class="headerlink" href="#link-aggregation-groups" title="Link to this heading">¶</a></h3>
 <p>LAGs must be defined in Netbox by creating a new interface of type <em>LAG</em>, the interface must be <em>enabled</em>. A LAG interface’s
 name must exact-match the full name in the vendor specific configuration, i.e <em>Port-Channel</em> for Arista EOS, <em>Port-channel</em> for Cisco NXOS.
 All member interfaces must be made a member of the LAG interface in Netbox.</p>
@@ -366,7 +366,7 @@ variants:</p>
 </pre></div>
 </div>
 <span id="lag-ranges"></span><table class="docutils align-default" id="id1">
-<caption><span class="caption-text">LAG Ranges</span><a class="headerlink" href="#id1" title="Permalink to this table">¶</a></caption>
+<caption><span class="caption-text">LAG Ranges</span><a class="headerlink" href="#id1" title="Link to this table">¶</a></caption>
 <colgroup>
 <col style="width: 33.3%" />
 <col style="width: 66.7%" />
@@ -396,7 +396,7 @@ variants:</p>
 </table>
 </section>
 <section id="netbox-modeller-lag-id-generation">
-<h3>Netbox Modeller LAG ID Generation<a class="headerlink" href="#netbox-modeller-lag-id-generation" title="Permalink to this heading">¶</a></h3>
+<h3>Netbox Modeller LAG ID Generation<a class="headerlink" href="#netbox-modeller-lag-id-generation" title="Link to this heading">¶</a></h3>
 <p>Driver controlled and hence netbox modeller generated LAGs have the ID space from 100-999.
 We will generate the id based on the <cite>interface index</cite> and the <cite>slot number</cite>. <cite>slot number</cite> refers to either the
 number of the linecard or the number of the interface that is broken out (if breakout cables are used). Interface index
@@ -420,7 +420,7 @@ The LAG ID will then be calculated using <cite>slot_number * 100 + interface_ind
           
           </div>
           <div class="row docs-byline bottom">
-            <div class="docs-updated">this page last updated: 2024-11-22 15:19:13</div>
+            <div class="docs-updated">this page last updated: 2025-04-17 11:03:15</div>
           </div>
           <div class="row">
             <div class="col-lg-8 col-md-8 col-sm-8 docs-license">
