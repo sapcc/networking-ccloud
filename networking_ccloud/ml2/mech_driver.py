@@ -122,6 +122,23 @@ class CCFabricMechanismDriver(ml2_api.MechanismDriver, CCFabricDriverAPI):
         """
         return [service.RpcWorker([self], worker_process_count=0)]
 
+    def _should_bind_directly(self, context, hg_config):
+        # No direct binding here
+        if not hg_config.direct_binding:
+            return False
+
+        # Now we likely want a direct binding, unless the binding request
+        # comes for a VM on the given host
+        port = context.current
+        # We only want to override it for compute
+        device_owner = port.get('device_owner', None)
+        if not device_owner or not device_owner.startswith(
+            nl_const.DEVICE_OWNER_COMPUTE_PREFIX):
+            return
+
+        # So, it is for nova. We only do direct bindings for ironic.
+        return port.get(pb_api.VNIC_TYPE) == pb_api.VNIC_BAREMETAL
+
     def bind_port(self, context):
         """Attempt to bind a port.
 
@@ -187,7 +204,7 @@ class CCFabricMechanismDriver(ml2_api.MechanismDriver, CCFabricDriverAPI):
         if not context.binding_levels:
             # Port has not been bound to any segment --> top level binding --> hpb
             self._bind_port_hierarchical(context, binding_host, hg_config)
-        elif hg_config.direct_binding:
+        elif self._should_bind_directly(context, hg_config):
             self._bind_port_direct(context, binding_host, hg_config)
 
     def _bind_port_hierarchical(self, context, binding_host, hg_config):
@@ -213,7 +230,7 @@ class CCFabricMechanismDriver(ml2_api.MechanismDriver, CCFabricDriverAPI):
         next_segment = context.allocate_dynamic_segment(segment_spec)
 
         # config update (direct bindings are handled in the next step)
-        if not hg_config.direct_binding:
+        if not self._should_bind_directly(context, hg_config):
             # send rpc call to agent
             net_external = context.network.current[extnet_api.EXTERNAL]
             self.handle_binding_host_changed(context._plugin_context, context.current['network_id'],
