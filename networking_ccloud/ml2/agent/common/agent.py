@@ -140,6 +140,7 @@ class CCFabricSwitchAgent(manager.Manager, cc_agent_api.CCFabricSwitchAgentAPI):
 
     @classmethod
     def run_agent_main(cls):
+        common_config.register_common_config_options()
         register_agent_state_opts_helper(cfg.CONF)
         common_config.init(sys.argv[1:])
         common_config.setup_logging()
