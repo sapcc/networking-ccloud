@@ -106,7 +106,7 @@ class CCGNMIClient:
             self.metric_api_retries_exhausted.labels(method=method, **self._def_labels).inc()
             raise cc_exc.SwitchConnectionError(f"{self._switch_name} {method}() {e.__class__.__name__} {e}")
 
-    def get(self, prefix="", path=None, *args, unpack=True, single=True, **kwargs):
+    def get(self, prefix="", path=None, *args, unpack=True, single=True, with_path=False, **kwargs):
         data = self._run_method("get", prefix, path, *args, **kwargs)
         if data and unpack:
             data = data['notification']
@@ -116,10 +116,16 @@ class CCGNMIClient:
                 data = [data[0]['update']]
 
             def _unpack(entry):
+                def _get_item(entry):
+                    if with_path:
+                        return (entry['path'], entry['val'])
+                    else:
+                        return entry['val']
+
                 if single:
-                    return entry[0]['val']
+                    return _get_item(entry[0])
                 else:
-                    return [x['val'] for x in entry]
+                    return [_get_item(x) for x in entry]
 
             data = [_unpack(e) for e in data]
 
