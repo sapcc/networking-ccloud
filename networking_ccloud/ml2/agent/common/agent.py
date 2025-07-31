@@ -18,6 +18,7 @@ import time
 
 from neutron.common import config as common_config
 from neutron.conf.agent.common import register_agent_state_opts_helper
+from neutron.conf.plugins.ml2.drivers.driver_type import register_ml2_drivers_vxlan_opts
 from neutron import manager
 from oslo_config import cfg
 from oslo_log import log as logging
@@ -90,6 +91,7 @@ class CCFabricSwitchAgent(manager.Manager, cc_agent_api.CCFabricSwitchAgentAPI):
 
     def _init_switches(self):
         """Init all switches the agent manages"""
+        managed_vnis = self._get_managed_vnis()
         for sg_conf in self.drv_conf.switchgroups:
             managed_vlans = sg_conf.get_managed_vlans(self.drv_conf)
             az_suffix = self.drv_conf.global_config.get_availability_zone(sg_conf.availability_zone).suffix
@@ -97,9 +99,23 @@ class CCFabricSwitchAgent(manager.Manager, cc_agent_api.CCFabricSwitchAgentAPI):
                 if switch_conf.platform != self.get_switch_class().get_platform():
                     continue
                 switch = self.get_switch_class()(switch_conf, self.drv_conf.global_config.asn_region, az_suffix,
-                                                 managed_vlans, self.get_binary_name())
+                                                 managed_vlans, managed_vnis, self.get_binary_name())
                 LOG.debug("Adding switch %s with user %s to switchpool", switch, switch.user)
                 self._switches.append(switch)
+
+    def _get_managed_vnis(self):
+        ranges = []
+        for entry in cfg.CONF.ml2_type_vxlan.vni_ranges:
+            entry = entry.strip()
+            try:
+                tun_min, tun_max = entry.split(':')
+                tun_min = tun_min.strip()
+                tun_max = tun_max.strip()
+                ranges.append(range(int(tun_min), int(tun_max) + 1))
+            except ValueError as e:
+                LOG.error("Could not parse vni range: %s is invalid - %s", entry, e)
+
+        return ranges
 
     def get_switch_by_name(self, name):
         for switch in self._switches:
@@ -142,6 +158,7 @@ class CCFabricSwitchAgent(manager.Manager, cc_agent_api.CCFabricSwitchAgentAPI):
     def run_agent_main(cls):
         common_config.register_common_config_options()
         register_agent_state_opts_helper(cfg.CONF)
+        register_ml2_drivers_vxlan_opts()
         common_config.init(sys.argv[1:])
         common_config.setup_logging()
 

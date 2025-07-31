@@ -163,11 +163,13 @@ class SwitchBase(abc.ABC):
         'task_queue_size', 'Tasks in queue',
         DEFAULT_LABELS + ['queue_type'], namespace=metrics_namespace)
 
-    def __init__(self, sw_conf, asn_region, az_suffix, managed_vlans, agent_name, timeout=20, verify_ssl=False):
+    def __init__(self, sw_conf, asn_region, az_suffix, managed_vlans, managed_vnis, agent_name,
+                 timeout=20, verify_ssl=False):
         self.sw_conf = sw_conf
         self.asn_region = asn_region
         self.az_suffix = az_suffix
         self.managed_vlans = managed_vlans
+        self.managed_vnis = managed_vnis
         self.name = sw_conf.name
         self.host = sw_conf.host
         self.user = sw_conf.user
@@ -214,6 +216,9 @@ class SwitchBase(abc.ABC):
 
     def __str__(self):
         return f"{self.name} ({self.host})"
+
+    def is_managed_vni(self, vni):
+        return any(vni in vni_range for vni_range in self.managed_vnis)
 
     def collect_metrics(self, context):
         read_queue_size = self._read_executor._work_queue.qsize()
