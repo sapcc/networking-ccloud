@@ -35,7 +35,7 @@ class TestNXOSSwitch(base.TestCase):
 
         cfg.CONF.set_override('prometheus_enabled', False, group='ml2_cc_fabric_agent')
         with mock.patch.object(n_rpc, 'get_client'):
-            self.switch = NXOSSwitch(cfg_switch, 65130, 'a', set([100]) | set(range(2000, 3000)),
+            self.switch = NXOSSwitch(cfg_switch, 65130, 'a', {100} | set(range(2000, 3000)), [range(10000, 11000)],
                                      'cc-nxos-switch-agent')
         self.switch._api = mock.Mock()
 
