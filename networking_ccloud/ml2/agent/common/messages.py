@@ -17,10 +17,12 @@ import ipaddress
 import re
 from typing import List
 
+from oslo_config import cfg
 from oslo_log import log as logging
 import pydantic
 
 from networking_ccloud.common.config.config_driver import validate_asn
+from networking_ccloud.common import constants as cc_const
 from networking_ccloud.ml2.agent.common.api import CCFabricSwitchAgentRPCClient
 
 LOG = logging.getLogger(__name__)
@@ -183,7 +185,7 @@ class BGP(pydantic.BaseModel):
         if self.vrfs:
             self.vrfs.sort()
 
-    def add_vlan(self, vlan, vni, az_num, bgw_mode=False):
+    def add_vlan(self, vlan, vni, az_num, bgw_mode=False, unify_rt_hack=False):
         # FIXME: raise if vni > 2byte (can't encode it in RT otherwise, write snarky commit message for that)
         if not self.vlans:
             self.vlans = []
@@ -196,9 +198,18 @@ class BGP(pydantic.BaseModel):
             if bv.rd == rd and bv.vlan == vlan:
                 return
 
-        rt = f"{az_num}:{vni}"
+        if unify_rt_hack:
+            # 10 chosen by fair ADR dice roll
+            rt = f"10:{vni}"
+        else:
+            rt = f"{az_num}:{vni}"
         bvargs = dict(rt_imports=[rt], rt_exports=[rt])
         if bgw_mode:
+            if cfg.CONF.ml2_cc_fabric.aci_bgw_compat_mode:
+                aci_rt = f"{cfg.CONF.ml2_cc_fabric.aci_bgw_rt_admin_value}:{vni}"
+                bvargs['rt_imports'].append(aci_rt)
+                bvargs['rt_exports'].append(aci_rt)
+
             # eos-specific bgw config
             bgw_rt = f"{self.asn_region}:{vni}"
             bvargs['rd_evpn_domain_all'] = True
@@ -399,6 +410,7 @@ class SwitchConfigUpdateList:
         for switch_name, switchports in hg_config.iter_switchports(self.drv_conf, exclude_hosts=exclude_hosts):
             switch = self.drv_conf.get_switch_by_name(switch_name)
             scu = self.get_or_create_switch(switch.name)
+            is_nxos = switch.platform == cc_const.PLATFORM_NXOS
 
             # add bgp stuff
             if seg_vni and (add or not keep_mapping):
@@ -407,7 +419,7 @@ class SwitchConfigUpdateList:
                 if not scu.bgp:
                     scu.bgp = BGP(asn=sg.asn, asn_region=self.drv_conf.global_config.asn_region,
                                   switchgroup_id=sg.group_id)
-                scu.bgp.add_vlan(seg_vlan, seg_vni, switch_az_num, bgw_mode=is_bgw)
+                scu.bgp.add_vlan(seg_vlan, seg_vni, switch_az_num, bgw_mode=is_bgw, unify_rt_hack=is_nxos)
 
             # vlan-vxlan mapping
             if seg_vni and (add or not keep_mapping):
@@ -415,7 +427,7 @@ class SwitchConfigUpdateList:
                 scu.add_vxlan_map(seg_vni, seg_vlan, bgw_mode=is_bgw)
 
             # gateways
-            if gateways:
+            if gateways and not is_bgw:
                 scu.add_vlan_iface(vlan=seg_vlan, vrf=gateways['vrf'], primary_ip=gateways['ips'][0],
                                    secondary_ips=gateways['ips'][1:])
 

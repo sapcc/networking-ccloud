@@ -93,6 +93,7 @@ class CCFabricSwitchAgent(manager.Manager, cc_agent_api.CCFabricSwitchAgentAPI):
         """Init all switches the agent manages"""
         managed_vnis = self._get_managed_vnis()
         for sg_conf in self.drv_conf.switchgroups:
+            # FIXME: what about the infra vlans?
             managed_vlans = sg_conf.get_managed_vlans(self.drv_conf)
             az_suffix = self.drv_conf.global_config.get_availability_zone(sg_conf.availability_zone).suffix
             for switch_conf in sg_conf.members:

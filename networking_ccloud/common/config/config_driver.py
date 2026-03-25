@@ -384,10 +384,10 @@ class Hostgroup(pydantic.BaseModel):
         if 'members' in values and not values.get('metagroup'):
             is_bgw = values.get('role') == HostgroupRole.bgw
             for sp in values.get('members', []):
-                if is_bgw and sp.name:
+                if is_bgw and (isinstance(sp, str) or sp.name):
                     raise ValueError(f"Hostgroup {values.get('binding_hosts')} with role bgw "
-                                     "cannot have named switchports")
-                if not is_bgw and not sp.name:
+                                     f"cannot have named switchports")
+                if not is_bgw and isinstance(sp, str):
                     raise ValueError(f"Hostgroup {values.get('binding_hosts')} needs to have names for each switchport")
 
         return values
@@ -706,7 +706,7 @@ class DriverConfig(pydantic.BaseModel):
             return values
         global_config: GlobalConfig = values['global_config']
         hgs: List[Hostgroup] = values['hostgroups']
-        vrf_names = set(x.name for x in global_config.vrfs)
+        vrf_names = {x.name for x in global_config.vrfs}
         for hg in hgs:
             if hg.infra_networks:
                 for net in hg.infra_networks:
@@ -758,8 +758,8 @@ class DriverConfig(pydantic.BaseModel):
          * binding_hosts: list of binding hosts to get the AZs for
          * ignore_special: ignore transits/bordergateways
         """
-        return set(hg_config.get_availability_zone(self) for hg_config in self.get_hostgroups_by_hosts(binding_hosts)
-                   if not (ignore_special and hg_config.role))
+        return {hg_config.get_availability_zone(self) for hg_config in self.get_hostgroups_by_hosts(binding_hosts)
+                if not (ignore_special and hg_config.role)}
 
     def list_availability_zones(self):
         return sorted(az.name for az in self.global_config.availability_zones)

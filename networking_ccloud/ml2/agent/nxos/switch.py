@@ -199,7 +199,8 @@ class NXOSSwitch(SwitchBase):
                 nve_item = {
                     'vni': vx.vni,
                     'suppressARP': 'enabled' if vx.vlan in svi_vlans else 'off',
-                    'IngRepl-items': {'proto': 'bgp'},
+                    # 'IngRepl-items': {'proto': 'bgp'},
+                    'IngRepl-items': '',
                     'multisiteIngRepl': 'enable' if vx.enable_multisite else 'disable',
                 }
                 nve_list.append(nve_item)
@@ -358,9 +359,11 @@ class NXOSSwitch(SwitchBase):
                         # FIXME: why do the oper value differ from the normal rd in config?
                         # rt_list.append({'rtt': f"route-target:as2-nn4:{rt}"})
                         # XXX: HACK FIXME to make it easier, I'm directly putting this hack into here
-                        # uniffyyyyyyyyyyyyyyyy!!!!!!!!!!
-                        rt = f"23:{rt.split(':')[1]}"
-                        rt_list.append({'rtt': f"route-target:{guess_asn_format(rt)}:{rt}"})
+                        for rt_prefix in (10, 23456):
+                            # uniffyyyyyyyyyyyyyyyy!!!!!!!!!!
+                            # FIXME XXX: DOUBLE HACK
+                            rt = f"{rt_prefix}:{rt.split(':')[1]}"
+                            rt_list.append({'rtt': f"route-target:{guess_asn_format(rt)}:{rt}"})
 
                     rts_entry = {
                         'type': action,
@@ -571,7 +574,7 @@ class NXOSSwitch(SwitchBase):
                 if iface.description is not None:
                     iface_config['descr'] = iface.description
 
-                if iface.native_vlan or operation == Op.replace:
+                if iface.native_vlan:
                     iface_config['nativeVlan'] = f"vlan-{iface.native_vlan}" if iface.native_vlan else ''
 
                 if iface.trunk_vlans:
