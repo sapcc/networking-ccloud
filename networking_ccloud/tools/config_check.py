@@ -14,8 +14,10 @@
 
 import argparse
 import sys
+import tempfile
 
 from oslo_config import cfg
+import yaml
 
 from networking_ccloud.common.config import get_driver_config
 
@@ -26,35 +28,48 @@ def main():
                     "loadable by the driver. You also have the option to only check the yaml part of "
                     "the config separately."
     )
-    parser.add_argument("-c", "--config-file")
-    parser.add_argument("-y", "--yaml-file")
+    parser.add_argument("-y", "--yaml-file", required=True)
+    parser.add_argument("--uy", "--unwrap-yaml")
     parser.add_argument("--credentials-file")
+    parser.add_argument("--uc", "--unwrap-credentials")
 
     args = parser.parse_args()
 
-    if not (args.config_file or args.yaml_file):
-        parser.error("Please specify either a config file or a yaml file to check")
-    elif args.config_file and (args.yaml_file or args.credentials_file):
-        parser.error("Config file and yaml file / credentials file checks via cli are mutually exclusive")
+    # register necessary opts by importing our olso config
+    from networking_ccloud.common.config import config_oslo  # noqa: F401
 
-    if args.config_file:
-        # register necessary opts by importing our olso config
-        from networking_ccloud.common.config import config_oslo  # noqa: F401
+    with tempfile.NamedTemporaryFile(mode="w", delete=False) as conf_file, \
+            tempfile.NamedTemporaryFile(mode="w", delete=False) as creds_file:
 
-        # use the normal driver config file loading facilities
-        try:
-            cfg.CONF(args=["--config-file", args.config_file])
-        except cfg.Error as e:
-            print(f"ERROR - Could not load oslo.config: {e}")
-            sys.exit(1)
+        if args.uy:
+            with open(args.yaml_file) as f:
+                y = yaml.safe_load(f.read())
+            for key in args.uy.split("/"):
+                if key not in y:
+                    print(f"ERROR: missing key '{key}' in config, cannot unpack")
+                    sys.exit(1)
+                y = y[key]
+            conf_file.write(yaml.dump(y))
+            conf_file.close()
+            args.yaml_file = conf_file.name
+        cfg.CONF.set_override('driver_config_path', args.yaml_file, group='ml2_cc_fabric')
 
-        print("OK - oslo.config could load driver config")
+        if args.credentials_file:
+            if args.uc:
+                with open(args.credentials_file) as f:
+                    y = yaml.safe_load(f.read())
+                for key in args.uc.split("/"):
+                    if key not in y:
+                        print(f"ERROR: missing key '{key}' in config, cannot unpack")
+                        sys.exit(1)
+                    y = y[key]
+                creds_file.write(yaml.dump(y))
+                creds_file.close()
+                args.credentials_file = creds_file.name
+            cfg.CONF.set_override('driver_config_credentials_path', args.credentials_file, group='ml2_cc_fabric')
 
-    if args.credentials_file:
-        cfg.CONF.set_override('driver_config_credentials_path', args.credentials_file, group='ml2_cc_fabric')
-
-    # load yaml config (either via oslo config (args.yaml_file is None) or via path)
-    drv_conf = get_driver_config(path=args.yaml_file, cached=False)
+    # load yaml config
+    drv_conf = get_driver_config(cached=False)
     print("OK - could load yaml config file")
     print(f"INFO - Config has {len(drv_conf.switchgroups)} switchgroups and "
           f"{len(drv_conf.hostgroups)} hostgroups")
