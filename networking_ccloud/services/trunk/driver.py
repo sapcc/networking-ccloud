@@ -217,7 +217,6 @@ class CCTrunkDriver(base.DriverBase):
             port_data = {
                 p_api.RESOURCE_NAME: {
                     pb_api.HOST_ID: None,
-                    pb_api.VNIC_TYPE: None,
                     pb_api.PROFILE: binding_profile,
                     'device_owner': '',
                     'device_id': '',
