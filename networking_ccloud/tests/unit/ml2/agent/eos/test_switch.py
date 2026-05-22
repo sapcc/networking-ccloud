@@ -986,8 +986,8 @@ class TestEOSConfigUpdates(base.TestCase):
                   'name': '2004',
                   'route-target': {
                       'config': {
-                          'export': ['3:424242'],
-                          'import': ['3:424242']
+                          'export': ['3:424242', '23456:424242'],
+                          'import': ['3:424242', '23456:424242']
                       }
                   },
                   'vlans': {
@@ -1034,8 +1034,8 @@ class TestEOSConfigUpdates(base.TestCase):
                         {'config': {'name': '1000', 'redistribute': ['LEARNED', 'ROUTER_MAC', 'HOST_ROUTE'],
                                     'route-distinguisher': '4223:232323'},
                          'name': '1000',
-                         'route-target': {'config': {'export': ['1:232323'],
-                                                     'import': ['1:232323']}},
+                         'route-target': {'config': {'export': ['1:232323', '23456:232323'],
+                                                     'import': ['1:232323', '23456:232323']}},
                          'vlans': {'vlan': [{'config': {'vlan-id': 1000},
                                              'vlan-id': 1000}]}})]}
 
@@ -1093,7 +1093,8 @@ class TestEOSSwitch(base.TestCase):
                          'name': "2000"},
                         {'config': {'name': '2004',
                                     'route-distinguisher': 'invalid'},
-                         'route-target': {'config': {'export': ['3:222222'], 'import': ['3:222222']}},
+                         'route-target': {'config': {'export': ['3:222222', '23456:222222'],
+                                                     'import': ['3:222222', '23456:222222']}},
                          'name': "2004"},
                     ]}
             elif prefix == 'lacp':

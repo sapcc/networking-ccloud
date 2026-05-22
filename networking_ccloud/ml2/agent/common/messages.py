@@ -197,6 +197,11 @@ class BGP(pydantic.BaseModel):
         rt = f"{az_num}:{vni}"
         bvargs = dict(rt_imports=[rt], rt_exports=[rt])
         if bgw_mode:
+            if cfg.CONF.ml2_cc_fabric.aci_bgw_compat_mode:
+                aci_rt = f"{cfg.CONF.ml2_cc_fabric.aci_bgw_rt_admin_value}:{vni}"
+                bvargs['rt_imports'].append(aci_rt)
+                bvargs['rt_exports'].append(aci_rt)
+
             # eos-specific bgw config
             bgw_rt = f"{self.asn_region}:{vni}"
             bvargs['rd_evpn_domain_all'] = True

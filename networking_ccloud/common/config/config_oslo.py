@@ -29,6 +29,10 @@ cc_fabric_opts = [
     cfg.BoolOpt("subnet_subnetpool_az_check_enabled", default=True,
                 help="Check if a subnet's network az hint matches the subnetpool's az hint (tag) on "
                      "creation of an external subnet"),
+    cfg.BoolOpt("aci_bgw_compat_mode", default=True,
+                help="Enable ACI BGW compatibility by adding extra import/export RTs on BGWs"),
+    cfg.IntOpt("aci_bgw_rt_admin_value", default=23456,
+               help="Admin field value used by ACI on BGWs for the first part of the RT")
 ]
 
 cc_fabric_agent_opts = [
