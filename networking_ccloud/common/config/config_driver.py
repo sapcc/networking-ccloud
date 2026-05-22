@@ -167,7 +167,7 @@ class SwitchGroup(pydantic.BaseModel):
                     continue
                 if not hg.has_switches_as_member(drv_conf, [sw.name for sw in self.members]):
                     continue
-                all_ranges |= set(infra_net.vlan for infra_net in hg.infra_networks)
+                all_ranges |= {infra_net.vlan for infra_net in hg.infra_networks}
 
         return all_ranges
 
@@ -706,7 +706,7 @@ class DriverConfig(pydantic.BaseModel):
             return values
         global_config: GlobalConfig = values['global_config']
         hgs: List[Hostgroup] = values['hostgroups']
-        vrf_names = set(x.name for x in global_config.vrfs)
+        vrf_names = {x.name for x in global_config.vrfs}
         for hg in hgs:
             if hg.infra_networks:
                 for net in hg.infra_networks:
@@ -758,8 +758,8 @@ class DriverConfig(pydantic.BaseModel):
          * binding_hosts: list of binding hosts to get the AZs for
          * ignore_special: ignore transits/bordergateways
         """
-        return set(hg_config.get_availability_zone(self) for hg_config in self.get_hostgroups_by_hosts(binding_hosts)
-                   if not (ignore_special and hg_config.role))
+        return {hg_config.get_availability_zone(self) for hg_config in self.get_hostgroups_by_hosts(binding_hosts)
+                if not (ignore_special and hg_config.role)}
 
     def list_availability_zones(self):
         return sorted(az.name for az in self.global_config.availability_zones)
