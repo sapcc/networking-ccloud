@@ -12,8 +12,8 @@ pyyaml
 # driver requirements
 futurist
 manhole
-neutron-lib
 neutron
+neutron-lib
 prometheus_client
 
 # arista agent
