@@ -12,6 +12,7 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
+import os
 import tempfile
 from unittest import mock
 
@@ -28,7 +29,7 @@ class TestConfigValidationTool(base.TestCase):
             self.assertRaises(SystemExit, config_check.main)
 
     def test_validating_driver_example_config(self):
-        args = ["cc-config-check", "-y", "examples/cc-driver-config.yaml"]
+        args = ["cc-config-check", "-d", "examples/cc-driver-config.yaml"]
         with mock.patch('sys.argv', args):
             config_check.main()
 
@@ -48,11 +49,37 @@ class TestConfigValidationTool(base.TestCase):
 
         with tempfile.NamedTemporaryFile(mode="w", delete=False) as conf_file, \
                 tempfile.NamedTemporaryFile(mode="w", delete=False) as creds_file:
-            conf_file.write(yaml.dump(drv_conf))
+            yaml.dump(drv_conf, conf_file)
             conf_file.close()
-            creds_file.write(yaml.dump(creds_conf))
+            yaml.dump(creds_conf, creds_file)
             creds_file.close()
 
-            args = ["cc-config-check", "-y", conf_file.name, "--credentials-file", creds_file.name]
+            args = ["cc-config-check", "-d", conf_file.name, "--credentials-config", creds_file.name]
             with mock.patch('sys.argv', args):
                 config_check.main()
+
+            try:
+                os.remove(conf_file.name)
+            except Exception:
+                pass
+
+            try:
+                os.remove(creds_file.name)
+            except Exception:
+                pass
+
+    def test_validation_with_unwrapping(self):
+        drv_conf = yaml.safe_load(open("examples/cc-driver-config.yaml"))
+        with tempfile.NamedTemporaryFile(mode="w", delete=False) as conf_file:
+            drv_conf = {"cc_fabric": {"driver_config": drv_conf}}
+            yaml.dump(drv_conf, conf_file)
+            conf_file.close()
+
+            args = ["cc-config-check", "-d", conf_file.name, "--ud", "cc_fabric/driver_config"]
+            with mock.patch('sys.argv', args):
+                config_check.main()
+
+            try:
+                os.remove(conf_file.name)
+            except Exception:
+                pass
