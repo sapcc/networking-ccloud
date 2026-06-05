@@ -418,7 +418,7 @@ class SwitchConfigUpdateList:
                 scu.add_vxlan_map(seg_vni, seg_vlan, bgw_mode=is_bgw)
 
             # gateways
-            if gateways:
+            if gateways and not is_bgw:
                 scu.add_vlan_iface(vlan=seg_vlan, vrf=gateways['vrf'], primary_ip=gateways['ips'][0],
                                    secondary_ips=gateways['ips'][1:])
 

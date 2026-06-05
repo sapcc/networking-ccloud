@@ -978,10 +978,13 @@ class TestCCFabricMechanismDriverInterconnects(CCFabricMechanismDriverTestBase):
                             self.assertIsNone(s.ifaces)
 
                             # cheap l3 check
-                            self.assertIsNotNone(s.vlan_ifaces)
-                            self.assertEqual("cc-earth", s.bgp.vrfs[0].name)
-                            self.assertNotEqual(0, len(s.bgp.vrfs[0].networks))
-                            self.assertNotEqual(0, len(s.bgp.vrfs[0].aggregates))
+                            if s.switch_name.startswith("bgw"):
+                                self.assertIsNone(s.vlan_ifaces)
+                            else:
+                                self.assertIsNotNone(s.vlan_ifaces)
+                                self.assertEqual("cc-earth", s.bgp.vrfs[0].name)
+                                self.assertNotEqual(0, len(s.bgp.vrfs[0].networks))
+                                self.assertNotEqual(0, len(s.bgp.vrfs[0].aggregates))
 
     def test_transit_bgw_deallocation_on_network_delete(self):
         with mock.patch.object(CCFabricSwitchAgentRPCClient, 'apply_config_update') as mock_acu:
