@@ -32,7 +32,9 @@ cc_fabric_opts = [
     cfg.BoolOpt("aci_bgw_compat_mode", default=True,
                 help="Enable ACI BGW compatibility by adding extra import/export RTs on BGWs"),
     cfg.IntOpt("aci_bgw_rt_admin_value", default=23456,
-               help="Admin field value used by ACI on BGWs for the first part of the RT")
+               help="Admin field value used by ACI on BGWs for the first part of the RT"),
+    cfg.IntOpt("stretch_route_target_admin_value", default=0,
+               help="Default stretch rt admin value for route targets, will be used as $val:$vni"),
 ]
 
 cc_fabric_agent_opts = [
