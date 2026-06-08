@@ -17,6 +17,7 @@ import ipaddress
 import re
 from typing import List
 
+from oslo_config import cfg
 from oslo_log import log as logging
 import pydantic
 
@@ -385,7 +386,7 @@ class SwitchConfigUpdateList:
 
     def add_binding_host_to_config(self, hg_config, network_id, seg_vni, seg_vlan, trunk_vlan=None,
                                    keep_mapping=False, exclude_hosts=None, is_bgw=False, gateways=None,
-                                   override_native=False):
+                                   is_stretched=True, override_native=False):
         """Add binding host config to all required switches
 
         Given a hostgroup config this method generates and adds config to this
@@ -397,6 +398,7 @@ class SwitchConfigUpdateList:
          * exclude_hosts: hosts to exclude if a metagroup is being bound
          * is_bgw: bordergateway mode - no ifaces will be configured, bgp stanzas marked as bgw
          * gateways: all gateways configured for this binding host ({'vrf': name, 'ips': [gw, gw, gw]})
+         * is_stretched: mark network as stretched / az aware in BGP
         """
         add = self.operation == OperationEnum.add
         for switch_name, switchports in hg_config.iter_switchports(self.drv_conf, exclude_hosts=exclude_hosts):
@@ -406,7 +408,10 @@ class SwitchConfigUpdateList:
             # add bgp stuff
             if seg_vni and (add or not keep_mapping):
                 sg = self.drv_conf.get_switchgroup_by_switch_name(switch.name)
-                switch_az_num = self.drv_conf.global_config.get_availability_zone(sg.availability_zone).number
+                if is_stretched:
+                    switch_az_num = cfg.CONF.ml2_cc_fabric.stretch_route_target_admin_value
+                else:
+                    switch_az_num = self.drv_conf.global_config.get_availability_zone(sg.availability_zone).number
                 if not scu.bgp:
                     scu.bgp = BGP(asn=sg.asn, asn_region=self.drv_conf.global_config.asn_region,
                                   switchgroup_id=sg.group_id)
