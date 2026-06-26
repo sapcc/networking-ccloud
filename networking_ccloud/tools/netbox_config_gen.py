@@ -19,6 +19,7 @@ import logging
 from operator import attrgetter
 from pathlib import Path
 import re
+import sys
 import time
 import urllib3
 
@@ -245,13 +246,14 @@ class NetboxDataSource:
         """Check if the items has any of the provided tags"""
         return any(tag.slug == tag_slug for tag in item.tags for tag_slug in tag_slugs)
 
-    def generate_config(self, region: str, vrf_to_address_scopes_map: dict[str, list[str]]) -> conf.DriverConfig:
+    def generate_config(self, region: str, vrf_to_address_scopes_map: dict[str, list[str]],
+                        limit_switches: list[str] | None = None) -> conf.DriverConfig:
         """Generate the whole driver config"""
 
         # FIXME: credentials
 
         # fetch all switches that are relevant for us
-        nb_switches = self.get_switch_list(region)
+        nb_switches = self.get_switch_list(region, limit_switches)
         asn_region = self.get_region_asn(region)
         switchgroups = self.make_switchgroups(nb_switches, asn_region, None, None)
 
@@ -267,11 +269,15 @@ class NetboxDataSource:
 
         return config
 
-    def get_switch_list(self, region: str) -> list[Munch]:
+    def get_switch_list(self, region: str, limit_switches: list[str] | None = None) -> list[Munch]:
         """Get a list of evpn switches from NetBox"""
         nb_switches = self.query_netbox_graphql(NB_GRAPHQL_SWITCH_LIST, region=region, role=self.LEAF_ROLE)
         switches = []
         for switch in nb_switches.device_list:
+            if limit_switches and not any(ls in switch.name for ls in limit_switches):
+                LOG.debug("Skipping switch %s, excluded by --limit-switches", switch.name)
+                continue
+
             LOG.debug("Processing switch %s (%s)", switch.name, switch.id)
 
             # check if this switch is usable for us
@@ -687,6 +693,24 @@ class NetboxDataSource:
         return conf.DriverCredentials(switch_credentials=creds)
 
 
+def merge_configs(new_cfg: conf.DriverConfig, base_cfg: conf.DriverConfig, limit_switches: list[str]) -> None:
+    # copy over all missing hostgroups and switchgroups that don't appear in limit_switches
+    for sg in base_cfg.switchgroups:
+        if any(limit_switch in sw.name
+               for sw in sg.members
+               for limit_switch in limit_switches):
+            continue
+        new_cfg.switchgroups.append(sg)
+
+    for hg in base_cfg.hostgroups:
+        # a switch limit should always match all switches for a group, so we can take any of them (hopefully)
+        if any(limit_switch in sw
+               for sw in hg.get_switch_names(base_cfg)
+               for limit_switch in limit_switches):
+            continue
+        new_cfg.hostgroups.append(hg)
+
+
 def main():
     import argparse
     logging.basicConfig(level=logging.INFO,
@@ -714,6 +738,12 @@ def main():
     parser.add_argument("-s", "--shell", action="store_true")
     parser.add_argument("-o", "--output")
 
+    parser.add_argument("-l", "--limit-switches", nargs="*", default=[],
+                        help="Only check switches that match these substrings")
+    parser.add_argument("-b", "--base-config", type=argparse.FileType("r"),
+                        help="Use this driver config as a base and update it "
+                             "(only in combination with --limit-switches)")
+
     args = parser.parse_args()
 
     if args.verbose:
@@ -725,6 +755,9 @@ def main():
         parser.error("You may only use one of '--vault-ref' or '--switch-password'")
     if not (args.switch_password or args.vault_ref):
         parser.error("Either'--vault-ref' or '--switch-password' must be set")
+
+    if args.base_config and not args.limit_switches:
+        parser.error("--base-config requires --limit-switches")
 
     if args.vault_ref:
         if not args.vault_ref.startswith("vault+kvv2://"):
@@ -739,11 +772,52 @@ def main():
             parser.error('Invalid format for --wrap-config-in or --wrap-credentials-in. '
                          f'Should be like <key1>/<key2>..., got {wrap_in}')
 
+    # check if we have a base config (only used after generation, but we want to error out if it's not readable)
+    base_config = None
+    if args.base_config:
+        try:
+            base_config_data = yaml.safe_load(args.base_config)
+            if args.wrap_config_in:
+                # assume the base config is wrapped in the same way as our target config
+                for key in args.wrap_config_in.split("/"):
+                    if not isinstance(base_config_data, dict) or key not in base_config_data:
+                        raise ValueError("Failed to unwrap base config, "
+                                         f"expected a dict with key '{key}' at unwrap path")
+                    base_config_data = base_config_data[key]
+
+            # patch in potentially missing credentials
+            for sg in base_config_data['switchgroups']:
+                for sw in sg['members']:
+                    sw.setdefault("user", args.switch_user)
+                    sw.setdefault("password", args.switch_password)
+            base_config = conf.DriverConfig.parse_obj(base_config_data)
+        except (ValueError, KeyError) as e:
+            print(f"Could not load base config '{args.base_config}': {e}")
+            sys.exit(1)
+
     # generate config
     vrf_to_address_scopes_map = NetboxDataSource.get_vrf_to_address_scope_map(args.address_scope_vrf_map)
 
     cfggen = NetboxDataSource()
-    cfg = cfggen.generate_config(args.region, vrf_to_address_scopes_map)
+    cfg = cfggen.generate_config(args.region, vrf_to_address_scopes_map, limit_switches=args.limit_switches)
+
+    if base_config:
+        merge_configs(cfg, base_config, args.limit_switches)
+
+    # sort it for stable results
+    def _hg_sort_key(hg):
+        switch_names = ",".join(hg.get_switch_names(cfg))
+        hg_meta_name = hg.binding_host_name
+        if not hg.metagroup:
+            hg_parent = hg.get_parent_metagroup(cfg)
+            if hg_parent:
+                hg_meta_name = hg_parent.binding_host_name
+
+        return (switch_names, hg_meta_name, not hg.metagroup, hg.binding_host_name)
+
+    # do not sort inplace, as parts of the config might not properly available
+    cfg.switchgroups = sorted(cfg.switchgroups, key=lambda sg: sg.name)
+    cfg.hostgroups = sorted(cfg.hostgroups, key=_hg_sort_key)
 
     cfg_data = cfg.dict(exclude_unset=True, exclude_defaults=True, exclude_none=True)
 
