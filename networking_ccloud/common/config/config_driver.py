@@ -245,9 +245,9 @@ class InfraNetwork(pydantic.BaseModel):
 
     @pydantic.root_validator
     def ensure_correct_value_combination(cls, values):
-        if len(values.get('networks')) > 0 and not bool(values.get('vrf')):
+        if len(values.get('networks', [])) > 0 and not bool(values.get('vrf')):
             raise ValueError("If network is given a VRF must be set too")
-        if len(values.get('dhcp_relays')) > 0 and not len(values.get('networks')) > 0:
+        if len(values.get('dhcp_relays', [])) > 0 and not len(values.get('networks')) > 0:
             raise ValueError("If dhcp_relays is given a network must be present too")
         if len(values.get('aggregates', [])) > len(values.get('networks', [])):
             raise ValueError('There are more aggregates than networks')

@@ -57,7 +57,7 @@ def get_driver_config(path=None, cached=True):
                 creds = DriverCredentials.parse_obj(creds_data)
             if creds.switch_credentials:
                 for sg in conf_data.get('switchgroups', []):
-                    for sw in sg.get('members'):
+                    for sw in sg.get('members', []):
                         cred = creds.switch_credentials.get(sw.get('name'))
                         if cred:
                             sw['user'] = cred.user
