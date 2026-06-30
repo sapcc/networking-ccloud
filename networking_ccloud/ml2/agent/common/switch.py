@@ -223,7 +223,7 @@ class SwitchBase(abc.ABC):
     def collect_metrics(self, context):
         read_queue_size = self._read_executor._work_queue.qsize()
         self.metric_task_queue_size.labels(queue_type='read', **self._def_labels).set(read_queue_size)
-        write_queue_size = self._read_executor._work_queue.qsize()
+        write_queue_size = self._write_executor._work_queue.qsize()
         self.metric_task_queue_size.labels(queue_type='write', **self._def_labels).set(write_queue_size)
 
     def get_full_sync_future(self):
