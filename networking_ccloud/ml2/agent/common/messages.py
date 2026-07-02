@@ -410,6 +410,8 @@ class SwitchConfigUpdateList:
                 sg = self.drv_conf.get_switchgroup_by_switch_name(switch.name)
                 if is_stretched:
                     switch_az_num = cfg.CONF.ml2_cc_fabric.stretch_route_target_admin_value
+                    if not switch_az_num:
+                        switch_az_num = self.drv_conf.global_config.asn_region
                 else:
                     switch_az_num = self.drv_conf.global_config.get_availability_zone(sg.availability_zone).number
                 if not scu.bgp:
