@@ -34,7 +34,8 @@ cc_fabric_opts = [
     cfg.IntOpt("aci_bgw_rt_admin_value", default=23456,
                help="Admin field value used by ACI on BGWs for the first part of the RT"),
     cfg.IntOpt("stretch_route_target_admin_value", default=0,
-               help="Default stretch rt admin value for route targets, will be used as $val:$vni"),
+               help="Default stretch rt admin value for route targets, will be used as $val:$vni. If not specified "
+                    "or set to 0, fall back to the region ASN."),
 ]
 
 cc_fabric_agent_opts = [
