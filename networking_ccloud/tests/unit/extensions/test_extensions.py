@@ -181,9 +181,10 @@ class TestNetworkExtension(test_segment.SegmentTestCase, base.PortBindingHelper,
 
         # config snippets that we expect to appear (used inside the tests as a base for comparison)
         self._infra_net_vifaces = [
-            agent_msg.VlanIface(vlan=23, vrf="PRIVATE-VRF", primary_ip="10.23.42.1/24",
-                                secondary_ips=["10.42.42.1/24"]),
-            agent_msg.VlanIface(vlan=42, vrf="ANOTHER-VRF", primary_ip="10.100.1.1/24", secondary_ips=[]),
+            agent_msg.VlanIface(vlan=23, vrf="PRIVATE-VRF", primary_ip_v4="10.23.42.1/24",
+                                secondary_ips_v4=["10.42.42.1/24"], secondary_ips_v6=[]),
+            agent_msg.VlanIface(vlan=42, vrf="ANOTHER-VRF", primary_ip_v4="10.100.1.1/24",
+                                secondary_ips_v4=[], secondary_ips_v6=[]),
         ]
         self._infra_net_bgp_vrfs = [
             agent_msg.BGPVRF(name='ANOTHER-VRF', networks=[
@@ -199,7 +200,8 @@ class TestNetworkExtension(test_segment.SegmentTestCase, base.PortBindingHelper,
             ]),
         ]
         self._seagull_vifaces = [
-            agent_msg.VlanIface(vlan=101, vrf="cc-seagull", primary_ip="1.1.1.1/24", secondary_ips=[]),
+            agent_msg.VlanIface(vlan=101, vrf="cc-seagull", primary_ip_v4="1.1.1.1/24",
+                                secondary_ips_v4=[], secondary_ips_v6=[]),
         ]
         self._seagull_bgpvrfs = [
             agent_msg.BGPVRF(name='cc-seagull', networks=[

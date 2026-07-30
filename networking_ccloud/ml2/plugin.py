@@ -24,7 +24,7 @@ from neutron_lib.plugins.ml2 import api as ml2_api
 from oslo_log import log as logging
 
 from networking_ccloud.common import constants as cc_const
-from networking_ccloud.common.helper import merge_segment_dicts
+from networking_ccloud.common.helper import get_ip_version, merge_segment_dicts
 from networking_ccloud.db.db_plugin import CCDbPlugin
 from networking_ccloud.ml2.agent.common import messages as agent_msg
 
@@ -129,23 +129,32 @@ class FabricPlugin(CCDbPlugin):
         net_gws = self.get_gateways_for_networks(context, network_ids, *args, **kwargs)
         result = {}
         for network_id, gws in net_gws.items():
-            result[network_id] = net = {'vrf': None, 'ips': []}
+            result[network_id] = net = {
+                'vrf': None,
+                'ips_v4': [],
+                'ips_v6': [],
+            }
             for gw_ip, ascope in gws:
                 vrf = self.drv_conf.global_config.get_vrf_name_for_address_scope(ascope)
                 if not vrf:
-                    LOG.warning("Address scope %s has no matching VRF for network %s", ascope, network_id)
+                    LOG.warning("Address scope %s has no matching VRF for network %s, skipping gateway %s",
+                                ascope, network_id, gw_ip)
                     continue
                 if net['vrf'] is None:
                     net['vrf'] = vrf
                 if net['vrf'] != vrf:
-                    # "this should never happen"
+                    # "this should never happen" (most likely scenario is on VRF mismatch between v4/v6)
                     LOG.error("Network address scope misconfiguration: Network %s has networks in two VRFs: (%s, %s), "
                               "therefore we are skipping l3 config of this network entirely",
                               network_id, result[network_id]['vrf'], vrf)
                     del result[network_id]
                     break
-                net['ips'].append(gw_ip)
-            if network_id in result and not net['ips']:
+
+                if get_ip_version(gw_ip) == 4:
+                    net['ips_v4'].append(gw_ip)
+                else:
+                    net['ips_v6'].append(gw_ip)
+            if network_id in result and not net['vrf']:
                 del result[network_id]
 
         return result
@@ -326,7 +335,7 @@ class FabricPlugin(CCDbPlugin):
                 vrf_aggregates.append((snp_cidr, bool(snp_az_local)))
             vrf['vrf_aggregates'] = vrf_aggregates
 
-            vrf['vrf_networks'].sort(key=lambda entry: ipaddress.ip_interface(entry[0]).ip)
-            vrf['vrf_aggregates'].sort(key=lambda entry: ipaddress.ip_interface(entry[0]).ip)
+            vrf['vrf_networks'].sort(key=lambda entry: int(ipaddress.ip_interface(entry[0]).ip))
+            vrf['vrf_aggregates'].sort(key=lambda entry: int(ipaddress.ip_interface(entry[0]).ip))
 
         return vrfs

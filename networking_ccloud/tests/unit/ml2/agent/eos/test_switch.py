@@ -302,8 +302,8 @@ class TestEOSConfigUpdates(base.TestCase):
         cu.add_iface(iface2)
 
         # vlan iface + vrf
-        cu.add_vlan_iface(vlan=2337, vrf="CC-SEAGULL", primary_ip="1.1.1.1/24",
-                          secondary_ips=["2.2.2.2/24", "3.3.3.3/24"])
+        cu.add_vlan_iface(vlan=2337, vrf="CC-SEAGULL", primary_ip_v4="1.1.1.1/24",
+                          secondary_ips_v4=["2.2.2.2/24", "3.3.3.3/24"])
         vrf = cu.bgp.get_or_create_vrf("CC-SEAGULL")
         vrf.add_networks([
             messages.BGPVRFNetwork(network="4.4.4.0/24", az_local=False, ext_announcable=False),
@@ -460,8 +460,8 @@ class TestEOSConfigUpdates(base.TestCase):
         cu.add_iface(iface2)
 
         # vlan iface + vrf
-        cu.add_vlan_iface(vlan=2337, vrf="CC-SEAGULL", primary_ip="1.1.1.1/24",
-                          secondary_ips=["2.2.2.2/24", "3.3.3.3/24"])
+        cu.add_vlan_iface(vlan=2337, vrf="CC-SEAGULL", primary_ip_v4="1.1.1.1/24",
+                          secondary_ips_v4=["2.2.2.2/24", "3.3.3.3/24"])
         vrf = cu.bgp.get_or_create_vrf("CC-SEAGULL")
         vrf.add_networks([
             messages.BGPVRFNetwork(network="4.4.4.0/24", az_local=False, ext_announcable=False),
@@ -896,7 +896,7 @@ class TestEOSConfigUpdates(base.TestCase):
         }
 
         cu = messages.SwitchConfigUpdate(switch_name="seagull-sw1", operation=messages.OperationEnum.replace)
-        cu.add_vlan_iface(vlan=2337, primary_ip="1.1.1.1/24")
+        cu.add_vlan_iface(vlan=2337, primary_ip_v4="1.1.1.1/24")
 
         self.switch.apply_config_update(cu).result()
         self.switch._api.set.assert_called_with(**expected_config)
@@ -1235,8 +1235,8 @@ class TestEOSSwitch(base.TestCase):
         iface.add_vlan_translation(2000, 3001)
         cu.add_iface(iface)
 
-        cu.add_vlan_iface(vlan=2337, vrf="CC-SEAGULL", primary_ip="1.1.1.1/24",
-                          secondary_ips=["2.2.2.2/24", "3.3.3.3/24"])
+        cu.add_vlan_iface(vlan=2337, vrf="CC-SEAGULL", primary_ip_v4="1.1.1.1/24",
+                          secondary_ips_v4=["2.2.2.2/24", "3.3.3.3/24"])
         vrf = cu.bgp.get_or_create_vrf("CC-SEAGULL")
         vrf.add_networks([
             messages.BGPVRFNetwork(network="4.4.4.0/24", az_local=False, ext_announcable=False),

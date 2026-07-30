@@ -125,7 +125,7 @@ class TestCCFabricMechanismDriver(CCFabricMechanismDriverTestBase):
 
         hostgroups = hg_seagull + hg_crow + hg_cat + hg_squirrel
 
-        extra_vrfs = [{"name": "cc-earth", "address_scopes": ["the-open-sea"], "number": 23}]
+        extra_vrfs = [{"name": "cc-earth", "address_scopes": ["the-open-sea", "the-dark-abyss"], "number": 23}]
         self.conf_drv = cfix.make_config(switchgroups=switchgroups, hostgroups=hostgroups, extra_vrfs=extra_vrfs)
         _override_driver_config(self.conf_drv)
 
@@ -141,6 +141,8 @@ class TestCCFabricMechanismDriver(CCFabricMechanismDriverTestBase):
         with db_api.CONTEXT_WRITER.using(ctx):
             self._address_scope = ascope_models.AddressScope(name="the-open-sea", ip_version=4)
             ctx.session.add(self._address_scope)
+            self._address_scope_v6 = ascope_models.AddressScope(name="the-dark-abyss", ip_version=6)
+            ctx.session.add(self._address_scope_v6)
 
     def test_bind_port_direct_level_0(self):
         with mock.patch.object(self.mech_driver, 'handle_binding_host_changed') as mock_bhc:
@@ -658,8 +660,8 @@ class TestCCFabricMechanismDriver(CCFabricMechanismDriverTestBase):
                             # check for vlan ids
                             vlan_id = swcfg.bgp.vlans[0].vlan
                             self.assertEqual([
-                                agent_msg.VlanIface(vlan=vlan_id, vrf="cc-earth", primary_ip="1.1.1.1/24",
-                                                    secondary_ips=[]),
+                                agent_msg.VlanIface(vlan=vlan_id, vrf="cc-earth", primary_ip_v4="1.1.1.1/24",
+                                                    secondary_ips_v4=[], secondary_ips_v6=[]),
                             ], swcfg.vlan_ifaces)
 
                             # check bgp config
@@ -676,6 +678,57 @@ class TestCCFabricMechanismDriver(CCFabricMechanismDriverTestBase):
                                     ],
                                 ),
                             ], swcfg.bgp.vrfs)
+
+    def test_bind_port_external_network_dualstack(self):
+        net_kwargs = {'arg_list': (extnet_api.EXTERNAL,), extnet_api.EXTERNAL: True, 'as_admin': True}
+        with self.network(**net_kwargs) as network, \
+                self.subnetpool(["1.1.0.0/16", "1.2.0.0/24"], address_scope_id=self._address_scope.id, name="foo",
+                                tenant_id="foo", admin=True) as snp_v4, \
+                self.subnetpool(["2001:db8::/32"], address_scope_id=self._address_scope_v6.id, name="bar",
+                                tenant_id="foo", admin=True) as snp_v6, \
+                self.subnet(network=network, cidr="1.1.1.0/24", gateway_ip="1.1.1.1",
+                            subnetpool_id=snp_v4['subnetpool']['id'], as_admin=True) as snv4_1, \
+                self.subnet(network=network, cidr="1.1.3.0/24", gateway_ip="1.1.3.1",
+                            subnetpool_id=snp_v4['subnetpool']['id'], as_admin=True), \
+                self.subnet(network=network, cidr="2001:db8:6775:6c6c::/64", gateway_ip="2001:db8:6775:6c6c::1",
+                            subnetpool_id=snp_v6['subnetpool']['id'], ip_version=6, as_admin=True), \
+                self.subnet(network=network, cidr="2001:db8:6269:7264::/64", gateway_ip="2001:db8:6269:7264::1",
+                            subnetpool_id=snp_v6['subnetpool']['id'], ip_version=6, as_admin=True), \
+                mock.patch.object(CCFabricSwitchAgentRPCClient, 'apply_config_update') as mock_acu:
+            context1 = self._test_bind_port(fake_host='nova-compute-seagull',
+                                            network=network, subnet=snv4_1)
+            context1.continue_binding.assert_called()
+            mock_acu.assert_called()
+            swcfgs = mock_acu.call_args[0][1]
+            for swcfg in swcfgs:
+                # check for vlan ids
+                vlan_id = swcfg.bgp.vlans[0].vlan
+                self.assertEqual([
+                    agent_msg.VlanIface(vlan=vlan_id, vrf="cc-earth",
+                                        primary_ip_v4="1.1.1.1/24", secondary_ips_v4=["1.1.3.1/24"],
+                                        primary_ip_v6="2001:db8:6269:7264::1/64",
+                                        secondary_ips_v6=["2001:db8:6775:6c6c::1/64"]),
+                ], swcfg.vlan_ifaces)
+
+                # check bgp config
+                self.assertEqual([
+                    agent_msg.BGPVRF(
+                        name="cc-earth",
+                        networks=[
+                            agent_msg.BGPVRFNetwork(network='1.1.1.0/24', az_local=False, ext_announcable=False),
+                            agent_msg.BGPVRFNetwork(network='1.1.3.0/24', az_local=False, ext_announcable=False),
+                            agent_msg.BGPVRFNetwork(network='2001:db8:6269:7264::/64',
+                                                    az_local=False, ext_announcable=False),
+                            agent_msg.BGPVRFNetwork(network='2001:db8:6775:6c6c::/64',
+                                                    az_local=False, ext_announcable=False),
+                        ],
+                        aggregates=[
+                            agent_msg.BGPVRFAggregate(network='1.1.0.0/16', az_local=False),
+                            agent_msg.BGPVRFAggregate(network='1.2.0.0/24', az_local=False),
+                            agent_msg.BGPVRFAggregate(network='2001:db8::/32', az_local=False),
+                        ],
+                    ),
+                ], swcfg.bgp.vrfs)
 
     def test_bind_port_external_network_with_ext_announcable(self):
         net_kwargs = {'arg_list': (extnet_api.EXTERNAL,), extnet_api.EXTERNAL: True, 'as_admin': True}
@@ -694,8 +747,8 @@ class TestCCFabricMechanismDriver(CCFabricMechanismDriverTestBase):
                             # check for vlan ids
                             vlan_id = swcfg.bgp.vlans[0].vlan
                             self.assertEqual([
-                                agent_msg.VlanIface(vlan=vlan_id, vrf="cc-earth", primary_ip="1.1.1.1/24",
-                                                    secondary_ips=[]),
+                                agent_msg.VlanIface(vlan=vlan_id, vrf="cc-earth", primary_ip_v4="1.1.1.1/24",
+                                                    secondary_ips_v4=[], secondary_ips_v6=[]),
                             ], swcfg.vlan_ifaces)
 
                             # check bgp config
@@ -735,8 +788,8 @@ class TestCCFabricMechanismDriver(CCFabricMechanismDriverTestBase):
                             # check for vlan ids
                             vlan_id = swcfg.bgp.vlans[0].vlan
                             self.assertEqual([
-                                agent_msg.VlanIface(vlan=vlan_id, vrf="cc-earth", primary_ip="1.1.1.1/24",
-                                                    secondary_ips=[]),
+                                agent_msg.VlanIface(vlan=vlan_id, vrf="cc-earth", primary_ip_v4="1.1.1.1/24",
+                                                    secondary_ips_v4=[], secondary_ips_v6=[]),
                             ], swcfg.vlan_ifaces)
 
                             # check bgp config
@@ -791,8 +844,8 @@ class TestCCFabricMechanismDriver(CCFabricMechanismDriverTestBase):
                                 # check for vlan ids
                                 vlan_id = swcfg.bgp.vlans[0].vlan
                                 self.assertEqual([
-                                    agent_msg.VlanIface(vlan=vlan_id, vrf="cc-earth", primary_ip="1.1.1.1/24",
-                                                        secondary_ips=[]),
+                                    agent_msg.VlanIface(vlan=vlan_id, vrf="cc-earth", primary_ip_v4="1.1.1.1/24",
+                                                        secondary_ips_v4=[], secondary_ips_v6=[]),
                                 ], swcfg.vlan_ifaces)
 
                                 # check bgp config

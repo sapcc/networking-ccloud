@@ -11,6 +11,7 @@
 #    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
 #    License for the specific language governing permissions and limitations
 #    under the License.
+import pydantic
 
 from networking_ccloud.common.config import config_driver
 from networking_ccloud.ml2.agent.common import messages as agent_msg
@@ -70,6 +71,27 @@ class TestSwitchConfigUpdate(base.TestCase):
         # format fixing
         self.assertEqual("65130.23:1234", agent_msg.validate_route_target("4268359703:1234"))
         self.assertEqual("123:123", agent_msg.validate_route_target("123:123"))
+
+    def test_vlan_iface_af_check_working(self):
+        agent_msg.VlanIface(
+            vlan=1000,
+            primary_ip_v4="10.100.1.0/24", secondary_ips_v4=["10.100.2.0/24", "10.100.3.0/24"],
+            primary_ip_v6="fe80::1/64", secondary_ips_v6=["fe81::1/64", "fe82::1/64"],
+        )
+
+    def test_vlan_iface_af_check_failing(self):
+        self.assertRaisesRegex(
+            pydantic.ValidationError, ".*fe80::1/128 is not a valid IPv4 address/prefix.*",
+            agent_msg.VlanIface, vlan=1000, primary_ip_v4="fe80::1/128")
+        self.assertRaisesRegex(
+            pydantic.ValidationError, ".*fe80::1/64 is not a valid IPv4 address/prefix.*",
+            agent_msg.VlanIface, vlan=1000, secondary_ips_v4=["10.100.1.1/24", "fe80::1/64"])
+        self.assertRaisesRegex(
+            pydantic.ValidationError, ".*10.100.1.1/24 is not a valid IPv6 address/prefix.*",
+            agent_msg.VlanIface, vlan=1000, primary_ip_v6="10.100.1.1/24")
+        self.assertRaisesRegex(
+            pydantic.ValidationError, ".*10.100.1.1/24 is not a valid IPv6 address/prefix.*",
+            agent_msg.VlanIface, vlan=1000, secondary_ips_v6=["10.100.1.1/24", "fe80::1/64"])
 
 
 class TestSwitchConfigUpdateList(base.TestCase):
