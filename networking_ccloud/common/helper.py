@@ -12,6 +12,7 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
+import ipaddress
 import json
 
 from neutron_lib.api.definitions import portbindings as pb_api
@@ -86,3 +87,19 @@ def merge_segment_dicts(segments_a, segments_b):
 
     # we only return this for convenience, update is done in-place
     return segments_a
+
+
+def get_ip_version(ip_or_net):
+    return ipaddress.ip_interface(ip_or_net).version
+
+
+def split_by_address_family(ip_list):
+    v4 = []
+    v6 = []
+    for ip in ip_list:
+        if get_ip_version(ip) == 4:
+            v4.append(ip)
+        else:
+            v6.append(ip)
+
+    return v4, v6

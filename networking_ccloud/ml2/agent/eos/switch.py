@@ -20,6 +20,7 @@ import uuid
 from oslo_log import log as logging
 
 from networking_ccloud.common import constants as cc_const
+from networking_ccloud.common.helper import get_ip_version
 from networking_ccloud.ml2.agent.common.gnmi import CCGNMIClient
 from networking_ccloud.ml2.agent.common import messages as agent_msg
 from networking_ccloud.ml2.agent.common.messages import OperationEnum as Op
@@ -504,7 +505,9 @@ class EOSSwitch(SwitchBase):
                 aggregates = [{'aggregate-address': agg.network,
                                'config': {'aggregate-address': agg.network,
                                           'attribute-map': self.gen_route_map_name(bgp_vrf.name, agg.az_local)}}
-                              for agg in bgp_vrf.aggregates or []]
+                              for agg in bgp_vrf.aggregates or []
+                              # TODO(seba): implement ipv6
+                              if get_ip_version(agg.network) == 4]
                 config_req.update.append((EOSGNMIPaths.BGP_VRF_AGGREGATES.format(vrf=bgp_vrf.name),
                                           {'aggregate-address': aggregates}))
 
@@ -514,6 +517,9 @@ class EOSSwitch(SwitchBase):
                                 for az_local, ext_announcable in [(False, False), (False, True),
                                                                   (True, False), (True, True)]}
                 for net in bgp_vrf.networks or []:
+                    # TODO(seba): implement ipv6
+                    if get_ip_version(net.network) != 4:
+                        continue
                     pl_name = self.gen_prefix_list_name(bgp_vrf.name, net.az_local, net.ext_announcable)
                     prefix_lists[pl_name].append({'ip-prefix': net.network, 'masklength-range': 'exact',
                                                   'config': {'ip-prefix': net.network, 'masklength-range': 'exact'}})
@@ -528,11 +534,17 @@ class EOSSwitch(SwitchBase):
             else:
                 # delete
                 for net in bgp_vrf.networks:
+                    # TODO(seba): implement ipv6
+                    if get_ip_version(net.network) != 4:
+                        continue
                     pl_name = self.gen_prefix_list_name(bgp_vrf.name, net.az_local, net.ext_announcable)
                     delete_req = EOSGNMIPaths.PREFIX_LIST_PREFIX.format(name=pl_name, prefix=net.network)
                     config_req.delete.append(delete_req)
 
                 for agg in bgp_vrf.aggregates:
+                    # TODO(seba): implement ipv6
+                    if get_ip_version(agg.network) != 4:
+                        continue
                     # NOTE: We're deleting regardless of route-map here
                     delete_req = EOSGNMIPaths.BGP_VRF_AGGREGATE_PREFIX.format(vrf=bgp_vrf.name,
                                                                               prefix=agg.network)
@@ -623,7 +635,7 @@ class EOSSwitch(SwitchBase):
                 delete_req = EOSGNMIPaths.EVPN_INSTANCE.format(vlan=bgp_vlan.vlan)
                 config_req.delete.append(delete_req)
 
-    def get_iface_secondary_ips(self):
+    def get_iface_secondary_ips_v4(self):
         ifaces = {}
 
         for entry in self.api.get(EOSGNMIPaths.IFACE_IPS_VIA_SYSDB, unpack=False)['notification']:
@@ -654,7 +666,7 @@ class EOSSwitch(SwitchBase):
             pc_details[pc['name']] = pc
 
         # secondary ips are only available via extra sysdb request
-        all_secondary_ips = self.get_iface_secondary_ips()
+        all_secondary_ips_v4 = self.get_iface_secondary_ips_v4()
 
         # vrfs are available in the network instances tree and need to be fetched seperately
         if with_vrfs:
@@ -674,10 +686,10 @@ class EOSSwitch(SwitchBase):
                                  .get('virtual-address', {})
                                  .get('config'))
                 if ip_config is not None:
-                    vlan_iface.primary_ip = f"{ip_config['ip']}/{ip_config['prefix-length']}"
+                    vlan_iface.primary_ip_v4 = f"{ip_config['ip']}/{ip_config['prefix-length']}"
 
-                if data['name'] in all_secondary_ips:
-                    vlan_iface.secondary_ips = list(all_secondary_ips[data['name']])
+                if data['name'] in all_secondary_ips_v4:
+                    vlan_iface.secondary_ips_v4 = list(all_secondary_ips_v4[data['name']])
 
                 vlan_ifaces.append(vlan_iface)
 
@@ -941,15 +953,15 @@ class EOSSwitch(SwitchBase):
                     if switch_vif.vlan in self.managed_vlans and switch_vif.vlan not in wanted_vlans:
                         config_req.delete.append(EOSGNMIPaths.IFACE.format(name=f"Vlan{switch_vif.vlan}"))
 
-            all_secondary_ips = self.get_iface_secondary_ips()
+            all_secondary_ips_v4 = self.get_iface_secondary_ips_v4()
             for viface in vlan_ifaces:
                 vifname = f"Vlan{viface.vlan}"
                 vconfig = {"name": vifname, "config": {"name": vifname, "type": "l3ipvlan"}}
 
                 # for the provided IPs we are always in replace mode
                 # NOTE: having secondary IPs, but no primary IP will always remove all secondary IPs
-                if viface.primary_ip:
-                    vip, plen = viface.primary_ip.split("/", 2)
+                if viface.primary_ip_v4:
+                    vip, plen = viface.primary_ip_v4.split("/", 2)
                     vconfig["arista-varp"] = {"virtual-address": {"config": {"ip": vip, "prefix-length": int(plen)}}}
                 else:
                     # remove address from interface
@@ -957,13 +969,13 @@ class EOSSwitch(SwitchBase):
 
                 # handle secondary ips
                 secondary_ip_cmds = []
-                if all_secondary_ips.get(vifname):
+                if all_secondary_ips_v4.get(vifname):
                     # clean unneeded secondary ips
-                    for ip in all_secondary_ips[vifname]:
-                        if ip not in (viface.secondary_ips or []):
+                    for ip in all_secondary_ips_v4[vifname]:
+                        if ip not in (viface.secondary_ips_v4 or []):
                             secondary_ip_cmds.append(("cli:", f"no ip address virtual {ip} secondary"))
 
-                for ip in viface.secondary_ips or []:
+                for ip in viface.secondary_ips_v4 or []:
                     secondary_ip_cmds.append(("cli:", f"ip address virtual {ip} secondary"))
 
                 if secondary_ip_cmds:
