@@ -22,6 +22,7 @@ from oslo_log import log as logging
 import pydantic
 
 from networking_ccloud.common.config.config_driver import validate_asn
+from networking_ccloud.common.helper import split_by_address_family
 from networking_ccloud.ml2.agent.common.api import CCFabricSwitchAgentRPCClient
 
 LOG = logging.getLogger(__name__)
@@ -278,8 +279,28 @@ class VlanIface(pydantic.BaseModel):
     vlan: pydantic.conint(gt=0, lt=4094)
     vrf: str = None
 
-    primary_ip: str = None
-    secondary_ips: List[str] = None
+    primary_ip_v4: str | None = None
+    primary_ip_v6: str | None = None
+    secondary_ips_v4: List[str] | None = None
+    secondary_ips_v6: List[str] | None = None
+
+    @pydantic.validator("primary_ip_v4", "secondary_ips_v4", each_item=True, pre=True, allow_reuse=True)
+    def validate_ipv4(cls, v):
+        if v is not None:
+            try:
+                ipaddress.IPv4Interface(v)
+            except ValueError:
+                raise ValueError(f"{v} is not a valid IPv4 address/prefix")
+        return v
+
+    @pydantic.validator("primary_ip_v6", "secondary_ips_v6", each_item=True, pre=True, allow_reuse=True)
+    def validate_ipv6(cls, v):
+        if v is not None:
+            try:
+                ipaddress.IPv6Interface(v)
+            except ValueError:
+                raise ValueError(f"{v} is not a valid IPv6 address/prefix")
+        return v
 
     def __lt__(self, other):
         return self.vlan < other.vlan
@@ -397,7 +418,7 @@ class SwitchConfigUpdateList:
          * keep_mapping: determines if the vlan-vni mapping is kept on op=remove/replace
          * exclude_hosts: hosts to exclude if a metagroup is being bound
          * is_bgw: bordergateway mode - no ifaces will be configured, bgp stanzas marked as bgw
-         * gateways: all gateways configured for this binding host ({'vrf': name, 'ips': [gw, gw, gw]})
+         * gateways: all gateways configured for this binding host ({'vrf': name, 'ips_v4': [gw, gw], 'ips_v6': ...})
          * is_stretched: mark network as stretched / az aware in BGP
         """
         add = self.operation == OperationEnum.add
@@ -426,8 +447,15 @@ class SwitchConfigUpdateList:
 
             # gateways
             if gateways and not is_bgw:
-                scu.add_vlan_iface(vlan=seg_vlan, vrf=gateways['vrf'], primary_ip=gateways['ips'][0],
-                                   secondary_ips=gateways['ips'][1:])
+                # make sure gateways are sorted so we have a stable list
+                gws_v4 = gateways['ips_v4']
+                gws_v4.sort(key=ipaddress.ip_interface)
+                gws_v6 = gateways['ips_v6']
+                gws_v6.sort(key=ipaddress.ip_interface)
+
+                scu.add_vlan_iface(vlan=seg_vlan, vrf=gateways['vrf'],
+                                   primary_ip_v4=next(iter(gws_v4), None), secondary_ips_v4=gws_v4[1:],
+                                   primary_ip_v6=next(iter(gws_v6), None), secondary_ips_v6=gws_v6[1:])
 
             # interface config
             if not is_bgw:
@@ -470,7 +498,8 @@ class SwitchConfigUpdateList:
             # FIXME: exclude hosts
             gateways = None
             if inet.vrf:
-                gateways = {'vrf': inet.vrf, 'ips': inet.networks}
+                gws_v4, gws_v6 = split_by_address_family(inet.networks)
+                gateways = {'vrf': inet.vrf, 'ips_v4': gws_v4, 'ips_v6': gws_v6}
 
             self.add_binding_host_to_config(hg_config, inet.name, inet.vni, inet.vlan,
                                             gateways=gateways, override_native=inet.untagged and process_untagged)
