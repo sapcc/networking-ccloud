@@ -15,9 +15,11 @@ import math
 import re
 
 from oslo_log import log as logging
+from pygnmi.client import gNMIException
 from typing import List, Optional, Tuple
 
 from networking_ccloud.common import constants as cc_const
+from networking_ccloud.common.helper import get_ip_version
 from networking_ccloud.ml2.agent.common.gnmi import CCGNMIClient
 from networking_ccloud.ml2.agent.common import messages as agent_msg
 from networking_ccloud.ml2.agent.common.messages import OperationEnum as Op
@@ -70,7 +72,7 @@ class NXOSSwitch(SwitchBase):
     # System/bgp-items/inst-items/dom-items/Dom-list[name=CC-CLOUD01]...
     BGP_VRF_RE = re.compile(r"^System/bgp-items/inst-items/dom-items/Dom-list\[name=(?P<vrf>[^\]]+)\].*")
     # RM-CC-CLOUD01-D-AGGREGATE RM-CC-CLOUD01-AGGREGATE
-    BGP_AGGREGATE_RM_RE = re.compile("^RM-(?P<vrf>[A-Z0-9-]+?)(?:-(?P<az>[A-Z]))?-AGGREGATE$")
+    BGP_AGGREGATE_RM_RE = re.compile("^RM-(?P<vrf>[A-Z0-9-]+?)(?:-(?P<az>[A-Z]))?(?P<is_aggregate>-AGGREGATE)?$")
     # PL-CC-CLOUD02 | PL-CC-CLOUD02-A | PL-CC-CLOUD02-EXTERNAL | PL-CC-CLOUD02-A-EXTERNAL
     PREFIX_LIST_RE = re.compile("PL-(?P<vrf>.*?)(?:-(?P<az>[A-Z]))?(?:-(?P<external>EXTERNAL))?$")
     # System/bd-items/bd-items/BD-list[fabEncap=vlan-3064]...
@@ -279,7 +281,7 @@ class NXOSSwitch(SwitchBase):
 
             for aggr in value['AggAddr-list']:
                 m = self.BGP_AGGREGATE_RM_RE.match(aggr['attrMap'])
-                if not m:
+                if not m or not m['is_aggregate']:
                     continue
                 if m.group('vrf') != vrf:
                     LOG.warning("BGPVRF %s routemap %s seems to have different VRF", vrf, m.group('vrf'))
@@ -288,23 +290,29 @@ class NXOSSwitch(SwitchBase):
                     agent_msg.BGPVRFAggregate(network=aggr['addr'], az_local=bool(m.group('az')))
                 ])
 
-        # prefix lists
-        # NOTE: could be refactored to save about 200ms (~320ms vs 120ms)
-        #       sw.grpc_get(path=["/System/rpm-items/pfxlistv4-items/RuleV4-list/ent-items"], unpack=False)
-        for pfx in self.api.get(path=["/System/rpm-items/pfxlistv4-items"])['RuleV4-list']:
-            m = self.PREFIX_LIST_RE.match(pfx['name'])
+        # device networks
+        device_networks = self.api.get(path=["/System/bgp-items/inst-items/dom-items/Dom-list/"
+                                             "af-items/DomAf-list/prefix-items"],
+                                       single=False, with_path=True)
+        for path, value in device_networks:
+            m = self.BGP_VRF_RE.match(path)
             if not m:
+                LOG.debug("Could not parse VRF from %s, skipping this BGPVRF", path)
                 continue
 
             vrf = m.group('vrf')
             if vrf not in bgpvrfs:
                 bgpvrfs[vrf] = agent_msg.BGPVRF(name=vrf)
 
-            for addr in pfx.get('ent-items', {}).get('Entry-list', []):
-                ip_addr = str(ipaddress.ip_network(addr['pfx'], strict=False))
+            for net in value['AdvPrefix-list']:
+                m = self.BGP_AGGREGATE_RM_RE.match(net['rtMap'])
+                if not m:
+                    continue
+                if m.group('vrf') != vrf:
+                    LOG.warning("BGPVRF %s routemap %s seems to have different VRF", vrf, m.group('vrf'))
                 bgpvrfs[vrf].add_networks([
-                    agent_msg.BGPVRFNetwork(network=ip_addr, az_local=bool(m.group('az')),
-                                            ext_announcable=bool(m.group('external')))
+                    agent_msg.BGPVRFNetwork(network=net['addr'], az_local=bool(m['az']),
+                                            ext_announcable=bool(m['is_aggregate']))
                 ])
 
         return sorted(bgpvrfs.values())
@@ -397,7 +405,7 @@ class NXOSSwitch(SwitchBase):
         if az_local:
             name += f"-{self.az_suffix.upper()}"
         if ext_announcable:
-            name += "-EXTERNAL"
+            name += "-AGGREGATE"
         return name
 
     def gen_route_map_name(self, vrf_name, az_local):
@@ -411,72 +419,65 @@ class NXOSSwitch(SwitchBase):
 
         if operation in (Op.add, Op.replace):
             for bgp_vrf in bgp_vrfs:
-                # FIXME: are we sure we can do a full replace for the aggregates?
-                #        Ben says "let's try it!"
-                # aggregates
-                # System/bgp-items/inst-items/dom-items/Dom-list[name=CC-CLOUD01]/af-items/DomAf-list[type=ipv4-ucast]/aggaddr-items
+                for ip_ver in 4, 6:
+                    # aggregates
+                    aggrs = [
+                        {"addr": bva.network, "attrMap": self.gen_route_map_name(bgp_vrf.name, bva.az_local)}
+                        for bva in bgp_vrf.aggregates or []
+                        if get_ip_version(bva.network) == ip_ver
+                    ]
+                    if aggrs:
+                        item = (
+                            f"/System/bgp-items/inst-items/dom-items/Dom-list[name={bgp_vrf.name}]/"
+                            f"af-items/DomAf-list[type=ipv{ip_ver}-ucast]/aggaddr-items",
+                            {'AggAddr-list': aggrs}
+                        )
+                        config_req.get_list(operation).append(item)
 
-                aggrs = [
-                    {"addr": bva.network, "attrMap": self.gen_route_map_name(bgp_vrf.name, bva.az_local)}
-                    for bva in bgp_vrf.aggregates or []
-                ]
-                item = (
-                    f"/System/bgp-items/inst-items/dom-items/Dom-list[name={bgp_vrf.name}]/"
-                    f"af-items/DomAf-list[type=ipv4-ucast]/aggaddr-items",
-                    {'AggAddr-list': aggrs}
-                )
-                config_req.get_list(operation).append(item)
+                    # network statements
+                    prefixes = []
+                    for bvn in bgp_vrf.networks or []:
+                        if get_ip_version(bvn.network) != ip_ver:
+                            continue
 
-                pfx_lists = {}
-                if operation == Op.replace:
-                    # on replace make sure we also empty lists where we don't have any prefixes for
-                    for az_local in True, False:
-                        for ext_announcable in True, False:
-                            pfx_name = self.gen_prefix_list_name(bgp_vrf.name, az_local, ext_announcable)
-                            pfx_lists[pfx_name] = []
+                        rm_parts = ["RM", bgp_vrf.name]
+                        if bvn.az_local:
+                            rm_parts.append(self.az_suffix.upper())
+                        if bvn.ext_announcable:
+                            # for now we use the AGGREGATE route-map instead of a custom EXTERNAL one
+                            rm_parts.append("AGGREGATE")
+                        rm_name = "-".join(rm_parts)
 
-                for bvn in bgp_vrf.networks or []:
-                    pfx_name = self.gen_prefix_list_name(bgp_vrf.name, bvn.az_local, bvn.ext_announcable)
-                    ipn = ipaddress.ip_network(bvn.network, strict=False)
-                    order = int(ipn.network_address) or 1
-
-                    pfx_lists.setdefault(pfx_name, []).append(
-                        {
-                            "order": order,
-                            "pfx": str(ipn),
-                        }
-                    )
-
-                for pfx_list_name, entries in pfx_lists.items():
-                    if entries:
-                        entry = {"Entry-list": entries}
-                    else:
-                        entry = {}
-
-                    config_req.get_list(operation).append((
-                        f"/System/rpm-items/pfxlistv4-items/RuleV4-list[name={pfx_list_name}]/ent-items",
-                        entry
-                    ))
-
+                        entry = {"addr": bvn.network, "rtMap": rm_name}
+                        if ip_ver == 4:
+                            # the vpn attribute exists in the v6 api but not the v6 cli
+                            # if we set it on v6 the route will show up in api but not in cli
+                            entry["evpn"] = "enabled"
+                        prefixes.append(entry)
+                    if prefixes:
+                        item = (
+                            f"/System/bgp-items/inst-items/dom-items/Dom-list[name={bgp_vrf.name}]/"
+                            f"af-items/DomAf-list[type=ipv{ip_ver}-ucast]/prefix-items",
+                            {'AdvPrefix-list': prefixes}
+                        )
+                        config_req.get_list(operation).append(item)
         else:
             for bgp_vrf in bgp_vrfs:
                 # aggregates
                 for bva in bgp_vrf.aggregates or []:
+                    ip_ver = get_ip_version(bva.network)
                     config_req.delete.append(
                         f"/System/bgp-items/inst-items/dom-items/Dom-list[name={bgp_vrf.name}]/"
-                        f"af-items/DomAf-list[type=ipv4-ucast]/aggaddr-items/AggAddr-list[addr={bva.network}]"
+                        f"af-items/DomAf-list[type=ipv{ip_ver}-ucast]/aggaddr-items/AggAddr-list[addr={bva.network}]"
                     )
 
-                # prefix lists
-                if bgp_vrf.networks:
-                    # TODO(seba): properly implement prefix list cleaning if needed
-                    #             cleaning up prefix lists requires us to fetch the list and then selectively
-                    #             delete entries based on order (pfx is not a key and therefore we can't delete
-                    #             based on the key). This code is currently only for infra networks, which are
-                    #             not used with nxos. We implement this once it's needed or remove the code path
-                    #             from the driver
-                    LOG.warning("BGP VRF prefix list cleaning not implemented yet for VRF %s for %s networks, "
-                                "will be cleaned on next full sync", bgp_vrf.name, len(bgp_vrf.networks))
+                # networks
+                for bvn in bgp_vrf.networks or []:
+                    ip_ver = get_ip_version(bvn.network)
+                    config_req.delete.append(
+                        f"/System/bgp-items/inst-items/dom-items/Dom-list[name={bgp_vrf.name}]/"
+                        f"af-items/DomAf-list[type=ipv{ip_ver}-ucast]/prefix-items/AdvPrefix-list[addr={bvn.network}]"
+                    )
 
     def get_ifaces_config(self):
         # fetch physical interfaces, fetch portchannels
@@ -701,17 +702,24 @@ class NXOSSwitch(SwitchBase):
             # ip addresses: "/System/ipv4-items/inst-items/dom-items/Dom-list[name=CC-CLOUD01]
             #                /if-items/If-list[id=vlan2057]"
             # FIXME: what if the interface does not exist there?
-            ips = self.api.get(path=[f"/System/ipv4-items/inst-items/dom-items/Dom-list[name={vrf}]"
-                                     f"/if-items/If-list[id={svi['id']}]/addr-items"])
-            primary_ip = None
-            secondary_ips = []
-            for ip in ips["Addr-list"]:
-                if ip['type'] == 'primary':
-                    primary_ip = ip['addr']
-                else:
-                    secondary_ips.append(ip['addr'])
+            ip_args = {}
+            for ip_ver in 4, 6:
+                try:
+                    ips = self.api.get(path=[f"/System/ipv{ip_ver}-items/inst-items/dom-items/Dom-list[name={vrf}]"
+                                             f"/if-items/If-list[id=vlan{svi['id']}]/addr-items"])
+                except gNMIException as e:
+                    # this is expected if there is not a single ip of this AF on any interface
+                    LOG.debug("Cannot fetch ipv%s ips for SVI vlan%s on %s (%s): e",
+                              ip_ver, vlan_id, self.name, self.host, e)
+                    continue
 
-            vlan_iface = agent_msg.VlanIface(vlan=vlan_id, vrf=vrf, primary_ip=primary_ip, secondary_ips=secondary_ips)
+                for ip in ips["Addr-list"]:
+                    if ip['type'] == 'primary':
+                        ip_args[f"pimary_ip_v{ip_ver}"] = ip['addr']
+                    else:
+                        ip_args.setdefault(f"secondary_ips_v{ip_ver}", []).append(ip['addr'])
+
+            vlan_iface = agent_msg.VlanIface(vlan=vlan_id, vrf=vrf, **ip_args)
             svis.append(vlan_iface)
         return svis
 
@@ -744,31 +752,49 @@ class NXOSSwitch(SwitchBase):
                     }
                 ))
 
-                config_req.replace.append((
-                    f"/System/ipv4-items/inst-items/dom-items/Dom-list[name={vif.vrf}]/"
-                    f"if-items/If-list[id={vif_id}]",
-                    {
+                for ip_ver in 4, 6:
+                    primary_ip = getattr(vif, f"primary_ip_v{ip_ver}")
+                    secondary_ips = getattr(vif, f"secondary_ips_v{ip_ver}")
+                    all_ips = []
+                    if primary_ip:
+                        all_ips.append(primary_ip)
+                    if secondary_ips:
+                        all_ips.extend(secondary_ips)
+                    addrs = [
+                        {
+                            "addr": ip,
+                            "type": "primary" if ip == primary_ip else "secondary",
+                        }
+                        for ip in all_ips
+                    ]
+
+                    addr_config = {
                         "id": vif_id,
-                        "addr-items": {
-                            "Addr-list": [
-                                {
-                                    "addr": ip,
-                                    "type": "primary" if ip == vif.primary_ip else "secondary",
-                                }
-                                for ip in [vif.primary_ip] + (vif.secondary_ips or [])
-                            ],
-                        },
-                        "directedBroadcast": "disabled",
+                        "addr-items": {"Addr-list": addrs} if addrs else {},
                         "forward": "disabled",
                         "urpf": "disabled"
                     }
-                ))
+                    if ip_ver == 4:
+                        addr_config["directedBroadcast"] = "disabled"
 
-                config_req.replace.append((
-                    f"/System/icmpv4-items/inst-items/dom-items/Dom-list[name={vif.vrf}]/"
-                    f"if-items/If-list[id={vif_id}]",
-                    {"id": vif_id, "ctrl": "port-unreachable"}
-                ))
+                    config_req.replace.append((
+                        f"/System/ipv{ip_ver}-items/inst-items/dom-items/Dom-list[name={vif.vrf}]/"
+                        f"if-items/If-list[id={vif_id}]",
+                        addr_config
+                    ))
+
+                    # icmp redirects
+                    if ip_ver == 4:
+                        config_req.replace.append((
+                            f"/System/icmpv4-items/inst-items/dom-items/Dom-list[name={vif.vrf}]/"
+                            f"if-items/If-list[id={vif_id}]",
+                            {"id": vif_id, "ctrl": "port-unreachable"}
+                        ))
+                    else:
+                        config_req.replace.append((
+                            f"/System/icmpv6-items/inst-items/if-items/If-list[id={vif_id}]",
+                            {"id": vif_id, "ctrl": ""}
+                        ))
 
                 config_req.replace.append((
                     f"/System/hmm-items/fwdinst-items/if-items/FwdIf-list[id={vif_id}]",

@@ -305,6 +305,158 @@ class TestNXOSSwitch(base.TestCase):
         self.switch.apply_config_update(cu).result()
         self.switch._api.set.assert_called_with(delete=expected_delete, replace=[], update=expected_update)
 
+    def test_get_bgp_vrf_config(self):
+        def _get(prefix='', path=None, single=True, with_path=False):
+            if path[0] == '/System/bgp-items/inst-items/dom-items/Dom-list/af-items/DomAf-list/aggaddr-items' and \
+                    not single and with_path:
+                return [
+                    ('System/bgp-items/inst-items/dom-items/Dom-list[name=CC-SEAGULL]/'
+                     'af-items/DomAf-list[type=ipv6-ucast]/aggaddr-items',
+                     {'AggAddr-list': [{'addr': '2001:db8::/47', 'attrMap': 'RM-CC-SEAGULL-AGGREGATE'}]}),
+                    ('System/bgp-items/inst-items/dom-items/Dom-list[name=CC-SEAGULL]/'
+                     'af-items/DomAf-list[type=ipv4-ucast]/aggaddr-items',
+                     {'AggAddr-list': [
+                         {'addr': '1.0.0.0/8', 'attrMap': 'RM-CC-SEAGULL-D-AGGREGATE'},
+                         {'addr': '2.0.0.0/8', 'attrMap': 'RM-CC-SEAGULL-AGGREGATE'},
+                         {'addr': '3.0.0.0/8', 'attrMap': 'RM-CC-SEAGULL'}]}),
+                    ('System/bgp-items/inst-items/dom-items/Dom-list[name=CC-OYSTERCATCHER]/'
+                     'af-items/DomAf-list[type=ipv4-ucast]/aggaddr-items',
+                     {'AggAddr-list': [{'addr': '4.0.0.0/8', 'attrMap': 'RM-CC-OYSTERCATCHER-AGGREGATE'}]}),
+                    ('System/bgp-items/inst-items/dom-items/Dom-list[name=CC-PLOVER-SINGLE-01]/'
+                     'af-items/DomAf-list[type=ipv4-ucast]/aggaddr-items',
+                     {'AggAddr-list': [{'addr': '5.0.0.0/8', 'attrMap': 'RM-CC-PLOVER-SINGLE-01-AGGREGATE'}]}),
+                ]
+            elif path[0] == '/System/bgp-items/inst-items/dom-items/Dom-list/af-items/DomAf-list/prefix-items' and \
+                    not single and with_path:
+                return [
+                    ('System/bgp-items/inst-items/dom-items/Dom-list[name=CC-SEAGULL]/'
+                     'af-items/DomAf-list[type=ipv6-ucast]/prefix-items',
+                     {'AdvPrefix-list': [{'addr': '2a10:db8:1337::/64', 'evpn': 'disabled',
+                                          'rtMap': 'RM-CC-SEAGULL'}]}),
+                    ('System/bgp-items/inst-items/dom-items/Dom-list[name=CC-SEAGULL]/'
+                     'af-items/DomAf-list[type=ipv4-ucast]/prefix-items',
+                     {'AdvPrefix-list': [
+                         {'addr': '10.0.0.0/24', 'evpn': 'enabled', 'rtMap': 'RM-CC-SEAGULL'},
+                         {'addr': '10.0.1.0/24', 'evpn': 'enabled', 'rtMap': 'RM-CC-SEAGULL-D'},
+                         {'addr': '10.0.2.0/24', 'evpn': 'enabled', 'rtMap': 'RM-CC-SEAGULL-AGGREGATE'},
+                         {'addr': '10.0.3.0/24', 'evpn': 'enabled', 'rtMap': 'RM-CC-SEAGULL-D-AGGREGATE'},
+                         {'addr': '11.0.0.0/8', 'evpn': 'enabled', 'rtMap': 'GARBLED-RM'}]}),
+                    ('System/bgp-items/inst-items/dom-items/Dom-list[name=CC-OYSTERCATCHER]/'
+                     'af-items/DomAf-list[type=ipv4-ucast]/prefix-items',
+                     {'AdvPrefix-list': [{'addr': '12.0.0.0/24', 'evpn': 'enabled', 'rtMap': 'RM-CC-OYSTERCATCHER'}]}),
+                    ('System/bgp-items/inst-items/dom-items/Dom-list[name=CC-PLOVER-SINGLE-02]/'
+                     'af-items/DomAf-list[type=ipv4-ucast]/prefix-items',
+                     {'AdvPrefix-list': [{'addr': '13.0.0.0/24', 'evpn': 'enabled',
+                                          'rtMap': 'RM-CC-PLOVER-SINGLE-02'}]}),
+                ]
+            else:
+                _gnmi_args_err(**locals())
+                return None
+
+        # expected
+        #   aggrs: 2001:db8::/47  1.0.0.0/24 2.0.0.0/24 (az) 4.0.0.0/24
+        expected_bgp_vrfs = [
+            agent_msg.BGPVRF(
+                name="CC-OYSTERCATCHER",
+                aggregates=[agent_msg.BGPVRFAggregate(network="4.0.0.0/8", az_local=False)],
+                networks=[agent_msg.BGPVRFNetwork(network="12.0.0.0/24", az_local=False, ext_announcable=False)],
+            ),
+            agent_msg.BGPVRF(
+                name="CC-PLOVER-SINGLE-01",
+                aggregates=[agent_msg.BGPVRFAggregate(network="5.0.0.0/8", az_local=False)],
+            ),
+            agent_msg.BGPVRF(
+                name="CC-PLOVER-SINGLE-02",
+                networks=[agent_msg.BGPVRFNetwork(network="13.0.0.0/24", az_local=False, ext_announcable=False)],
+            ),
+            agent_msg.BGPVRF(
+                name="CC-SEAGULL",
+                aggregates=[
+                    agent_msg.BGPVRFAggregate(network="2001:db8::/47", az_local=False),
+                    agent_msg.BGPVRFAggregate(network="1.0.0.0/8", az_local=True),
+                    agent_msg.BGPVRFAggregate(network="2.0.0.0/8", az_local=False),
+                ],
+                networks=[
+                    agent_msg.BGPVRFNetwork(network="2a10:db8:1337::/64", az_local=False, ext_announcable=False),
+                    agent_msg.BGPVRFNetwork(network="10.0.0.0/24", az_local=False, ext_announcable=False),
+                    agent_msg.BGPVRFNetwork(network="10.0.1.0/24", az_local=True, ext_announcable=False),
+                    agent_msg.BGPVRFNetwork(network="10.0.2.0/24", az_local=False, ext_announcable=True),
+                    agent_msg.BGPVRFNetwork(network="10.0.3.0/24", az_local=True, ext_announcable=True),
+                ],
+            ),
+        ]
+
+        self.switch._api.get.side_effect = _get
+        bgp_vrfs = self.switch.get_bgp_vrf_config()
+        self.assertEqual(expected_bgp_vrfs, bgp_vrfs)
+
+    def test_bgp_vrf_network_and_aggregate_add(self):
+        cu = agent_msg.SwitchConfigUpdate(switch_name="seagull-sw1", operation=agent_msg.OperationEnum.add)
+        bgp_vrf = agent_msg.BGPVRF(name="CC-SEAGULL")
+        bgp_vrf.add_aggregates([
+            agent_msg.BGPVRFAggregate(network="10.180.0.0/16", az_local=False),
+            agent_msg.BGPVRFAggregate(network="10.181.0.0/16", az_local=True),
+            agent_msg.BGPVRFAggregate(network="2001:db8:4242::/64", az_local=False),
+        ])
+        bgp_vrf.add_networks([
+            agent_msg.BGPVRFNetwork(network="10.180.0.0/24", az_local=False, ext_announcable=False),
+            agent_msg.BGPVRFNetwork(network="10.180.1.0/24", az_local=True, ext_announcable=False),
+            agent_msg.BGPVRFNetwork(network="10.180.2.0/24", az_local=False, ext_announcable=True),
+            agent_msg.BGPVRFNetwork(network="10.180.3.0/24", az_local=True, ext_announcable=True),
+            agent_msg.BGPVRFNetwork(network="2001:db8:2323::/64", az_local=False, ext_announcable=False),
+        ])
+        cu.bgp = agent_msg.BGP(asn="65000", asn_region="65123", switchgroup_id=4223, vrfs=[bgp_vrf])
+        svi = agent_msg.VlanIface(vlan=2057, vrf="CC-SEAGULL",
+                                  primary_ip_v4="10.180.0.1/24", secondary_ips_v4=["10.180.1.1/24"],
+                                  primary_ip_v6="2001:db8::1/64", secondary_ips_v6=["2001:db8:1337::1/64"])
+        cu.vlan_ifaces = [svi]
+
+        self.switch.apply_config_update(cu).result()
+        self.switch._api.set.assert_called_once()
+
+        expected_replace = [
+            ('/System/intf-items/svi-items/If-list[id=vlan2057]',
+             {'adminSt': 'up', 'id': 'vlan2057', 'inbMgmt': 'false', 'mtu': 9000,
+              'rtvrfMbr-items': {'tDn': "/System/inst-items/Inst-list[name='CC-SEAGULL']"},
+              'vlanId': 2057}),
+            ('/System/ipv4-items/inst-items/dom-items/Dom-list[name=CC-SEAGULL]/if-items/If-list[id=vlan2057]',
+             {'addr-items': {'Addr-list': [{'addr': '10.180.0.1/24', 'type': 'primary'},
+                                           {'addr': '10.180.1.1/24', 'type': 'secondary'}]},
+              'directedBroadcast': 'disabled', 'forward': 'disabled', 'id': 'vlan2057', 'urpf': 'disabled'}),
+            ('/System/icmpv4-items/inst-items/dom-items/Dom-list[name=CC-SEAGULL]/if-items/If-list[id=vlan2057]',
+             {'ctrl': 'port-unreachable', 'id': 'vlan2057'}),
+            ('/System/ipv6-items/inst-items/dom-items/Dom-list[name=CC-SEAGULL]/if-items/If-list[id=vlan2057]',
+             {'addr-items': {'Addr-list': [{'addr': '2001:db8::1/64', 'type': 'primary'},
+                                           {'addr': '2001:db8:1337::1/64', 'type': 'secondary'}]},
+              'forward': 'disabled', 'id': 'vlan2057', 'urpf': 'disabled'}),
+            ('/System/icmpv6-items/inst-items/if-items/If-list[id=vlan2057]',
+             {'ctrl': '', 'id': 'vlan2057'}),
+            ('/System/hmm-items/fwdinst-items/if-items/FwdIf-list[id=vlan2057]',
+             {'adminSt': 'enabled',
+              'hybrid-items': {'advertiseGW': False, 'enable': False},
+              'id': 'vlan2057', 'mode': 'anycastGW'}),
+        ]
+
+        expected_update = [
+            ('/System/bgp-items/inst-items/dom-items/Dom-list[name=CC-SEAGULL]/'
+             'af-items/DomAf-list[type=ipv4-ucast]/aggaddr-items',
+             {'AggAddr-list': [{'addr': '10.180.0.0/16', 'attrMap': 'RM-CC-SEAGULL-AGGREGATE'},
+                               {'addr': '10.181.0.0/16', 'attrMap': 'RM-CC-SEAGULL-A-AGGREGATE'}]}),
+            ('/System/bgp-items/inst-items/dom-items/Dom-list[name=CC-SEAGULL]/'
+             'af-items/DomAf-list[type=ipv4-ucast]/prefix-items',
+             {'AdvPrefix-list': [{'addr': '10.180.0.0/24', 'evpn': 'enabled', 'rtMap': 'RM-CC-SEAGULL'},
+                                 {'addr': '10.180.1.0/24', 'evpn': 'enabled', 'rtMap': 'RM-CC-SEAGULL-A'},
+                                 {'addr': '10.180.2.0/24', 'evpn': 'enabled', 'rtMap': 'RM-CC-SEAGULL-AGGREGATE'},
+                                 {'addr': '10.180.3.0/24', 'evpn': 'enabled', 'rtMap': 'RM-CC-SEAGULL-A-AGGREGATE'}]}),
+            ('/System/bgp-items/inst-items/dom-items/Dom-list[name=CC-SEAGULL]/'
+             'af-items/DomAf-list[type=ipv6-ucast]/aggaddr-items',
+             {'AggAddr-list': [{'addr': '2001:db8:4242::/64', 'attrMap': 'RM-CC-SEAGULL-AGGREGATE'}]}),
+            ('/System/bgp-items/inst-items/dom-items/Dom-list[name=CC-SEAGULL]/'
+             'af-items/DomAf-list[type=ipv6-ucast]/prefix-items',
+             {'AdvPrefix-list': [{'addr': '2001:db8:2323::/64', 'rtMap': 'RM-CC-SEAGULL'}]})]
+
+        self.switch._api.set.assert_called_with(delete=[], replace=expected_replace, update=expected_update)
+
     def test_ifaces_replace(self):
         def _get(prefix='', path=None, unpack=True):
             if path == ["/System/intf-items/*/*/trunkVlans"] and not unpack:
