@@ -18,6 +18,7 @@ from oslo_log import log as logging
 from typing import List, Optional, Tuple
 
 from networking_ccloud.common import constants as cc_const
+from networking_ccloud.common.helper import get_ip_version
 from networking_ccloud.ml2.agent.common.gnmi import CCGNMIClient
 from networking_ccloud.ml2.agent.common import messages as agent_msg
 from networking_ccloud.ml2.agent.common.messages import OperationEnum as Op
@@ -419,13 +420,17 @@ class NXOSSwitch(SwitchBase):
                 aggrs = [
                     {"addr": bva.network, "attrMap": self.gen_route_map_name(bgp_vrf.name, bva.az_local)}
                     for bva in bgp_vrf.aggregates or []
+                    # FIXME: ipv6 compatibility
+                    if get_ip_version(bva.network) == 4
                 ]
-                item = (
-                    f"/System/bgp-items/inst-items/dom-items/Dom-list[name={bgp_vrf.name}]/"
-                    f"af-items/DomAf-list[type=ipv4-ucast]/aggaddr-items",
-                    {'AggAddr-list': aggrs}
-                )
-                config_req.get_list(operation).append(item)
+                if aggrs:
+                    # NOTE: ipv6-todo this is only empty for an ipv6 only network
+                    item = (
+                        f"/System/bgp-items/inst-items/dom-items/Dom-list[name={bgp_vrf.name}]/"
+                        f"af-items/DomAf-list[type=ipv4-ucast]/aggaddr-items",
+                        {'AggAddr-list': aggrs}
+                    )
+                    config_req.get_list(operation).append(item)
 
                 pfx_lists = {}
                 if operation == Op.replace:
@@ -438,6 +443,9 @@ class NXOSSwitch(SwitchBase):
                 for bvn in bgp_vrf.networks or []:
                     pfx_name = self.gen_prefix_list_name(bgp_vrf.name, bvn.az_local, bvn.ext_announcable)
                     ipn = ipaddress.ip_network(bvn.network, strict=False)
+                    if ipn.version != 4:
+                        # FIXME: ipv6 support
+                        continue
                     order = int(ipn.network_address) or 1
 
                     pfx_lists.setdefault(pfx_name, []).append(
@@ -711,7 +719,8 @@ class NXOSSwitch(SwitchBase):
                 else:
                     secondary_ips.append(ip['addr'])
 
-            vlan_iface = agent_msg.VlanIface(vlan=vlan_id, vrf=vrf, primary_ip=primary_ip, secondary_ips=secondary_ips)
+            vlan_iface = agent_msg.VlanIface(vlan=vlan_id, vrf=vrf, primary_ip_v4=primary_ip,
+                                             secondary_ips_v4=secondary_ips)
             svis.append(vlan_iface)
         return svis
 
@@ -744,31 +753,44 @@ class NXOSSwitch(SwitchBase):
                     }
                 ))
 
-                config_req.replace.append((
-                    f"/System/ipv4-items/inst-items/dom-items/Dom-list[name={vif.vrf}]/"
-                    f"if-items/If-list[id={vif_id}]",
-                    {
+                for ip_ver in 4, 6:
+                    primary_ip = getattr(vif, f"primary_ip_v{ip_ver}")
+                    secondary_ips = getattr(vif, f"secondary_ips_v{ip_ver}")
+                    addrs = [
+                        {
+                            "addr": ip,
+                            "type": "primary" if ip == primary_ip else "secondary",
+                        }
+                        for ip in [primary_ip] + (secondary_ips or [])
+                    ]
+
+                    addr_config = {
                         "id": vif_id,
-                        "addr-items": {
-                            "Addr-list": [
-                                {
-                                    "addr": ip,
-                                    "type": "primary" if ip == vif.primary_ip else "secondary",
-                                }
-                                for ip in [vif.primary_ip] + (vif.secondary_ips or [])
-                            ],
-                        },
-                        "directedBroadcast": "disabled",
+                        "addr-items": {"Addr-list": addrs} if addrs else {},
                         "forward": "disabled",
                         "urpf": "disabled"
                     }
-                ))
+                    if ip_ver == 4:
+                        addr_config["directedBroadcast"] = "disabled"
 
-                config_req.replace.append((
-                    f"/System/icmpv4-items/inst-items/dom-items/Dom-list[name={vif.vrf}]/"
-                    f"if-items/If-list[id={vif_id}]",
-                    {"id": vif_id, "ctrl": "port-unreachable"}
-                ))
+                    config_req.replace.append((
+                        f"/System/ipv{ip_ver}-items/inst-items/dom-items/Dom-list[name={vif.vrf}]/"
+                        f"if-items/If-list[id={vif_id}]",
+                        addr_config
+                    ))
+
+                    # icmp redirects
+                    if ip_ver == 4:
+                        config_req.replace.append((
+                            f"/System/icmpv4-items/inst-items/dom-items/Dom-list[name={vif.vrf}]/"
+                            f"if-items/If-list[id={vif_id}]",
+                            {"id": vif_id, "ctrl": "port-unreachable"}
+                        ))
+                    else:
+                        config_req.replace.append((
+                            f"/System/icmpv6-items/inst-items/if-items/If-list[id={vif_id}]",
+                            {"id": vif_id, "ctrl": ""}
+                        ))
 
                 config_req.replace.append((
                     f"/System/hmm-items/fwdinst-items/if-items/FwdIf-list[id={vif_id}]",
