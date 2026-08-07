@@ -81,6 +81,7 @@ class Switch(pydantic.BaseModel):
     # netbox: device.hostname
     name: str
     host: str
+    port: int | None
 
     # netbox: device.platform.slug
     platform: str

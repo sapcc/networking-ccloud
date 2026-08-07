@@ -136,7 +136,7 @@ class EOSSwitch(SwitchBase):
     def login(self):
         self._reset_version_detection()
 
-        self._api = CCGNMIClient(switch_name=self.name, host=self.host, port=6030,
+        self._api = CCGNMIClient(switch_name=self.name, host=self.host, port=self.port or 6030,
                                  username=self.user, password=self._password, platform=self.get_platform(),
                                  insecure=False, skip_verify=True)
         self._api.connect()

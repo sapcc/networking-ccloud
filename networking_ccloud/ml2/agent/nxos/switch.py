@@ -88,7 +88,7 @@ class NXOSSwitch(SwitchBase):
         return cc_const.PLATFORM_NXOS
 
     def login(self):
-        self._api = CCGNMIClient(switch_name=self.name, host=self.host, port=50051,
+        self._api = CCGNMIClient(switch_name=self.name, host=self.host, port=self.port or 50051,
                                  username=self.user, password=self._password, platform=self.get_platform(),
                                  insecure=False, skip_verify=True)
         self._api.connect()
