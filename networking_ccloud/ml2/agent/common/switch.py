@@ -172,6 +172,7 @@ class SwitchBase(abc.ABC):
         self.managed_vnis = managed_vnis
         self.name = sw_conf.name
         self.host = sw_conf.host
+        self.port = sw_conf.port
         self.user = sw_conf.user
         self._password = sw_conf.password
         self._agent_name = agent_name
