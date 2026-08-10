@@ -350,6 +350,12 @@ class CCDbPlugin(db_base_plugin_v2.NeutronDbPluginV2,
                            models_v2.Subnet.network_id == models_v2.Network.id)
         query = query.filter(models_v2.Subnet.subnetpool_id.isnot(None))
 
+        # make sure subnet pool has an address scope
+        query = query.join(models_v2.SubnetPool,
+                           models_v2.SubnetPool.id == models_v2.Subnet.subnetpool_id)
+        query = query.join(ascope_models.AddressScope,
+                           models_v2.SubnetPool.address_scope_id == ascope_models.AddressScope.id)
+
         # FIXME: the number of networks in the request can get quite large. would it maybe make more sense
         #        to pre-filter these for external networks and then do the in_() to reduce query size?
         query = query.filter(models_v2.Subnet.network_id.in_(network_ids))

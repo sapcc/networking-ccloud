@@ -324,6 +324,28 @@ class TestDBPluginNetworkSyncData(test_segment.SegmentTestCase, base.PortBinding
             }},
             self._db.get_subnetpool_details(ctx, [self._subnetpool_reg['id'], self._subnetpool_az['id']]))
 
+    def test_get_subnet_l3_config_ignores_pools_without_scope(self):
+        # a subnetpool with no address scope should be silently excluded
+        ctx = context.get_admin_context()
+        snp_no_scope = self._make_subnetpool("json", prefixes=["9.9.0.0/16"], tenant_id="foo",
+                                             name="no-scope-pool")['subnetpool']
+        net_e = self._make_network(name="e", admin_state_up=True, fmt='json')['network']
+        with db_api.CONTEXT_WRITER.using(ctx):
+            ctx.session.add(extnet_models.ExternalNetwork(network_id=net_e['id']))
+        self._make_subnet("json", {"network": net_e}, "9.9.9.1", "9.9.9.0/24",
+                          subnetpool_id=snp_no_scope['id'], as_admin=True)
+        self.assertEqual({}, self._db.get_subnet_l3_config_for_networks(ctx, [net_e['id']]))
+
+    def test_get_subnetpool_details_ignores_pools_without_scope(self):
+        # a subnetpool with no address scope should be silently excluded
+        ctx = context.get_admin_context()
+        snp_no_scope = self._make_subnetpool("json", prefixes=["9.9.0.0/16"], tenant_id="foo",
+                                             name="no-scope-pool")['subnetpool']
+        result = self._db.get_subnetpool_details(ctx, [snp_no_scope['id'],
+                                                       self._subnetpool_reg['id']])
+        self.assertNotIn(snp_no_scope['id'], result)
+        self.assertIn(self._subnetpool_reg['id'], result)
+
     def test_get_subport_trunk_vlan_id(self):
         ctx = context.get_admin_context()
         with self.port() as trunkport, self.port() as subport:
