@@ -189,7 +189,7 @@ class FabricPlugin(CCDbPlugin):
                 gateways = net_gateways.get(network_id)
                 scul.add_binding_host_to_config(hg_config, network_id, vni, vlan, trunk_vlan,
                                                 gateways=gateways, is_bgw=segment_1['is_bgw'])
-                if gateways:
+                if gateways and not segment_1['is_bgw']:
                     l3_net_switch_map.setdefault(network_id, set()).update(hg_config.get_switch_names(self.drv_conf))
 
         # group switches if they have the same set of l3 networks on them
