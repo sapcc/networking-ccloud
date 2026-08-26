@@ -23,5 +23,6 @@ pygnmi==0.8.3
 requests
 
 # tool requirements
+munch
 pynetbox>=6
 requests
