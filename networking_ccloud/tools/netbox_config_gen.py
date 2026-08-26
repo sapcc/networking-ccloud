@@ -115,6 +115,25 @@ query($device_id: ID!) {
                 name
               }
             }
+
+            parent_bay {
+              name
+              device {
+                id
+                name
+                tags {
+                  slug
+                }
+                devicebays {
+                  id
+                  installed_device {
+                    id
+                    name
+                  }
+                }
+              }
+            }
+
             devicebays {
               installed_device {
                 cluster {
@@ -348,6 +367,7 @@ class NetboxDataSource:
 
                 # generate clusters for devices that have different configuration
                 self._handle_lb_device_cluster(far_device)
+                self._handle_manila_device_cluster(far_device)
 
                 if not far_device.cluster:
                     LOG.debug(" ??? --> Ignoring switch %s interface %s device %s with missing cluster config",
@@ -420,6 +440,30 @@ class NetboxDataSource:
                     for (device_id, device_name) in sorted(cluster_devices, key=itemgetter(1))
                 ]
             })
+
+    def _handle_manila_device_cluster(self, far_device):
+        # manila devices have a parent, that has device_bays containing the cluster config,
+        # but no cluster objects attached in netbox. we make sure the parent device is tagged
+        # with "manila" and then generate an artificial cluster object
+
+        if far_device.cluster:
+            return
+        if far_device.role.slug != 'filer' or not far_device.parent_bay or not far_device.parent_bay.device:
+            return
+
+        parent_device = far_device.parent_bay.device
+        if not any(tag.slug == 'manila' for tag in parent_device.tags):
+            LOG.debug("Device %s is of type filer but parent device %s does not have a manila tag",
+                      far_device.name, parent_device.name)
+            return
+
+        far_device.cluster = Munch.fromDict({
+            "name": f"manila-share-netapp-{parent_device.name}",
+            "type": {
+                "slug": "manila",
+            },
+            "devices": [bay.installed_device for bay in parent_device.devicebays],
+        })
 
     def make_hostgroups(self, nb_switches: list[Munch]) -> list[conf.Hostgroup]:
         cluster_hgs = self.make_cluster_hostgroups(nb_switches)
@@ -521,6 +565,15 @@ class NetboxDataSource:
 
                     hg = conf.Hostgroup(
                         binding_hosts=binding_hosts,
+                        metagroup=True,
+                        members=[d.name for d in cluster.devices],
+                    )
+
+                    hostgroups.append(hg)
+                    hostgroups.extend(gen_device_bindings_for_cluster(cluster, direct_binding=True))
+                case "manila":
+                    hg = conf.Hostgroup(
+                        binding_hosts=[cluster.name],
                         metagroup=True,
                         members=[d.name for d in cluster.devices],
                     )
