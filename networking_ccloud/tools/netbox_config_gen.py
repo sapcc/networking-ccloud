@@ -345,56 +345,9 @@ class NetboxDataSource:
                               nb_switch.name, iface.name, far_device.name, far_device.tenant.slug)
                     continue
                 LOG.debug(" +++ Found device %s on %s/%s", far_device.name, nb_switch.name, iface.name)
-                # FIXME: additional filer filtering for parent device in original generator
 
-                if far_device.devicebays and not far_device.cluster and \
-                        far_device.role.slug in ('loadbalancer',):
-                    # loadbalancer devices have device bays with multiple clusters (instead of a single cluster) -
-                    # to handle this we create an artificial cluster object containing all subclusters
-                    # (they would need to be merged anyway)
-                    binding_hosts = set()
-                    cluster_devices = set()
-                    cluster_names = set()
-                    cluster_types = set()
-                    for bay in far_device.devicebays:
-                        cluster_def = bay.installed_device.cluster
-                        cluster_types.add(cluster_def.type.slug)
-
-                        # add binding host
-                        # e.g. qa-de-1-lb414-cluster-01 --> lb414-01
-                        # NOTE(seba): we are just ignoring the region, we trust it's right as it's connected to
-                        #             a switch returned by get_switch_list()
-                        m = re.match(r"^[a-z]+-[a-z]+-\d+-(?P<name>[^-]+)-(?:cluster-)?(?P<num>\d+)$", cluster_def.name)
-                        if not m:
-                            LOG.warning("Cluster %s of device %s did not match any known pattern, skipping it",
-                                        cluster_def.name, far_device.name)
-                            continue
-                        cluster_names.add(m['name'])
-
-                        binding_host = f"{m['name']}-{m['num']}"
-                        binding_hosts.add(binding_host)
-
-                        # add devices
-                        for device in cluster_def.devices:
-                            device = device.parent_bay.device
-                            cluster_devices.add((device.id, device.name))
-
-                    if cluster_devices and binding_hosts:
-                        if len(cluster_names) > 1 or len(cluster_types) > 1:
-                            LOG.warning("Device %s has inconsistent cluster name/types (%s, %s), selecting one",
-                                        far_device.name, cluster_names, cluster_types)
-
-                        far_device.cluster = Munch.fromDict({
-                            "name": list(cluster_names)[0],
-                            "binding_hosts": sorted(binding_hosts),
-                            "type": {
-                                "slug": list(cluster_types)[0],
-                            },
-                            "devices": [
-                                {"id": device_id, "name": device_name}
-                                for (device_id, device_name) in sorted(cluster_devices, key=itemgetter(1))
-                            ]
-                        })
+                # generate clusters for devices that have different configuration
+                self._handle_lb_device_cluster(far_device)
 
                 if not far_device.cluster:
                     LOG.debug(" ??? --> Ignoring switch %s interface %s device %s with missing cluster config",
@@ -413,6 +366,60 @@ class NetboxDataSource:
                 devices[far_device.id].ifaces.append(iface)
 
         return devices
+
+    def _handle_lb_device_cluster(self, far_device):
+        # loadbalancer devices have device bays with multiple clusters (instead of a single cluster) -
+        # to handle this we create an artificial cluster object containing all subclusters
+        # (they would need to be merged anyway)
+        if far_device.cluster:
+            return
+
+        if far_device.role.slug != 'loadbalancer' or not far_device.devicebays:
+            return
+
+        binding_hosts = set()
+        cluster_devices = set()
+        cluster_names = set()
+        cluster_types = set()
+        for bay in far_device.devicebays:
+            cluster_def = bay.installed_device.cluster
+            cluster_types.add(cluster_def.type.slug)
+
+            # add binding host
+            # e.g. qa-de-1-lb414-cluster-01 --> lb414-01
+            # NOTE(seba): we are just ignoring the region, we trust it's right as it's connected to
+            #             a switch returned by get_switch_list()
+            m = re.match(r"^[a-z]+-[a-z]+-\d+-(?P<name>[^-]+)-(?:cluster-)?(?P<num>\d+)$", cluster_def.name)
+            if not m:
+                LOG.warning("Cluster %s of device %s did not match any known pattern, skipping it",
+                            cluster_def.name, far_device.name)
+                continue
+            cluster_names.add(m['name'])
+
+            binding_host = f"{m['name']}-{m['num']}"
+            binding_hosts.add(binding_host)
+
+            # add devices
+            for device in cluster_def.devices:
+                device = device.parent_bay.device
+                cluster_devices.add((device.id, device.name))
+
+        if cluster_devices and binding_hosts:
+            if len(cluster_names) > 1 or len(cluster_types) > 1:
+                LOG.warning("Device %s has inconsistent cluster name/types (%s, %s), selecting one",
+                            far_device.name, cluster_names, cluster_types)
+
+            far_device.cluster = Munch.fromDict({
+                "name": list(cluster_names)[0],
+                "binding_hosts": sorted(binding_hosts),
+                "type": {
+                    "slug": list(cluster_types)[0],
+                },
+                "devices": [
+                    {"id": device_id, "name": device_name}
+                    for (device_id, device_name) in sorted(cluster_devices, key=itemgetter(1))
+                ]
+            })
 
     def make_hostgroups(self, nb_switches: list[Munch]) -> list[conf.Hostgroup]:
         cluster_hgs = self.make_cluster_hostgroups(nb_switches)
