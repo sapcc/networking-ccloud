@@ -855,7 +855,7 @@ class NXOSSwitch(SwitchBase):
                         continue
 
                     # chunk the request
-                    for n in range(int(math.ceil(len(entry)) / self.GNMI_CHUNK_SIZE)):
+                    for n in range(math.ceil(len(entry) / self.GNMI_CHUNK_SIZE)):
                         part_entry = entry[n * self.GNMI_CHUNK_SIZE: (n + 1) * self.GNMI_CHUNK_SIZE]
                         upd = {op: part_entry}
                         self.api.set(**upd)
