@@ -178,6 +178,9 @@ query QueryDeviceList($region: String!, $role: String!) {
     tags {
       slug
     }
+    primary_ip4 {
+      address
+    }
     config_context
     interfaces(filters: {name: {exact: "Loopback10"}}) {
       name
@@ -251,9 +254,10 @@ class NetboxDataSource:
 
     NETBOX_BGW_TAG = 'cnd-net-evpn-bg'
 
-    def __init__(self):
+    def __init__(self, switch_use_inband_ip=True):
         self._setup_netbox(verify_ssl=True)
         self.netbox_stats = {'time': 0.0, 'kb': 0.0}
+        self.switch_use_inband_ip = switch_use_inband_ip
 
     def _setup_netbox(self, verify_ssl):
         self.netbox = pynetbox.api(self.netbox_url, threading=True)
@@ -675,14 +679,19 @@ class NetboxDataSource:
         return site_asns.pop()
 
     def make_switch(self, switch: Munch, asn_region: int, user: str | None, password: str | None) -> conf.Switch:
-        # get primary ip from Loopback10
-        lo10_addrs = [ip.display for iface in switch.interfaces for ip in iface.ip_addresses
-                      if iface.name == "Loopback10"]
-        if len(lo10_addrs) == 0:
-            raise ConfigException(f"Device {switch.name} has no IP on Loopback10!")
-        if len(lo10_addrs) > 1:
-            raise ConfigException(f"Device {switch.name} has multiple IPs on Loopback10! {lo10_addrs}")
-        host_ip = lo10_addrs[0].split("/")[0]
+        if self.switch_use_inband_ip:
+            # get primary ip from Loopback10
+            lo10_addrs = [ip.display for iface in switch.interfaces for ip in iface.ip_addresses
+                          if iface.name == "Loopback10"]
+            if len(lo10_addrs) == 0:
+                raise ConfigException(f"Device {switch.name} has no IP on Loopback10!")
+            if len(lo10_addrs) > 1:
+                raise ConfigException(f"Device {switch.name} has multiple IPs on Loopback10! {lo10_addrs}")
+            host_ip = lo10_addrs[0].split("/")[0]
+        else:
+            if not switch.primary_ip4:
+                raise ConfigException(f"Device {switch.name} has no primary IPv4 defined!")
+            host_ip = switch.primary_ip4.address.split("/")[0]
 
         numbered_resources = self.parse_ccloud_switch_number_resources(switch.name)
         bgp_source_ip = "{az_no}.{pod}.{switchgroup_no}.{leaf_no}".format(**numbered_resources)
@@ -886,6 +895,8 @@ def main():
     parser.add_argument("-b", "--base-config", type=argparse.FileType("r"),
                         help="Use this driver config as a base and update it "
                              "(only in combination with --limit-switches)")
+    parser.add_argument("--use-switch-out-of-band", action="store_true",
+                        help="Use out of band instead of inband ip for talking to switch APIs")
 
     args = parser.parse_args()
 
@@ -941,7 +952,7 @@ def main():
     # generate config
     vrf_to_address_scopes_map = NetboxDataSource.get_vrf_to_address_scope_map(args.address_scope_vrf_map)
 
-    cfggen = NetboxDataSource()
+    cfggen = NetboxDataSource(switch_use_inband_ip=not args.use_switch_out_of_band)
     cfg = cfggen.generate_config(args.region, vrf_to_address_scopes_map, limit_switches=args.limit_switches)
 
     if base_config:
