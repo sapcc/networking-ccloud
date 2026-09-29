@@ -12,7 +12,8 @@ pyyaml
 # driver requirements
 futurist
 manhole
-neutron
+# neutron
+neutron @ git+https://github.com/sapcc/neutron@toanju/2026.1-m3
 neutron-lib
 prometheus_client
 
