@@ -69,17 +69,18 @@ class TestConfigValidationTool(base.TestCase):
                 pass
 
     def test_validation_with_unwrapping(self):
-        drv_conf = yaml.safe_load(open("examples/cc-driver-config.yaml"))
-        with tempfile.NamedTemporaryFile(mode="w", delete=False) as conf_file:
-            drv_conf = {"cc_fabric": {"driver_config": drv_conf}}
-            yaml.dump(drv_conf, conf_file)
-            conf_file.close()
+        with open("examples/cc-driver-config.yaml") as f:
+            drv_conf = yaml.safe_load(f)
+            with tempfile.NamedTemporaryFile(mode="w", delete=False) as conf_file:
+                drv_conf = {"cc_fabric": {"driver_config": drv_conf}}
+                yaml.dump(drv_conf, conf_file)
+                conf_file.close()
 
-            args = ["cc-config-check", "-d", conf_file.name, "--ud", "cc_fabric/driver_config"]
-            with mock.patch('sys.argv', args):
-                config_check.main()
+                args = ["cc-config-check", "-d", conf_file.name, "--ud", "cc_fabric/driver_config"]
+                with mock.patch('sys.argv', args):
+                    config_check.main()
 
-            try:
-                os.remove(conf_file.name)
-            except Exception:
-                pass
+                try:
+                    os.remove(conf_file.name)
+                except Exception:
+                    pass

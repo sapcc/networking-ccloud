@@ -659,7 +659,7 @@ class TestEOSConfigUpdates(base.TestCase):
         self.switch._api.set.assert_called_with(**expected_config)
 
     def test_replace_bgp_vrf_aggregates(self):
-        def _get(prefix):
+        def _get(prefix, **kwargs):
             if prefix == 'routing-policy/defined-sets/prefix-sets':
                 return {'openconfig-routing-policy:prefix-set': []}
             elif prefix == 'network-instances':
@@ -1254,8 +1254,8 @@ class TestEOSSwitch(base.TestCase):
 
         config = self.switch.get_config().result()
         config.sort()
-        self.assertEqual(cu.dict(exclude_unset=True, exclude_defaults=True),
-                         config.dict(exclude_unset=True, exclude_defaults=True))
+        self.assertEqual(cu.model_dump(exclude_unset=True, exclude_defaults=True),
+                         config.model_dump(exclude_unset=True, exclude_defaults=True))
 
     def test_compress_vlan_list(self):
         self.assertEqual([], self.switch._compress_vlan_list([]))

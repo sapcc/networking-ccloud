@@ -60,7 +60,9 @@ class CCFabricMechanismDriverTestBase(test_plugin.Ml2PluginV2TestCase, base.Port
         self.agent3 = neutron_test_helpers.register_dhcp_agent(host='network-agent-c-1', az='qa-de-1c')
 
     def _test_bind_port(self, fake_host, fake_segments=None, network=None, subnet=None, binding_levels=None,
-                        port_extra={}, port_created_cb=None):
+                        port_extra=None, port_created_cb=None):
+        if port_extra is None:
+            port_extra = {}
         if network is None:
             with self.network() as network:
                 return self._test_bind_port(fake_host, fake_segments, network, binding_levels=binding_levels,
@@ -219,7 +221,7 @@ class TestCCFabricMechanismDriver(CCFabricMechanismDriverTestBase):
                 self.assertIsNone(swcfg.ifaces[0].native_vlan)
                 self.assertEqual([42], swcfg.ifaces[0].trunk_vlans)
                 self.assertEqual(1, len(swcfg.ifaces[0].vlan_translations))
-                self.assertEqual({'inside': 42, 'outside': 1234}, swcfg.ifaces[0].vlan_translations[0].dict())
+                self.assertEqual({'inside': 42, 'outside': 1234}, swcfg.ifaces[0].vlan_translations[0].model_dump())
 
     def test_bind_port_trunking_without_subport_direct_level_1(self):
         fake_segments = [{'id': 'fake-segment-id', 'physical_network': 'cat', 'segmentation_id': 42,

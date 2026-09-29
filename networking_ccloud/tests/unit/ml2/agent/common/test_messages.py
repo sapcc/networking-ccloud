@@ -86,7 +86,7 @@ class TestSwitchConfigUpdate(base.TestCase):
             'secondary_ips_v4': ['10.100.2.0/24', '10.100.3.0/24'],
             'secondary_ips_v6': ['fe81::1/64', 'fe82::1/64'],
         }
-        self.assertEqual(expected, svi.dict())
+        self.assertEqual(expected, svi.model_dump())
 
     def test_vlan_iface_af_check_failing(self):
         self.assertRaisesRegex(
