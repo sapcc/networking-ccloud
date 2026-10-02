@@ -15,7 +15,7 @@
 from enum import Enum
 import ipaddress
 import re
-from typing import List
+from typing import Annotated
 
 from oslo_config import cfg
 from oslo_log import log as logging
@@ -24,6 +24,7 @@ import pydantic
 from networking_ccloud.common.config.config_driver import validate_asn
 from networking_ccloud.common.helper import split_by_address_family
 from networking_ccloud.ml2.agent.common.api import CCFabricSwitchAgentRPCClient
+from pydantic import BeforeValidator, Field
 
 LOG = logging.getLogger(__name__)
 
@@ -91,16 +92,16 @@ class OperationEnum(str, Enum):
 
 
 class Vlan(pydantic.BaseModel):
-    vlan: pydantic.conint(gt=0, lt=4094)
-    name: str = None
+    vlan: Annotated[int, Field(gt=0, lt=4094)]
+    name: str | None = None
 
     def __lt__(self, other):
         return self.vlan < other.vlan
 
 
 class VXLANMapping(pydantic.BaseModel):
-    vni: pydantic.conint(gt=0, lt=2**24)
-    vlan: pydantic.conint(gt=0, lt=4094)
+    vni: Annotated[int, Field(gt=0, lt=2**24)]
+    vlan: Annotated[int, Field(gt=0, lt=4094)]
     enable_multisite: bool = False
 
     def __lt__(self, other):
@@ -111,43 +112,40 @@ class BGPVlan(pydantic.BaseModel):
     # FIXME: validator
     rd: str
     rd_evpn_domain_all: bool = False
-    vlan: pydantic.conint(gt=0, lt=4094)
+    vlan: Annotated[int, Field(gt=0, lt=4094)]
 
-    rt_imports: List[str] = []
-    rt_exports: List[str] = []
-    rt_imports_evpn: List[str] = []
-    rt_exports_evpn: List[str] = []
+    rt_imports: list[str] = Field(default_factory=list)
+    rt_exports: list[str] = Field(default_factory=list)
+    rt_imports_evpn: list[str] = Field(default_factory=list)
+    rt_exports_evpn: list[str] = Field(default_factory=list)
 
-    _norm_rt_imports = pydantic.validator('rt_imports', each_item=True, allow_reuse=True)(validate_route_target)
-    _norm_rt_exports = pydantic.validator('rt_exports', each_item=True, allow_reuse=True)(validate_route_target)
-    _norm_rt_imports_evpn = pydantic.validator('rt_imports_evpn',
-                                               each_item=True, allow_reuse=True)(validate_route_target)
-    _norm_rt_exports_evpn = pydantic.validator('rt_exports_evpn',
-                                               each_item=True, allow_reuse=True)(validate_route_target)
+    @pydantic.field_validator("rt_imports", "rt_exports", "rt_imports_evpn", "rt_exports_evpn", mode="after")
+    @classmethod
+    def validate_imports(cls, value):
+        if value is not None:
+            for rt in value:
+                validate_route_target(rt)
+        return value
 
     def __lt__(self, other):
         return self.vlan < other.vlan
 
 
 class BGPVRFNetwork(pydantic.BaseModel):
-    network: str
+    network: Annotated[str, BeforeValidator(ensure_network)]
     az_local: bool
     ext_announcable: bool
 
-    _ensure_network = pydantic.validator('network', allow_reuse=True)(ensure_network)
-
 
 class BGPVRFAggregate(pydantic.BaseModel):
-    network: str
+    network: Annotated[str, BeforeValidator(ensure_network)]
     az_local: bool
-
-    _ensure_network = pydantic.validator('network', allow_reuse=True)(ensure_network)
 
 
 class BGPVRF(pydantic.BaseModel):
     name: str
-    networks: List[BGPVRFNetwork] = None
-    aggregates: List[BGPVRFAggregate] = None
+    networks: list[BGPVRFNetwork] | None = None
+    aggregates: list[BGPVRFAggregate] | None = None
 
     def __lt__(self, other):
         return self.name < other.name
@@ -164,18 +162,15 @@ class BGPVRF(pydantic.BaseModel):
 
 
 class BGP(pydantic.BaseModel):
-    asn: str
-    asn_region: str
+    asn: Annotated[str, BeforeValidator(validate_asn)]
+    asn_region: Annotated[str, BeforeValidator(validate_asn)]
 
     # the switchgroup id is only used for putting together RDs
     # it will not be filled when config is pulled from the device
-    switchgroup_id: int = None
+    switchgroup_id: int | None = None
 
-    vlans: List[BGPVlan] = None
-    vrfs: List[BGPVRF] = None
-
-    _normalize_asn = pydantic.validator('asn', allow_reuse=True)(validate_asn)
-    _normalize_asn_region = pydantic.validator('asn_region', allow_reuse=True)(validate_asn)
+    vlans: list[BGPVlan] = Field(default_factory=list)
+    vrfs: list[BGPVRF] = Field(default_factory=list)
 
     def sort(self):
         if self.vlans:
@@ -226,20 +221,20 @@ class BGP(pydantic.BaseModel):
 
 
 class VlanTranslation(pydantic.BaseModel):
-    inside: pydantic.conint(gt=0, lt=4094)
-    outside: pydantic.conint(gt=0, lt=4094)
+    inside: Annotated[int, Field(gt=0, lt=4094)]
+    outside: Annotated[int, Field(gt=0, lt=4094)]
 
 
 class IfaceConfig(pydantic.BaseModel):
     name: str
-    description: str = None
+    description: str | None = None
 
-    native_vlan: pydantic.conint(gt=0, lt=4094) = None
-    trunk_vlans: List[pydantic.conint(gt=0, lt=4094)] = None
-    vlan_translations: List[VlanTranslation] = None
-    portchannel_id: pydantic.conint(gt=0) = None
-    members: List[str] = None
-    speed: str = None
+    native_vlan: Annotated[int, Field(gt=0, lt=4094)] | None = None
+    trunk_vlans: list[Annotated[int, Field(gt=0, lt=4094)]] = Field(default_factory=list)
+    vlan_translations: list[VlanTranslation] = Field(default_factory=list)
+    portchannel_id: Annotated[int, Field(gt=0)] | None = None
+    members: list[str] = Field(default_factory=list)
+    speed: str | None = None
 
     def __lt__(self, other):
         return self.name < other.name
@@ -276,31 +271,46 @@ class IfaceConfig(pydantic.BaseModel):
 
 
 class VlanIface(pydantic.BaseModel):
-    vlan: pydantic.conint(gt=0, lt=4094)
-    vrf: str = None
+    vlan: Annotated[int, Field(gt=0, lt=4094)]
+    vrf: str | None = None
 
     primary_ip_v4: str | None = None
     primary_ip_v6: str | None = None
-    secondary_ips_v4: List[str] | None = None
-    secondary_ips_v6: List[str] | None = None
+    secondary_ips_v4: list[str] | None = None
+    secondary_ips_v6: list[str] | None = None
 
-    @pydantic.validator("primary_ip_v4", "secondary_ips_v4", each_item=True, pre=True, allow_reuse=True)
-    def validate_ipv4(cls, v):
-        if v is not None:
-            try:
-                ipaddress.IPv4Interface(v)
-            except ValueError:
-                raise ValueError(f"{v} is not a valid IPv4 address/prefix")
-        return v
+    @pydantic.field_validator("primary_ip_v4", "secondary_ips_v4", mode="before")
+    @classmethod
+    def validate_ipv4(cls, value):
+        if value is None:
+            return value
 
-    @pydantic.validator("primary_ip_v6", "secondary_ips_v6", each_item=True, pre=True, allow_reuse=True)
-    def validate_ipv6(cls, v):
-        if v is not None:
+        values = value if isinstance(value, (list, tuple, set)) else [value]
+
+        for ip in values:
             try:
-                ipaddress.IPv6Interface(v)
-            except ValueError:
-                raise ValueError(f"{v} is not a valid IPv6 address/prefix")
-        return v
+                # print the type of value
+                ipaddress.IPv4Interface(ip)
+            except (ValueError, TypeError):
+                raise ValueError(f"{ip} is not a valid IPv4 address/prefix")
+
+        return value
+
+    @pydantic.field_validator("primary_ip_v6", "secondary_ips_v6", mode="before")
+    @classmethod
+    def validate_ipv6(cls, value):
+        if value is None:
+            return value
+
+        values = value if isinstance(value, (list, tuple, set)) else [value]
+
+        for ip in values:
+            try:
+                ipaddress.IPv6Interface(ip)
+            except (ValueError, TypeError):
+                raise ValueError(f"{ip} is not a valid IPv6 address/prefix")
+
+            return value
 
     def __lt__(self, other):
         return self.vlan < other.vlan
@@ -310,11 +320,11 @@ class SwitchConfigUpdate(pydantic.BaseModel):
     switch_name: str
     operation: OperationEnum
 
-    vlans: List[Vlan] = None
-    vxlan_maps: List[VXLANMapping] = None
-    bgp: BGP = None
-    ifaces: List[IfaceConfig] = None  # noqa: E701 (pyflakes bug)
-    vlan_ifaces: List[VlanIface] = None
+    vlans: list[Vlan] | None = None
+    vxlan_maps: list[VXLANMapping] | None = None
+    bgp: BGP | None = None
+    ifaces: list[IfaceConfig] | None = None  # noqa: E701 (pyflakes bug)
+    vlan_ifaces: list[VlanIface] | None = None
 
     @classmethod
     def make_object_from_net_data(self, vxlan_map, net_host_map):
@@ -345,7 +355,7 @@ class SwitchConfigUpdate(pydantic.BaseModel):
         self.vlans.append(Vlan(vlan=vlan, name=name))
 
     def add_vxlan_map(self, vni, vlan, bgw_mode=False):
-        if self.vxlan_maps is None:
+        if not self.vxlan_maps:
             self.vxlan_maps = []
         for vm in self.vxlan_maps:
             if vm.vni == vni and vm.vlan == vlan:

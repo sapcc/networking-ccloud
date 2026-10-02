@@ -53,5 +53,5 @@ class CCFabricDriverRPCClient:
         cctxt = self.client.prepare()
         config = cctxt.call(context, 'get_switch_config', switch_name=switch_name)
         if config is not None:
-            config = agent_msg.SwitchConfigUpdate.parse_obj(config)
+            config = agent_msg.SwitchConfigUpdate.model_validate(config)
         return config

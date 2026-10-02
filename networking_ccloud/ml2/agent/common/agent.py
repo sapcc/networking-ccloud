@@ -217,7 +217,7 @@ class CCFabricSwitchAgent(manager.Manager, cc_agent_api.CCFabricSwitchAgentAPI):
         result = {}
         futures = []
         for update in config:
-            update = agent_msg.SwitchConfigUpdate.parse_obj(update)
+            update = agent_msg.SwitchConfigUpdate.model_validate(update)
             switch = self.get_switch_by_name(update.switch_name)
             if not switch:
                 result[update.switch_name] = None

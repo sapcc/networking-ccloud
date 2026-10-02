@@ -162,7 +162,8 @@ class TestNetworkExtension(test_segment.SegmentTestCase, base.PortBindingHelper,
         self._port_b_1 = self._make_port_with_binding(segments=[(self._seg_b[None], 'cc-fabric'),
                                                                 (self._seg_b['seagull'], 'meow-ml2')],
                                                       host='nova-compute-seagull')
-        self._snp_b = self._make_subnetpool("json", prefixes=["1.1.0.0/16"], tenant_id="foo", name="sp")['subnetpool']
+        self._snp_b = self._make_subnetpool("json", prefixes=["1.1.0.0/16"], tenant_id="foo", name="sp",
+                                            admin=True)['subnetpool']
         self._subnet_b_1 = self._make_subnet("json", network={'network': self._net_b}, subnetpool_id=self._snp_b['id'],
                                              cidr="1.1.1.0/24", gateway="1.1.1.1", as_admin=True)
 
@@ -386,7 +387,9 @@ class TestNetworkExtension(test_segment.SegmentTestCase, base.PortBindingHelper,
             swcfgs = mock_acu.call_args[0][1]
             self.assertEqual({"transit1-sw1"}, set(s.switch_name for s in swcfgs))
             for swcfg in swcfgs:
-                self.assertEqual([{'vni': 232323, 'vlan': 111, 'enable_multisite': False}], swcfg.vxlan_maps)
+                self.assertEqual(len(swcfg.vxlan_maps), 1)
+                self.assertEqual({'vni': 232323, 'vlan': 111, 'enable_multisite': False},
+                                 swcfg.vxlan_maps[0].model_dump())
                 self.assertIsNone(swcfg.ifaces)
 
     def test_switch_get_config(self):

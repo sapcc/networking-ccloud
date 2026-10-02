@@ -132,7 +132,7 @@ class TestDBPluginNetworkSyncData(test_segment.SegmentTestCase, base.PortBinding
         #       therefore we just "cheat" our way into an external network by creating the
         #       appropriate db model
         self._subnetpool_reg = self._make_subnetpool("json", prefixes=["1.1.0.0/16", "2.2.0.0/16"], tenant_id="foo",
-                                                     name="sp")['subnetpool']
+                                                     name="sp", admin=True)['subnetpool']
         self._net_c = self._make_network(name="c", admin_state_up=True, fmt='json')['network']
         with db_api.CONTEXT_WRITER.using(ctx):
             ctx.session.add(extnet_models.ExternalNetwork(network_id=self._net_c['id']))
@@ -144,7 +144,7 @@ class TestDBPluginNetworkSyncData(test_segment.SegmentTestCase, base.PortBinding
 
         # az aware network
         self._subnetpool_az = self._make_subnetpool("json", prefixes=["1.3.0.0/16"], tenant_id="foo",
-                                                    name="sp")['subnetpool']
+                                                    name="sp", admin=True)['subnetpool']
 
         self._net_d = self._make_network(name="d", admin_state_up=True, fmt='json')['network']
         with db_api.CONTEXT_WRITER.using(ctx):
@@ -328,7 +328,7 @@ class TestDBPluginNetworkSyncData(test_segment.SegmentTestCase, base.PortBinding
         # a subnetpool with no address scope should be silently excluded
         ctx = context.get_admin_context()
         snp_no_scope = self._make_subnetpool("json", prefixes=["9.9.0.0/16"], tenant_id="foo",
-                                             name="no-scope-pool")['subnetpool']
+                                             name="no-scope-pool", admin=True)['subnetpool']
         net_e = self._make_network(name="e", admin_state_up=True, fmt='json')['network']
         with db_api.CONTEXT_WRITER.using(ctx):
             ctx.session.add(extnet_models.ExternalNetwork(network_id=net_e['id']))
@@ -340,7 +340,7 @@ class TestDBPluginNetworkSyncData(test_segment.SegmentTestCase, base.PortBinding
         # a subnetpool with no address scope should be silently excluded
         ctx = context.get_admin_context()
         snp_no_scope = self._make_subnetpool("json", prefixes=["9.9.0.0/16"], tenant_id="foo",
-                                             name="no-scope-pool")['subnetpool']
+                                             name="no-scope-pool", admin=True)['subnetpool']
         result = self._db.get_subnetpool_details(ctx, [snp_no_scope['id'],
                                                        self._subnetpool_reg['id']])
         self.assertNotIn(snp_no_scope['id'], result)
