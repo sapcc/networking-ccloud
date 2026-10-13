@@ -43,6 +43,7 @@ class TestNXOSSwitch(base.TestCase):
         with mock.patch.object(n_rpc, 'get_client'):
             self.switch = NXOSSwitch(cfg_switch, asn_region=65130, az_suffix='a',
                                      managed_vlans={100} | set(range(2000, 3000)), managed_vnis=[range(10000, 11000)],
+                                     managed_vrfs=[],
                                      agent_name='cc-nxos-switch-agent')
         self.switch._api = mock.Mock()
 
