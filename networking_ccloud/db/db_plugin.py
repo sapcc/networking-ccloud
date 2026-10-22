@@ -19,6 +19,7 @@ from neutron.db import address_scope_db
 from neutron.db import db_base_plugin_v2
 from neutron.db import external_net_db
 from neutron.db.models import address_scope as ascope_models
+from neutron.db.models import l3 as l3_models
 from neutron.db.models import external_net as extnet_models
 from neutron.db.models import segment as segment_models
 from neutron.db.models import tag as tag_models
@@ -31,6 +32,7 @@ from neutron_lib.db import api as db_api
 from oslo_config import cfg
 from oslo_log import log as logging
 import sqlalchemy as sa
+from sqlalchemy import orm as sa_orm
 
 from networking_ccloud.common.config import get_driver_config
 from networking_ccloud.common import constants as cc_const
@@ -331,6 +333,100 @@ class CCDbPlugin(db_base_plugin_v2.NeutronDbPluginV2,
     def get_gateways_for_network(self, context, network_id, *args, **kwargs):
         net_gws = self.get_gateways_for_networks(context, [network_id], *args, **kwargs)
         return net_gws.get(network_id)
+
+    @db_api.retry_if_session_inactive()
+    @db_api.CONTEXT_READER
+    def get_dapnet_routes_for_networks(self, context, internal_network_ids=None,
+                                       external_network_ids=None, hosts=None):
+        """Get routing info for DAPNets
+
+        DAPNets (Directly Accessible Private Networks) are subnets of internal
+        networks, which are connected to a router, where the address scope of the
+        internal subnet matches an address scope of the router's external gateway
+        ips.
+
+        Result is grouped by binding host:
+          {host: [{'cidr': subnet_cidr, 'next_hop': next_hop_ip, 'vrf': vrf_name, 'az_local': bool}, ...]}
+
+        Filters:
+         * internal_network_ids - only consider internal subnets from these networks
+         * external_network_ids - only consider external networks these router gateway ports are on
+         * hosts                - only consider router gateway ports bound to these hosts
+        """
+        # aliases needed because Subnet, SubnetPool, AddressScope and RouterPort
+        # each appear twice (internal and external side)
+        SubnetInt = sa_orm.aliased(models_v2.Subnet, flat=True)
+        SubnetExt = sa_orm.aliased(models_v2.Subnet, flat=True)
+        SubnetPoolInt = sa_orm.aliased(models_v2.SubnetPool, flat=True)
+        SubnetPoolExt = sa_orm.aliased(models_v2.SubnetPool, flat=True)
+        AddressScopeInt = sa_orm.aliased(ascope_models.AddressScope, flat=True)
+        AddressScopeExt = sa_orm.aliased(ascope_models.AddressScope, flat=True)
+        RouterPortInt = sa_orm.aliased(l3_models.RouterPort, flat=True)
+        RouterPortExt = sa_orm.aliased(l3_models.RouterPort, flat=True)
+        IPAllocInt = sa_orm.aliased(models_v2.IPAllocation, flat=True)
+        IPAllocExt = sa_orm.aliased(models_v2.IPAllocation, flat=True)
+        NetworkInt = sa_orm.aliased(models_v2.Network, flat=True)
+
+        fields = [
+            SubnetInt.network_id, SubnetInt.cidr,
+            IPAllocExt.ip_address, AddressScopeExt.name,
+            ml2_models.PortBinding.host,
+            NetworkInt.availability_zone_hints,
+        ]
+        query = context.session.query(*fields)
+        query = query.select_from(SubnetInt)
+        # internal subnet -> router interface port via ip allocation
+        query = query.join(IPAllocInt, IPAllocInt.subnet_id == SubnetInt.id)
+        query = query.join(RouterPortInt,
+                           sa.and_(RouterPortInt.port_id == IPAllocInt.port_id,
+                                   RouterPortInt.port_type == nl_const.DEVICE_OWNER_ROUTER_INTF))
+        # same router's gateway port
+        query = query.join(RouterPortExt,
+                           sa.and_(RouterPortExt.router_id == RouterPortInt.router_id,
+                                   RouterPortExt.port_type == nl_const.DEVICE_OWNER_ROUTER_GW))
+        # gateway port binding and its ip allocation
+        query = query.join(ml2_models.PortBinding,
+                           ml2_models.PortBinding.port_id == RouterPortExt.port_id)
+        query = query.filter(ml2_models.PortBinding.host != '')
+        query = query.join(IPAllocExt, IPAllocExt.port_id == RouterPortExt.port_id)
+        # external subnet and its address scope
+        query = query.join(SubnetExt, IPAllocExt.subnet_id == SubnetExt.id)
+        query = query.join(SubnetPoolExt, SubnetExt.subnetpool_id == SubnetPoolExt.id)
+        query = query.join(AddressScopeExt, SubnetPoolExt.address_scope_id == AddressScopeExt.id)
+        # internal subnet's address scope and network az hints
+        query = query.join(SubnetPoolInt, SubnetInt.subnetpool_id == SubnetPoolInt.id)
+        query = query.join(AddressScopeInt, SubnetPoolInt.address_scope_id == AddressScopeInt.id)
+        query = query.join(NetworkInt, SubnetInt.network_id == NetworkInt.id)
+        # DAPNet condition: same address scope name, same IP version
+        query = query.filter(AddressScopeInt.name == AddressScopeExt.name)
+        query = query.filter(SubnetInt.ip_version == SubnetExt.ip_version)
+        query = query.order_by(ml2_models.PortBinding.host, SubnetInt.cidr, IPAllocExt.ip_address)
+        query = query.distinct()
+
+        if internal_network_ids is not None:
+            query = query.filter(SubnetInt.network_id.in_(internal_network_ids))
+        if external_network_ids is not None:
+            query = query.filter(SubnetExt.network_id.in_(external_network_ids))
+        if hosts is not None:
+            query = query.filter(ml2_models.PortBinding.host.in_(hosts))
+
+        result = {}
+        for network_id, subnet_cidr, next_hop_ip, as_name, host, net_az_hint in query.all():
+            vrf = self.drv_conf.global_config.get_vrf_name_for_address_scope(as_name)
+            if not vrf:
+                LOG.warning("Address scope %s has no matching VRF in driver config, skipping DAPNet route "
+                            "for subnet %s", as_name, subnet_cidr)
+                continue
+            az_local = False
+            try:
+                if net_az_hint:
+                    az_local = bool(json.loads(net_az_hint))
+            except json.JSONDecodeError:
+                pass
+            result.setdefault(host, []).append({'cidr': subnet_cidr, 'next_hop': next_hop_ip,
+                                                'vrf': vrf, 'az_local': az_local})
+
+        return result
 
     @db_api.CONTEXT_READER
     def get_subnet_l3_config_for_networks(self, context, network_ids):
