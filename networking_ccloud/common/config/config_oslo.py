@@ -50,6 +50,10 @@ cc_fabric_agent_opts = [
               help='Address to listen on for internal Prometheus metric exporter'),
     cfg.PortOpt('prometheus_listen_port', default=9090,
                 help='Port to listen on for internal Prometheus metric exporter'),
+
+    # nxos specific options
+    cfg.BoolOpt('nxos_create_vpcs', default=False,
+                help="Create VPCs on NXOS switches (default off)"),
 ]
 
 # make sure we have ml2 vlan opts available before this option is parsed

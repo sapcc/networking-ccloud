@@ -218,7 +218,8 @@ class TestNXOSSwitch(base.TestCase):
         self.switch.apply_config_update(cu).result()
         self.switch._api.set.assert_called_with(delete=expected_delete, replace=expected_replace, update=[])
 
-    def test_ifaces_add(self):
+    def test_ifaces_add_with_vpcs(self):
+        cfg.CONF.set_override('nxos_create_vpcs', True, group='ml2_cc_fabric_agent')
         expected_update = [
             ('/System/intf-items/phys-items', {'PhysIf-list': [
                 {'id': 'eth1/12', 'layer': 'Layer2', 'mode': 'trunk',
@@ -239,6 +240,49 @@ class TestNXOSSwitch(base.TestCase):
                      {'tDn': "/System/intf-items/phys-items/PhysIf-list[id='eth1/14']"}]}}]}),
             ('/System/vpc-items/inst-items/dom-items/if-items', {'If-list': [
                 {'id': 1337, 'rsvpcConf-items': {'tDn': "/System/intf-items/aggr-items/AggrIf-list[id='po1337']"}}]}),
+        ]
+
+        cu = agent_msg.SwitchConfigUpdate(switch_name="seagull-sw1", operation=agent_msg.OperationEnum.add)
+        # create normal interface
+        iface1 = agent_msg.IfaceConfig(name='eth1/12', native_vlan=1000)
+        iface1.add_trunk_vlan(1000)
+        iface1.add_trunk_vlan(1001)
+        iface1.add_trunk_vlan(1003)
+        cu.add_iface(iface1)
+
+        # create portchannel with members
+        iface2 = agent_msg.IfaceConfig(name='po1337', native_vlan=2000, portchannel_id=1337,
+                                       members=["eth1/13", "eth1/14"])
+        iface2.add_trunk_vlan(2000)
+        iface2.add_trunk_vlan(2001)
+        iface2.add_trunk_vlan(2003)
+        iface2.add_vlan_translation(2000, 2323)
+        iface2.add_vlan_translation(2003, 2342)
+        cu.add_iface(iface2)
+
+        # create normal interface
+        iface3 = agent_msg.IfaceConfig(name='eth1/15', description='Hi from the tests!')
+        cu.add_iface(iface3)
+
+        self.switch.apply_config_update(cu).result()
+        self.switch._api.set.assert_called_with(delete=[], replace=[], update=expected_update)
+
+    def test_ifaces_add_no_vpcs(self):
+        cfg.CONF.set_override('nxos_create_vpcs', False, group='ml2_cc_fabric_agent')
+
+        expected_update = [
+            ('/System/intf-items/phys-items', {'PhysIf-list': [
+                {'id': 'eth1/12', 'layer': 'Layer2', 'mode': 'trunk',
+                 'nativeVlan': 'vlan-1000', 'trunkVlans': ['+1000,1001,1003']},
+                {'id': 'eth1/15', 'layer': 'Layer2', 'mode': 'trunk', 'descr': 'Hi from the tests!'}]}),
+            ('/System/intf-items/aggr-items', {'AggrIf-list': [
+                {'id': 'po1337', 'layer': 'Layer2', 'mode': 'trunk',
+                 'nativeVlan': 'vlan-2000', 'trunkVlans': ['+2000,2001,2003'],
+                 'vlanmapping-items': {'Enabled': True, 'vlantranslatetable-items': {'vlan-items': {
+                     'VlanTranslateEntry-list': [
+                         {'vlanid': 'vlan-2000', 'translatevlanid': 'vlan-2323'},
+                         {'vlanid': 'vlan-2003', 'translatevlanid': 'vlan-2342'}]}}},
+                 'pcId': 1337}]}),
         ]
 
         cu = agent_msg.SwitchConfigUpdate(switch_name="seagull-sw1", operation=agent_msg.OperationEnum.add)
@@ -496,8 +540,6 @@ class TestNXOSSwitch(base.TestCase):
             ('/System/intf-items/phys-items', {'PhysIf-list': [
                 {'id': 'eth1/12', 'layer': 'Layer2', 'mode': 'trunk',
                  'trunkVlans': ['+1000,1001', '-2000,2001']},
-                {'id': 'eth1/13', 'layer': 'Layer2', 'mode': 'trunk'},
-                {'id': 'eth1/14', 'layer': 'Layer2', 'mode': 'trunk'},
                 {'id': 'eth1/15', 'layer': 'Layer2', 'mode': 'trunk', 'descr': 'Hi from the tests!'}]}),
             ('/System/intf-items/aggr-items', {'AggrIf-list': [
                 {'id': 'po1337', 'layer': 'Layer2', 'mode': 'trunk',
@@ -506,12 +548,7 @@ class TestNXOSSwitch(base.TestCase):
                      'VlanTranslateEntry-list': [
                          {'vlanid': 'vlan-2000', 'translatevlanid': 'vlan-2323'},
                          {'vlanid': 'vlan-2003', 'translatevlanid': 'vlan-2342'}]}}},
-                 'pcId': 1337, 'suspIndividual': 'enable', 'pcMode': 'active',
-                 'rsmbrIfs-items': {'RsMbrIfs-list': [
-                     {'tDn': "/System/intf-items/phys-items/PhysIf-list[id='eth1/13']"},
-                     {'tDn': "/System/intf-items/phys-items/PhysIf-list[id='eth1/14']"}]}}]}),
-            ('/System/vpc-items/inst-items/dom-items/if-items', {'If-list': [
-                {'id': 1337, 'rsvpcConf-items': {'tDn': "/System/intf-items/aggr-items/AggrIf-list[id='po1337']"}}]}),
+                 'pcId': 1337}]}),
         ]
 
         cu = agent_msg.SwitchConfigUpdate(switch_name="seagull-sw1", operation=agent_msg.OperationEnum.replace)

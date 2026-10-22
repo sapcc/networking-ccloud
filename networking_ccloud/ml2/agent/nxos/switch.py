@@ -14,6 +14,7 @@
 import math
 import re
 
+from oslo_config import cfg
 from oslo_log import log as logging
 from pygnmi.client import gNMIException
 from typing import List, Optional, Tuple
@@ -627,24 +628,26 @@ class NXOSSwitch(SwitchBase):
                 if iface.portchannel_id:
                     # port channel
                     iface_config['pcId'] = iface.portchannel_id
-                    iface_config['suspIndividual'] = 'enable'
-                    iface_config['pcMode'] = 'active'
+                    if cfg.CONF.ml2_cc_fabric_agent.nxos_create_vpcs:
+                        iface_config['suspIndividual'] = 'enable'
+                        iface_config['pcMode'] = 'active'
 
-                    # configure base interfaces to l2
-                    rsmbr_ifaces = []
-                    for member_iface in iface.members or []:
-                        rsmbr_ifaces.append({'tDn': f"/System/intf-items/phys-items/PhysIf-list[id='{member_iface}']"})
-                        member_iface_config = {'id': member_iface, 'layer': 'Layer2', 'mode': 'trunk'}
-                        iface_configs.append(member_iface_config)
+                        # configure base interfaces to l2
+                        rsmbr_ifaces = []
+                        for member_iface in iface.members or []:
+                            rsmbr_ifaces.append({'tDn':
+                                                 f"/System/intf-items/phys-items/PhysIf-list[id='{member_iface}']"})
+                            member_iface_config = {'id': member_iface, 'layer': 'Layer2', 'mode': 'trunk'}
+                            iface_configs.append(member_iface_config)
 
-                    if rsmbr_ifaces:
-                        iface_config['rsmbrIfs-items'] = {'RsMbrIfs-list': rsmbr_ifaces}
+                        if rsmbr_ifaces:
+                            iface_config['rsmbrIfs-items'] = {'RsMbrIfs-list': rsmbr_ifaces}
 
-                    vpc_config = {
-                        "id": iface.portchannel_id,
-                        "rsvpcConf-items": {"tDn": f"/System/intf-items/aggr-items/AggrIf-list[id='{iface.name}']"},
-                    }
-                    vpc_configs.append(vpc_config)
+                        vpc_config = {
+                            "id": iface.portchannel_id,
+                            "rsvpcConf-items": {"tDn": f"/System/intf-items/aggr-items/AggrIf-list[id='{iface.name}']"},
+                        }
+                        vpc_configs.append(vpc_config)
                     pc_configs.append(iface_config)
                 else:
                     # physical interface
