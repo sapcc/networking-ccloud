@@ -163,13 +163,14 @@ class SwitchBase(abc.ABC):
         'task_queue_size', 'Tasks in queue',
         DEFAULT_LABELS + ['queue_type'], namespace=metrics_namespace)
 
-    def __init__(self, sw_conf, asn_region, az_suffix, managed_vlans, managed_vnis, agent_name,
+    def __init__(self, sw_conf, asn_region, az_suffix, managed_vlans, managed_vnis, managed_vrfs, agent_name,
                  timeout=20, verify_ssl=False):
         self.sw_conf = sw_conf
         self.asn_region = asn_region
         self.az_suffix = az_suffix
         self.managed_vlans = managed_vlans
         self.managed_vnis = managed_vnis
+        self.managed_vrfs = managed_vrfs
         self.name = sw_conf.name
         self.host = sw_conf.host
         self.port = sw_conf.port

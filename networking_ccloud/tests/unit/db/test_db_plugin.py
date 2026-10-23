@@ -16,6 +16,7 @@ import json
 
 from neutron.db.models import address_scope as ascope_models
 from neutron.db.models import external_net as extnet_models
+from neutron.db.models import l3 as l3_models
 from neutron.db.models import segment as segment_models
 from neutron.db.models import tag as tag_models
 from neutron.db import models_v2
@@ -23,6 +24,7 @@ from neutron.plugins.ml2 import models as ml2_models
 from neutron.services.tag import tag_plugin
 from neutron.services.trunk import models as trunk_models
 from neutron.tests.unit.extensions import test_segment
+from neutron_lib import constants as nl_const
 from neutron_lib import context
 from neutron_lib.db import api as db_api
 from neutron_lib.plugins import directory
@@ -535,3 +537,158 @@ class TestNetworkInterconnectAllocation(test_segment.SegmentTestCase, base.PortB
 
         removed = self._db.remove_bgw_from_network(ctx, net_a['id'], 'qa-de-1a')
         self.assertFalse(removed)
+
+
+class TestDAPNetRoutes(test_segment.SegmentTestCase, base.TestCase):
+    def setUp(self):
+        super().setUp()
+        ctx = context.get_admin_context()
+
+        # address scope shared between internal and external subnetpools (the DAPNet condition)
+        # a second, unrelated scope is used to verify we don't cross-match
+        with db_api.CONTEXT_WRITER.using(ctx):
+            self._ascope = ascope_models.AddressScope(name="herring-gull", ip_version=4)
+            ctx.session.add(self._ascope)
+            self._ascope_other = ascope_models.AddressScope(name="oystercatcher", ip_version=4)
+            ctx.session.add(self._ascope_other)
+
+        self._sp_int = self._make_subnetpool("json", prefixes=["10.0.0.0/8"], tenant_id="test-tenant",
+                                             name="sp-int")['subnetpool']
+        self._sp_ext = self._make_subnetpool("json", prefixes=["192.168.0.0/16"], tenant_id="test-tenant",
+                                             name="sp-ext")['subnetpool']
+        self._sp_other = self._make_subnetpool("json", prefixes=["172.16.0.0/12"], tenant_id="test-tenant",
+                                               name="sp-other")['subnetpool']
+        with db_api.CONTEXT_WRITER.using(ctx):
+            sp_int = ctx.session.query(models_v2.SubnetPool).get(self._sp_int['id'])
+            sp_int.address_scope_id = self._ascope.id
+            sp_ext = ctx.session.query(models_v2.SubnetPool).get(self._sp_ext['id'])
+            sp_ext.address_scope_id = self._ascope.id
+            sp_other = ctx.session.query(models_v2.SubnetPool).get(self._sp_other['id'])
+            sp_other.address_scope_id = self._ascope_other.id
+
+        # internal network with two subnets (to test multiple subnets on one router)
+        self._net_int = self._make_network(name="int", admin_state_up=True, fmt='json')['network']
+        self._subnet_int_1 = self._make_subnet("json", {"network": self._net_int}, "10.1.0.1", "10.1.0.0/24",
+                                               subnetpool_id=self._sp_int['id'], as_admin=True)['subnet']
+        self._subnet_int_2 = self._make_subnet("json", {"network": self._net_int}, "10.2.0.1", "10.2.0.0/24",
+                                               subnetpool_id=self._sp_int['id'], as_admin=True)['subnet']
+
+        # external network (router gateway)
+        self._net_ext = self._make_network(name="ext", admin_state_up=True, fmt='json')['network']
+        with db_api.CONTEXT_WRITER.using(ctx):
+            ctx.session.add(extnet_models.ExternalNetwork(network_id=self._net_ext['id']))
+        self._subnet_ext = self._make_subnet("json", {"network": self._net_ext}, "192.168.1.1", "192.168.1.0/24",
+                                             subnetpool_id=self._sp_ext['id'], as_admin=True)['subnet']
+
+        # unrelated internal network on a different address scope - should never appear in results
+        self._net_unrelated = self._make_network(name="unrelated", admin_state_up=True, fmt='json')['network']
+        self._subnet_unrelated = self._make_subnet("json", {"network": self._net_unrelated},
+                                                   "172.16.0.1", "172.16.0.0/24",
+                                                   subnetpool_id=self._sp_other['id'], as_admin=True)['subnet']
+
+        # create ports via API so MACs are generated, then patch device_owner/device_id in the DB
+        # fixed_ips=[] prevents neutron from auto-allocating IPs we don't want
+        gw_port = self._make_port('json', self._net_ext['id'], fixed_ips=[])['port']
+        intf_port_1 = self._make_port('json', self._net_int['id'], fixed_ips=[])['port']
+        intf_port_2 = self._make_port('json', self._net_int['id'], fixed_ips=[])['port']
+        unrelated_port = self._make_port('json', self._net_unrelated['id'], fixed_ips=[])['port']
+
+        # build the router manually: gateway port on ext network, interface ports on int subnets
+        with db_api.CONTEXT_WRITER.using(ctx):
+            router = l3_models.Router(name="r1", status="ACTIVE", admin_state_up=True, tenant_id="test-tenant")
+            ctx.session.add(router)
+            ctx.session.flush()
+
+            for port_id, port_type in [
+                (gw_port['id'], nl_const.DEVICE_OWNER_ROUTER_GW),
+                (intf_port_1['id'], nl_const.DEVICE_OWNER_ROUTER_INTF),
+                (intf_port_2['id'], nl_const.DEVICE_OWNER_ROUTER_INTF),
+                (unrelated_port['id'], nl_const.DEVICE_OWNER_ROUTER_INTF),
+            ]:
+                p = ctx.session.query(models_v2.Port).get(port_id)
+                p.device_id = router.id
+                p.device_owner = port_type
+                ctx.session.add(l3_models.RouterPort(router_id=router.id, port_id=port_id, port_type=port_type))
+
+            router.gw_port_id = gw_port['id']
+
+            ctx.session.add(models_v2.IPAllocation(port_id=gw_port['id'], subnet_id=self._subnet_ext['id'],
+                                                   ip_address="192.168.1.5",
+                                                   network_id=self._net_ext['id']))
+            ctx.session.add(ml2_models.PortBinding(port_id=gw_port['id'], host="seagull-leaf-1",
+                                                   vif_type="ovs", vnic_type="normal"))
+            ctx.session.add(models_v2.IPAllocation(port_id=intf_port_1['id'], subnet_id=self._subnet_int_1['id'],
+                                                   ip_address="10.1.0.1",
+                                                   network_id=self._net_int['id']))
+            ctx.session.add(models_v2.IPAllocation(port_id=intf_port_2['id'], subnet_id=self._subnet_int_2['id'],
+                                                   ip_address="10.2.0.1",
+                                                   network_id=self._net_int['id']))
+            ctx.session.add(models_v2.IPAllocation(port_id=unrelated_port['id'],
+                                                   subnet_id=self._subnet_unrelated['id'],
+                                                   ip_address="172.16.0.1",
+                                                   network_id=self._net_unrelated['id']))
+
+        self._router_id = router.id
+        self._gw_port_id = gw_port['id']
+
+        drv_conf = cfix.make_config(extra_vrfs=[config_driver.VRF(name="CC-HERRING-GULL", number=1,
+                                                                   address_scopes=["herring-gull"])])
+        _override_driver_config(drv_conf)
+        self._db = CCDbPlugin()
+
+    def _expected_routes(self, next_hop="192.168.1.5", host="seagull-leaf-1", vrf="CC-HERRING-GULL"):
+        return {
+            host: [
+                {'cidr': "10.1.0.0/24", 'next_hop': next_hop, 'vrf': vrf, 'az_local': False},
+                {'cidr': "10.2.0.0/24", 'next_hop': next_hop, 'vrf': vrf, 'az_local': False},
+            ]
+        }
+
+    def test_get_dapnet_routes_basic(self):
+        ctx = context.get_admin_context()
+        result = self._db.get_dapnet_routes_for_networks(ctx)
+        self.assertEqual(self._expected_routes(), result)
+
+    def test_get_dapnet_routes_filter_internal_network(self):
+        ctx = context.get_admin_context()
+        result = self._db.get_dapnet_routes_for_networks(ctx,
+                                                         internal_network_ids=[self._net_int['id']])
+        self.assertEqual(self._expected_routes(), result)
+
+        result = self._db.get_dapnet_routes_for_networks(ctx,
+                                                         internal_network_ids=[self._net_unrelated['id']])
+        self.assertEqual({}, result)
+
+    def test_get_dapnet_routes_filter_external_network(self):
+        ctx = context.get_admin_context()
+        result = self._db.get_dapnet_routes_for_networks(ctx,
+                                                         external_network_ids=[self._net_ext['id']])
+        self.assertEqual(self._expected_routes(), result)
+
+        result = self._db.get_dapnet_routes_for_networks(ctx,
+                                                         external_network_ids=[self._net_int['id']])
+        self.assertEqual({}, result)
+
+    def test_get_dapnet_routes_filter_host(self):
+        ctx = context.get_admin_context()
+        result = self._db.get_dapnet_routes_for_networks(ctx, hosts=["seagull-leaf-1"])
+        self.assertEqual(self._expected_routes(), result)
+
+        result = self._db.get_dapnet_routes_for_networks(ctx, hosts=["oystercatcher-leaf-1"])
+        self.assertEqual({}, result)
+
+    def test_get_dapnet_routes_unrelated_scope_excluded(self):
+        # the unrelated subnet (oystercatcher scope) must never appear in results
+        ctx = context.get_admin_context()
+        result = self._db.get_dapnet_routes_for_networks(ctx)
+        for routes in result.values():
+            cidrs = [r['cidr'] for r in routes]
+            self.assertNotIn("172.16.0.0/24", cidrs)
+
+    def test_get_dapnet_routes_ordering(self):
+        # routes must be ordered by (subnet_cidr, next_hop) for stable config
+        ctx = context.get_admin_context()
+        result = self._db.get_dapnet_routes_for_networks(ctx)
+        routes = result["seagull-leaf-1"]
+        cidrs = [r['cidr'] for r in routes]
+        self.assertEqual(sorted(cidrs), cidrs)

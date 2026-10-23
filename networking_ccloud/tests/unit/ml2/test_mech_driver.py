@@ -912,6 +912,110 @@ class TestCCFabricMechanismDriver(CCFabricMechanismDriverTestBase):
                 self.assertEqual(204, res.status_code)
                 mock_sn.assert_not_called()
 
+    def _make_router_interface_create_payload(self, gw_network_id, subnets, port_host, router_id='router-1'):
+        payload = mock.Mock()
+        payload.resource_id = router_id
+        payload.context = self.context
+        payload.metadata = {
+            'network_id': gw_network_id,
+            'subnets': subnets,
+            'port': {'binding:host_id': port_host, 'fixed_ips': [{'subnet_id': s['id']} for s in subnets]},
+        }
+        return payload
+
+    def _make_router_interface_delete_payload(self, gw_network_id, subnets, port_host, router_id='router-1'):
+        payload = mock.Mock()
+        payload.resource_id = router_id
+        payload.context = self.context
+        payload.metadata = {
+            'network_id': gw_network_id,
+            'subnet_ids': [s['id'] for s in subnets],
+            'port': {'binding:host_id': port_host, 'fixed_ips': [{'subnet_id': s['id']} for s in subnets]},
+        }
+        return payload
+
+    def test_dapnet_on_router_interface_create_syncs_network(self):
+        net_kwargs = {'arg_list': (extnet_api.EXTERNAL,), extnet_api.EXTERNAL: True, 'as_admin': True}
+        with self.network(**net_kwargs) as ext_net, \
+                self.network() as int_net, \
+                self.subnetpool(["10.0.0.0/8"], address_scope_id=self._address_scope.id,
+                                name="pool", tenant_id="foo", admin=True) as snp, \
+                self.subnet(network=int_net, cidr="10.2.0.0/24",
+                            subnetpool_id=snp['subnetpool']['id'], as_admin=True) as int_subnet:
+            payload = self._make_router_interface_create_payload(
+                ext_net['network']['id'], [int_subnet['subnet']], 'nova-compute-seagull')
+            with mock.patch.object(self.mech_driver.fabric_plugin, 'make_network_config') as mock_mnc, \
+                    mock.patch.object(self.mech_driver.fabric_plugin, 'get_dapnet_routes_for_networks',
+                                      return_value={'some-net': []}):
+                mock_mnc.return_value = mock.Mock()
+                self.mech_driver.on_router_interface_create(None, None, None, payload)
+                mock_mnc.assert_called_once_with(self.context, ext_net['network']['id'])
+                mock_mnc.return_value.clean_switches.assert_called_once()
+                mock_mnc.return_value.execute.assert_called_once()
+
+    def test_dapnet_on_router_interface_create_skipped_no_subnetpool(self):
+        net_kwargs = {'arg_list': (extnet_api.EXTERNAL,), extnet_api.EXTERNAL: True, 'as_admin': True}
+        with self.network(**net_kwargs) as ext_net, self.network() as int_net, \
+                self.subnet(network=int_net, cidr="10.2.0.0/24", as_admin=True) as int_subnet:
+            payload = self._make_router_interface_create_payload(
+                ext_net['network']['id'], [int_subnet['subnet']], 'nova-compute-seagull')
+            with mock.patch.object(self.mech_driver.fabric_plugin, 'make_network_config') as mock_mnc:
+                self.mech_driver.on_router_interface_create(None, None, None, payload)
+                mock_mnc.assert_not_called()
+
+    def test_dapnet_on_router_interface_create_skipped_no_dapnet_routes(self):
+        net_kwargs = {'arg_list': (extnet_api.EXTERNAL,), extnet_api.EXTERNAL: True, 'as_admin': True}
+        with self.network(**net_kwargs) as ext_net, self.network() as int_net, \
+                self.subnetpool(["10.0.0.0/8"], address_scope_id=self._address_scope.id,
+                                name="pool", tenant_id="foo", admin=True) as snp, \
+                self.subnet(network=int_net, cidr="10.2.0.0/24",
+                            subnetpool_id=snp['subnetpool']['id'], as_admin=True) as int_subnet:
+            payload = self._make_router_interface_create_payload(
+                ext_net['network']['id'], [int_subnet['subnet']], 'nova-compute-seagull')
+            with mock.patch.object(self.mech_driver.fabric_plugin, 'make_network_config') as mock_mnc, \
+                    mock.patch.object(self.mech_driver.fabric_plugin, 'get_dapnet_routes_for_networks',
+                                      return_value={}):
+                self.mech_driver.on_router_interface_create(None, None, None, payload)
+                mock_mnc.assert_not_called()
+
+    def test_dapnet_on_router_interface_delete_syncs_leafpair(self):
+        net_kwargs = {'arg_list': (extnet_api.EXTERNAL,), extnet_api.EXTERNAL: True, 'as_admin': True}
+        with self.network(**net_kwargs) as ext_net, \
+                self.network() as int_net, \
+                self.subnetpool(["10.0.0.0/8"], address_scope_id=self._address_scope.id,
+                                name="pool", tenant_id="foo", admin=True) as snp, \
+                self.subnet(network=int_net, cidr="10.2.0.0/24",
+                            subnetpool_id=snp['subnetpool']['id'], as_admin=True) as int_subnet:
+            payload = self._make_router_interface_delete_payload(
+                ext_net['network']['id'], [int_subnet['subnet']], 'nova-compute-seagull')
+            with mock.patch.object(self.mech_driver.fabric_plugin, 'make_switchgroup_config') as mock_msg:
+                mock_msg.return_value = mock.Mock()
+                self.mech_driver.on_router_interface_delete(None, None, None, payload)
+                mock_msg.assert_called_once()
+                mock_msg.return_value.execute.assert_called_once()
+
+    def test_dapnet_on_router_interface_delete_skipped_no_subnetpool(self):
+        net_kwargs = {'arg_list': (extnet_api.EXTERNAL,), extnet_api.EXTERNAL: True, 'as_admin': True}
+        with self.network(**net_kwargs) as ext_net, self.network() as int_net, \
+                self.subnet(network=int_net, cidr="10.2.0.0/24", as_admin=True) as int_subnet:
+            payload = self._make_router_interface_delete_payload(
+                ext_net['network']['id'], [int_subnet['subnet']], 'nova-compute-seagull')
+            with mock.patch.object(self.mech_driver.fabric_plugin, 'make_switchgroup_config') as mock_msg:
+                self.mech_driver.on_router_interface_delete(None, None, None, payload)
+                mock_msg.assert_not_called()
+
+    def test_dapnet_on_router_interface_delete_skipped_no_address_scope(self):
+        net_kwargs = {'arg_list': (extnet_api.EXTERNAL,), extnet_api.EXTERNAL: True, 'as_admin': True}
+        with self.network(**net_kwargs) as ext_net, self.network() as int_net, \
+                self.subnetpool(["10.0.0.0/8"], name="pool", tenant_id="foo", admin=True) as snp_no_scope, \
+                self.subnet(network=int_net, cidr="10.2.0.0/24",
+                            subnetpool_id=snp_no_scope['subnetpool']['id'], as_admin=True) as int_subnet:
+            payload = self._make_router_interface_delete_payload(
+                ext_net['network']['id'], [int_subnet['subnet']], 'nova-compute-seagull')
+            with mock.patch.object(self.mech_driver.fabric_plugin, 'make_switchgroup_config') as mock_msg:
+                self.mech_driver.on_router_interface_delete(None, None, None, payload)
+                mock_msg.assert_not_called()
+
 
 class TestCCFabricMechanismDriverInterconnects(CCFabricMechanismDriverTestBase):
     def setUp(self):

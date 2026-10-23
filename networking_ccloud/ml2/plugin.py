@@ -166,8 +166,14 @@ class FabricPlugin(CCDbPlugin):
     def add_segments_to_config(self, context, scul, net_segments):
         top_segments = self.get_top_level_vxlan_segments(context, network_ids=list(net_segments))
         net_gateways = self.get_gateways_with_vrfs_for_networks(context, list(net_segments), external_only=True)
+        dapnet_routes = {}
+        if net_gateways:
+            binding_hosts = {host for segs in net_segments.values() for host in segs}
+            dapnet_routes = self.get_dapnet_routes_for_networks(
+                    context, external_network_ids=list(net_gateways), hosts=binding_hosts)
 
         l3_net_switch_map = {}
+        dapnet_hosts_done = set()
         for network_id, segments in net_segments.items():
             if network_id not in top_segments:
                 # FIXME: maybe don't use a value error
@@ -191,6 +197,11 @@ class FabricPlugin(CCDbPlugin):
                                                 gateways=gateways, is_bgw=segment_1['is_bgw'])
                 if gateways and not segment_1['is_bgw']:
                     l3_net_switch_map.setdefault(network_id, set()).update(hg_config.get_switch_names(self.drv_conf))
+                    if binding_host not in dapnet_hosts_done:
+                        routes = dapnet_routes.get(binding_host, [])
+                        if routes:
+                            scul.add_dapnet_routes_to_config(hg_config, routes)
+                        dapnet_hosts_done.add(binding_host)
 
         # group switches if they have the same set of l3 networks on them
         # (same set means same l3 query ==> less queries)

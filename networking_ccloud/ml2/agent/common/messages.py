@@ -22,7 +22,7 @@ from oslo_log import log as logging
 import pydantic
 
 from networking_ccloud.common.config.config_driver import validate_asn
-from networking_ccloud.common.helper import split_by_address_family
+from networking_ccloud.common.helper import get_ip_version, split_by_address_family
 from networking_ccloud.ml2.agent.common.api import CCFabricSwitchAgentRPCClient
 
 LOG = logging.getLogger(__name__)
@@ -81,6 +81,12 @@ def validate_route_distinguisher(rdrt) -> str:
 def ensure_network(net):
     # raises ValueError if host bits are set
     net = ipaddress.ip_network(net, strict=True)
+    return str(net)
+
+
+def ensure_address(net):
+    # raises ValueError if this is not a single ip address
+    net = ipaddress.ip_address(net)
     return str(net)
 
 
@@ -306,6 +312,29 @@ class VlanIface(pydantic.BaseModel):
         return self.vlan < other.vlan
 
 
+class VRFRoute(pydantic.BaseModel):
+    vrf: str
+    network: str
+    next_hop: str
+
+    _ensure_network = pydantic.validator('network', allow_reuse=True)(ensure_network)
+    _ensure_next_hop = pydantic.validator('next_hop', allow_reuse=True)(ensure_address)
+
+    @pydantic.root_validator
+    def validate_address_family(cls, values):
+        if 'network' in values and 'next_hop' in values:
+            if get_ip_version(values['network']) != get_ip_version(values['next_hop']):
+                raise ValueError(f"Network {values['network']} and {values['next_hop']} "
+                                 "do not have the same address family")
+        return values
+
+    def _get_sort_key(self):
+        return (self.vrf, ipaddress.ip_network(self.network), ipaddress.ip_address(self.next_hop))
+
+    def __lt__(self, other):
+        return self._get_sort_key() < other._get_sort_key()
+
+
 class SwitchConfigUpdate(pydantic.BaseModel):
     switch_name: str
     operation: OperationEnum
@@ -315,6 +344,7 @@ class SwitchConfigUpdate(pydantic.BaseModel):
     bgp: BGP = None
     ifaces: List[IfaceConfig] = None  # noqa: E701 (pyflakes bug)
     vlan_ifaces: List[VlanIface] = None
+    vrf_routes: List[VRFRoute] = None
 
     @classmethod
     def make_object_from_net_data(self, vxlan_map, net_host_map):
@@ -335,6 +365,8 @@ class SwitchConfigUpdate(pydantic.BaseModel):
             self.bgp.sort()
         if self.vlan_ifaces:
             self.vlan_ifaces.sort()
+        if self.vrf_routes:
+            self.vrf_routes.sort()
 
     def add_vlan(self, vlan, name=None):
         if self.vlans is None:
@@ -391,6 +423,13 @@ class SwitchConfigUpdate(pydantic.BaseModel):
             self.vlan_ifaces = []
         vif = VlanIface(**kwargs)
         self.vlan_ifaces.append(vif)
+
+    def add_vrf_route(self, **kwargs):
+        if not self.vrf_routes:
+            self.vrf_routes = []
+        vrf_route = VRFRoute(**kwargs)
+        if vrf_route not in self.vrf_routes:
+            self.vrf_routes.append(vrf_route)
 
 
 class SwitchConfigUpdateList:
@@ -473,6 +512,21 @@ class SwitchConfigUpdateList:
                                 iface.native_vlan = seg_vlan
                         elif not hg_config.direct_binding and override_native:
                             iface.native_vlan = seg_vlan
+
+    def add_dapnet_routes_to_config(self, hg_config, routes):
+        """Add DAPNet static VRF routes and BGP announcements to all switches of the given hostgroup."""
+        switch_names = hg_config.get_switch_names(self.drv_conf)
+        for switch_name in switch_names:
+            scu = self.get_or_create_switch(switch_name)
+            for route in routes:
+                scu.add_vrf_route(vrf=route['vrf'], network=route['cidr'], next_hop=route['next_hop'])
+
+        # FIXME: az_local comes from network az hints, not subnetpool tags -- needs review for aggregate parity
+        vrfs = {}
+        for route in routes:
+            vrfs.setdefault(route['vrf'], []).append((route['cidr'], route['az_local'], False))
+        for vrf_name, vrf_networks in vrfs.items():
+            self.add_vrf_bgp_config(switch_names, vrf_name, vrf_networks, [])
 
     def add_vrf_bgp_config(self, switch_names, vrf_name, vrf_networks, vrf_aggregates):
         for switch_name in switch_names:

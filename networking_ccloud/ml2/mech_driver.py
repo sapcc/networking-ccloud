@@ -17,6 +17,9 @@ from neutron import service
 from neutron_lib.api.definitions import availability_zone as az_api
 from neutron_lib.api.definitions import external_net as extnet_api
 from neutron_lib.api.definitions import portbindings as pb_api
+from neutron_lib.callbacks import events
+from neutron_lib.callbacks import registry
+from neutron_lib.callbacks import resources
 from neutron_lib import constants as nl_const
 from neutron_lib.exceptions import availability_zone as az_exc
 from neutron_lib.plugins import directory
@@ -491,6 +494,60 @@ class CCFabricMechanismDriver(ml2_api.MechanismDriver, CCFabricDriverAPI):
             return
         scul.execute(context, synchronous=False)
 
+    @registry.receives(resources.ROUTER_INTERFACE, [events.AFTER_CREATE])
+    def on_router_interface_create(self, resource, event, trigger, payload):
+        gw_network_id = payload.metadata['network_id']
+        subnets = payload.metadata['subnets']
+        if not any(s.get('subnetpool_id') for s in subnets):
+            return
+
+        binding_host = payload.metadata['port'][pb_api.HOST_ID]
+        hg_config = self.drv_conf.get_hostgroup_by_host(binding_host)
+        if not hg_config:
+            return
+
+        internal_network_ids = {s['network_id'] for s in subnets}
+        if not self.fabric_plugin.get_dapnet_routes_for_networks(
+                payload.context, internal_network_ids=internal_network_ids,
+                external_network_ids=[gw_network_id], hosts=[binding_host]):
+            return
+
+        LOG.debug("Router %s interface attached, syncing network %s on host %s",
+                  payload.resource_id, gw_network_id, binding_host)
+        scul = self.fabric_plugin.make_network_config(payload.context, gw_network_id)
+        if scul is None:
+            LOG.error("Tried to sync network %s for DAPNet but no config could be generated", gw_network_id)
+            return
+        scul.clean_switches(hg_config.get_switch_names(self.drv_conf))
+        scul.execute(payload.context, synchronous=False)
+
+    @registry.receives(resources.ROUTER_INTERFACE, [events.AFTER_DELETE])
+    def on_router_interface_delete(self, resource, event, trigger, payload):
+        gw_network_id = payload.metadata['network_id']
+        if not gw_network_id:
+            return
+        subnet_ids = payload.metadata['subnet_ids']
+        if not subnet_ids:
+            return
+        subnets = self._plugin.get_subnets(payload.context, filters={'id': subnet_ids})
+        snpool_ids = [s['subnetpool_id'] for s in subnets if s.get('subnetpool_id')]
+        if not snpool_ids:
+            return
+        snpools = self._plugin.get_subnetpools(payload.context, filters={'id': snpool_ids})
+        if not any(sp.get('address_scope_id') for sp in snpools):
+            return
+
+        binding_host = payload.metadata['port'][pb_api.HOST_ID]
+        hg_config = self.drv_conf.get_hostgroup_by_host(binding_host)
+        if not hg_config:
+            return
+        LOG.debug("Router %s interface detached, syncing leaf pair for network %s on host %s",
+                  payload.resource_id, gw_network_id, binding_host)
+        switch_names = hg_config.get_switch_names(self.drv_conf)
+        sg = self.drv_conf.get_switchgroup_by_switch_name(switch_names[0])
+        scul = self.fabric_plugin.make_switchgroup_config(payload.context, sg)
+        scul.execute(payload.context, synchronous=False)
+
     def update_port_precommit(self, context):
         """Update resources of a port.
 
@@ -689,6 +746,13 @@ class CCFabricMechanismDriver(ml2_api.MechanismDriver, CCFabricDriverAPI):
                 vrf_aggregates = vrf['vrf_aggregates'] if add else []
                 scul.add_vrf_bgp_config([sw_name for sw_name, _ in hg_config.iter_switchports(self.drv_conf)],
                                         vrf_name, vrf['vrf_networks'], vrf_aggregates)
+
+        if net_external and add:
+            dapnet = self.fabric_plugin.get_dapnet_routes_for_networks(
+                context, external_network_ids=[network_id], hosts=[binding_host])
+            routes = dapnet.get(binding_host, [])
+            if routes:
+                scul.add_dapnet_routes_to_config(hg_config, routes)
 
         if not scul.execute(context, synchronous=False):
             LOG.warning("Update for host %s on %s yielded no config updates! add=%s, keep=%s, excl=%s",

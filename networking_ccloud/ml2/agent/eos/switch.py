@@ -991,6 +991,12 @@ class EOSSwitch(SwitchBase):
             for viface in vlan_ifaces:
                 config_req.delete.append(EOSGNMIPaths.IFACE.format(name=f"Vlan{viface.vlan}"))
 
+    def _make_vrf_routes_config(self, config_req: EOSSetConfig, vrf_routes: Optional[List[agent_msg.VRFRoute]],
+                                operation: Op):
+        if vrf_routes is None:
+            return
+        LOG.error("VRF static routes (DAPNet) are not implemented for EOS on switch %s", self.name)
+
     def _make_config_from_update(self, config: agent_msg.SwitchConfigUpdate) -> EOSSetConfig:
         # build config
         config_req = EOSSetConfig()
@@ -999,6 +1005,7 @@ class EOSSwitch(SwitchBase):
         self._make_bgp_config(config_req, config.bgp, config.operation)
         self._make_ifaces_config(config_req, config.ifaces, config.operation)
         self._make_vlan_ifaces_config(config_req, config.vlan_ifaces, config.operation)
+        self._make_vrf_routes_config(config_req, config.vrf_routes, config.operation)
 
         return config_req
 

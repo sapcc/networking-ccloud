@@ -43,6 +43,7 @@ class TestNXOSSwitch(base.TestCase):
         with mock.patch.object(n_rpc, 'get_client'):
             self.switch = NXOSSwitch(cfg_switch, asn_region=65130, az_suffix='a',
                                      managed_vlans={100} | set(range(2000, 3000)), managed_vnis=[range(10000, 11000)],
+                                     managed_vrfs=[],
                                      agent_name='cc-nxos-switch-agent')
         self.switch._api = mock.Mock()
 
@@ -574,3 +575,22 @@ class TestNXOSSwitch(base.TestCase):
 
         self.switch.apply_config_update(cu).result()
         self.switch._api.set.assert_called_with(delete=expected_delete, replace=[], update=expected_update)
+
+    def test_vrf_routes_add(self):
+        cu = agent_msg.SwitchConfigUpdate(switch_name="seagull-sw1", operation=agent_msg.OperationEnum.add)
+        cu.add_vrf_route(vrf="cc-earth", network="10.0.0.0/24", next_hop="1.2.3.4")
+        cu.add_vrf_route(vrf="cc-earth", network="10.0.1.0/24", next_hop="1.2.3.4")
+        self.switch.apply_config_update(cu).result()
+        _, kwargs = self.switch._api.set.call_args
+        self.assertEqual([], kwargs['delete'])
+        update_paths = [path for path, _ in kwargs['update']]
+        self.assertIn('/System/ipv4-items/inst-items/dom-items/Dom-list[name=cc-earth]/rt-items', update_paths)
+
+    def test_vrf_routes_remove(self):
+        cu = agent_msg.SwitchConfigUpdate(switch_name="seagull-sw1", operation=agent_msg.OperationEnum.remove)
+        cu.add_vrf_route(vrf="cc-earth", network="10.0.0.0/24", next_hop="1.2.3.4")
+        self.switch.apply_config_update(cu).result()
+        _, kwargs = self.switch._api.set.call_args
+        self.assertEqual([], kwargs['update'])
+        self.assertIn('/System/ipv4-items/inst-items/dom-items/Dom-list[name=cc-earth]/'
+                      'rt-items/Route-list[prefix=10.0.0.0/24]', kwargs['delete'])

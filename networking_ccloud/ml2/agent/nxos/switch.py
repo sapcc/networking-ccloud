@@ -11,6 +11,7 @@
 #    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
 #    License for the specific language governing permissions and limitations
 #    under the License.
+from itertools import groupby
 import math
 import re
 
@@ -812,6 +813,72 @@ class NXOSSwitch(SwitchBase):
             for vif in vlan_ifaces:
                 config_req.delete.append(f"/System/intf-items/svi-items/If-list[id=vlan{vif.vlan}]")
 
+    def get_vrf_routes(self) -> List[agent_msg.VRFRoute]:
+        vrf_routes = []
+        for ip_ver in 4, 6:
+            data = self.api.get(path=[f"/System/ipv{ip_ver}-items/inst-items/dom-items/Dom-list/rt-items/Route-list"],
+                                single=False, with_path=True)
+            for path, routes_data in data:
+                for route_data in routes_data:
+                    m = re.match(r".*\[name=(?P<name>[^\]]+)\].*", path)
+                    if not m:
+                        continue
+                    vrf = m.group('vrf')
+                    if vrf not in self.managed_vrfs:
+                        continue
+                    for nh in route_data['nh-items']['Nexthop-list']:
+                        nh_ip = nh['nhAddr']
+                        vrf_route = agent_msg.VRFRoute(vrf=vrf, network=data['prefix'], next_hop=nh_ip)
+                        vrf_routes.append(vrf_route)
+
+        vrf_routes.sort()
+        return vrf_routes
+
+    def _make_vrf_routes_config(self, config_req: NXOSSetConfig, vrf_routes: Optional[List[agent_msg.VRFRoute]],
+                                 operation: Op):
+        if vrf_routes is None:
+            return
+
+        if operation in (Op.add, Op.replace):
+            vrf_routes.sort()
+            seen_vrfs = set()
+            for vrf, routes in groupby(vrf_routes, lambda r: r.vrf):
+                seen_vrfs.add(vrf)
+                routes_v4 = []
+                routes_v6 = []
+                for route in routes:
+                    entry = {
+                        "prefix": route.network,
+                        "nh-items": {
+                            'Nexthop-list': [{'nhAddr': route.next_hop, 'nhVrf': vrf, 'nhIf': 'unspecified'}]
+                        }
+                    }
+                    if get_ip_version(route.network) == 4:
+                        routes_v4.append(entry)
+                    else:
+                        routes_v6.append(entry)
+
+                config_req.get_list(operation).extend([
+                    (f"/System/ipv4-items/inst-items/dom-items/Dom-list[name={vrf}]/rt-items",
+                     {"Route-list": routes_v4} if routes_v4 else {}),
+                    (f"/System/ipv6-items/inst-items/dom-items/Dom-list[name={vrf}]/rt-items",
+                     {"Route-list": routes_v6} if routes_v6 else {}),
+                ])
+
+            # clear all remaining vrfs without routes of their routes
+            if operation == Op.replace:
+                for vrf in set(self.managed_vrfs) - seen_vrfs:
+                    for ip_ver in 4, 6:
+                        config_req.replace.append((
+                            f"/System/ipv{ip_ver}-items/inst-items/dom-items/Dom-list[name={vrf}]/rt-items",
+                            {})
+                        )
+        else:
+            for vr in vrf_routes:
+                ip_ver = get_ip_version(vr.network)
+                config_req.delete.append(f"/System/ipv{ip_ver}-items/inst-items/dom-items/Dom-list[name={vr.vrf}]/"
+                                         f"rt-items/Route-list[prefix={vr.network}]")
+
     def _make_config_from_update(self, config: agent_msg.SwitchConfigUpdate) -> NXOSSetConfig:
         svi_vlans = []
         if config.vlan_ifaces:
@@ -823,6 +890,7 @@ class NXOSSwitch(SwitchBase):
         self._make_bgp_config(config_req, config.bgp, config.vxlan_maps, config.operation)
         self._make_ifaces_config(config_req, config.ifaces, config.operation)
         self._make_vlan_ifaces_config(config_req, config.vlan_ifaces, config.operation)
+        self._make_vrf_routes_config(config_req, config.vrf_routes, config.operation)
 
         return config_req
 
@@ -832,6 +900,7 @@ class NXOSSwitch(SwitchBase):
         config.bgp = self.get_bgp_config(config.vxlan_maps)
         config.ifaces = self.get_ifaces_config()
         config.vlan_ifaces = self.get_vlan_ifaces()
+        config.vrf_routes = self.get_vrf_routes()
         return config
 
     def _apply_config_update(self, config):
