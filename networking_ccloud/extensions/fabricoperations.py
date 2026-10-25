@@ -16,30 +16,27 @@ import functools
 from itertools import groupby
 from operator import itemgetter
 
-from neutron.api import extensions
+from neutron import policy
+from neutron.api import extensions, wsgi
 from neutron.api.v2.resource import Resource
 from neutron.extensions import tagging
-from neutron import policy
-from neutron import wsgi
-from neutron_lib.api.definitions import external_net as extnet_api
-from neutron_lib.api import extensions as api_extensions
-from neutron_lib.api import faults
-from neutron_lib.callbacks import events
-from neutron_lib.callbacks import registry
 from neutron_lib import exceptions as nl_exc
+from neutron_lib.api import extensions as api_extensions, faults
+from neutron_lib.api.definitions import external_net as extnet_api
+from neutron_lib.callbacks import events, registry
 from neutron_lib.plugins import directory
 from oslo_config import cfg
 from oslo_log import log as logging
 from oslo_messaging import RemoteError
 from webob import exc as web_exc
 
+import networking_ccloud.extensions
+
 from networking_ccloud.common.config import get_driver_config
 from networking_ccloud.common import constants as cc_const
-import networking_ccloud.extensions
 from networking_ccloud.ml2.agent.common.api import CCFabricSwitchAgentRPCClient
 from networking_ccloud.ml2.agent.common import messages as agent_msg
 from networking_ccloud.ml2.plugin import FabricPlugin
-
 
 # we can't use __name__ for this logger, as stevedore only loads us as "fabricoperations"
 LOG = logging.getLogger("networking_ccloud.extensions.fabricoperations")
@@ -208,7 +205,7 @@ class FabricNetworksController(wsgi.Controller):
 
         configs = {}
         for switch_name, scu in scul.switch_config_updates.items():
-            config = scu.dict(exclude_unset=True, exclude_defaults=True)
+            config = scu.model_dump(exclude_unset=True, exclude_defaults=True)
             del config['operation']
             configs[switch_name] = config
 
@@ -373,7 +370,7 @@ class SwitchesController(wsgi.Controller):
         if not config:
             return None
         config.sort()
-        config = config.dict(exclude_unset=True, exclude_defaults=True)
+        config = config.model_dump(exclude_unset=True, exclude_defaults=True)
         del config['operation']
         return dict(config=config)
 

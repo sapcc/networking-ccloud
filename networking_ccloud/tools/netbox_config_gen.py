@@ -944,7 +944,7 @@ def main():
                 for sw in sg['members']:
                     sw.setdefault("user", args.switch_user)
                     sw.setdefault("password", args.switch_password)
-            base_config = conf.DriverConfig.parse_obj(base_config_data)
+            base_config = conf.DriverConfig.model_validate(base_config_data)
         except (ValueError, KeyError) as e:
             print(f"Could not load base config '{args.base_config}': {e}")
             sys.exit(1)

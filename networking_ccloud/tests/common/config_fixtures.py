@@ -38,7 +38,7 @@ def make_switch(name, platform="test", **kwargs):
 _LAST_AUTO_GROUP_ID = 0
 
 
-def make_switchgroup(name, members=None, switch_vars=None, availability_zone=DEFAULT_AZ, **kwargs):
+def make_switchgroup(name: str, members=None, switch_vars=None, availability_zone=DEFAULT_AZ, **kwargs):
     switchgroup_vars = dict(
         name=name, asn=65100, availability_zone=availability_zone, role="vpod",
         vtep_ip="1.1.1.3",  # FIXME: derive IPs from somewhere
@@ -62,9 +62,9 @@ def make_switchgroup(name, members=None, switch_vars=None, availability_zone=DEF
 
 
 # create switchports
-def gen_switchport_names(switchgroup=None, switches=None, ports_per_switch=2, offset=0):
-    if switches is None and switchgroup is not None:
-        switches = [f"{switchgroup}-sw1", f"{switchgroup}-sw2"]
+def gen_switchport_names(switchgroup: str, ports_per_switch=2, offset=0):
+    assert isinstance(switchgroup, str), f"switchgroup must be str, got {type(switchgroup)}"
+    switches = [f"{switchgroup}-sw1", f"{switchgroup}-sw2"]
 
     ports = {s: [] for s in switches}
     for port_counter in range(ports_per_switch):
@@ -74,7 +74,7 @@ def gen_switchport_names(switchgroup=None, switches=None, ports_per_switch=2, of
     return ports
 
 
-def make_switchport(switch, name, lacp=False, members=None, unmanaged=False):
+def make_switchport(switch: str, name: str, lacp=False, members=None, unmanaged=False):
     return config_driver.SwitchPort(switch=switch, name=name, lacp=lacp, members=members, unmanaged=unmanaged)
 
 

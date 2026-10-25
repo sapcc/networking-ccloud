@@ -54,7 +54,7 @@ def get_driver_config(path=None, cached=True):
         if cfg.CONF.ml2_cc_fabric.driver_config_credentials_path:
             with open(cfg.CONF.ml2_cc_fabric.driver_config_credentials_path) as f:
                 creds_data = yaml.safe_load(f)
-                creds = DriverCredentials.parse_obj(creds_data)
+                creds = DriverCredentials.model_validate(creds_data)
             if creds.switch_credentials:
                 for sg in conf_data.get('switchgroups', []):
                     for sw in sg.get('members', []):
@@ -64,7 +64,7 @@ def get_driver_config(path=None, cached=True):
                             sw['password'] = cred.password
 
         # FIXME: error handling
-        _FABRIC_CONF = DriverConfig.parse_obj(conf_data)
+        _FABRIC_CONF = DriverConfig.model_validate(conf_data)
 
     return _FABRIC_CONF
 

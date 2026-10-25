@@ -17,6 +17,7 @@ import json
 import tempfile
 
 from oslo_config import cfg
+from pydantic import ValidationError
 
 from networking_ccloud.common.config import _override_driver_config, get_driver_config
 from networking_ccloud.common.config import config_driver as config
@@ -41,7 +42,7 @@ class TestDriverConfigValidation(base.TestCase):
     def test_switchport_lacp_attr_validation(self):
         defargs = {'switch': 'sw-seagull', 'name': 'e1/1/1/1'}
 
-        self.assertRaisesRegex(ValueError, ".*LACP members without LACP being enabled",
+        self.assertRaisesRegex(ValidationError, ".*LACP members without LACP being enabled",
                                config.SwitchPort, lacp=False, members=["foo"], **defargs)
         self.assertRaisesRegex(ValueError, ".*is LACP port and has no members",
                                config.SwitchPort, lacp=True, **defargs)
@@ -166,7 +167,7 @@ class TestDriverConfigValidation(base.TestCase):
 
     def test_l3_infra_network_needs_host_bits(self):
         exc = 'Network .* is supposed to be used as gateway and hence needs hosts bits set'
-        self.assertRaisesRegex(ValueError, exc, config.InfraNetwork, name='i-am-a-network-address', vlan=1202,
+        self.assertRaisesRegex(ValidationError, exc, config.InfraNetwork, name='i-am-a-network-address', vlan=1202,
                                vni=1202, vrf='DHCP-VRF', networks=['1.2.3.0/24'])
 
     def test_l3_infra_network_aggregate_needs_networks(self):
@@ -197,34 +198,36 @@ class TestDriverConfigValidation(base.TestCase):
         switchgroup = cfix.make_switchgroup('aint-no-cisco-if-it-doesnt-crash')
         global_config = cfix.make_global_config(availability_zones=cfix.make_azs_from_switchgroups([switchgroup]),
                                                 vrfs=vrfs)
-        hostgroups = cfix.make_hostgroups(switchgroup, infra_networks=[infra_net_ok, infra_net_bad, infra_net_l2])
+        hostgroups = cfix.make_hostgroups(switchgroup.name, infra_networks=[infra_net_ok, infra_net_bad, infra_net_l2])
 
-        self.assertRaisesRegex(ValueError, "Associated VRF DROP-ME of infra network l3-incorrect-vrf is not existing",
+        self.assertRaisesRegex(ValidationError,
+                               "Associated VRF DROP-ME of infra network l3-incorrect-vrf is not existing",
                                config.DriverConfig, switchgroups=[switchgroup], hostgroups=hostgroups,
                                global_config=global_config)
 
     def test_hostgroup_no_two_untagged_networks(self):
-        sg = cfix.make_switchgroup("seagull", availability_zone="qa-de-1a"),
+        sg = cfix.make_switchgroup("seagull", availability_zone="qa-de-1a")
         untagged_1 = config.InfraNetwork(name="mew-gull", vlan=23, vni=100023, untagged=True)
         untagged_2 = config.InfraNetwork(name="herring-gull", vlan=42, vni=100042, untagged=True)
         regular_1 = config.InfraNetwork(name="sparrow", vlan=2, vni=2)
-        cfix.make_hostgroups(sg, infra_networks=[untagged_1])
-        cfix.make_hostgroups(sg, infra_networks=[untagged_1, regular_1])
+        cfix.make_hostgroups(sg.name, infra_networks=[untagged_1])
+        cfix.make_hostgroups(sg.name, infra_networks=[untagged_1, regular_1])
         self.assertRaisesRegex(ValueError, "on same hostgroup: mew-gull and herring-gull",
-                               cfix.make_hostgroups, sg, infra_networks=[untagged_1, regular_1, untagged_2])
+                               cfix.make_hostgroups, sg.name, infra_networks=[untagged_1, regular_1, untagged_2])
 
     def test_duplicate_vrf_name(self):
         vrfs = cfix.make_vrfs(['ROUTE-ME', 'ROUTE-ME'])
 
+        print(vrfs)
         self.assertRaisesRegex(ValueError, "VRF ROUTE-ME is duplicated",
-                               cfix.make_global_config, cfix.make_azs(['monster-az-a']), vrfs=vrfs)
+                               cfix.make_global_config, availability_zones=cfix.make_azs(['monster-az-a']), vrfs=vrfs)
 
     def test_duplicate_vrf_id(self):
         vrfs = cfix.make_vrfs(['ROUTE-ME', 'SWITCH-ME'])
         vrfs[0].number = vrfs[1].number
 
         self.assertRaisesRegex(ValueError, "VRF id 2 is duplicated on VRF SWITCH-ME",
-                               cfix.make_global_config, cfix.make_azs(['monster-az-a']), vrfs=vrfs)
+                               cfix.make_global_config, availability_zones=cfix.make_azs(['monster-az-a']), vrfs=vrfs)
 
     def test_get_metagroup_for_child_hostgroup(self):
         # should work
@@ -314,7 +317,7 @@ class TestDriverConfigLoading(base.TestCase):
         hostgroups = hg_seagull + hg_crow
 
         self.drv_conf = cfix.make_config(switchgroups=switchgroups, hostgroups=hostgroups)
-        self.drv_conf_data = self.drv_conf.dict(exclude_unset=True, exclude_defaults=True)
+        self.drv_conf_data = self.drv_conf.model_dump(exclude_unset=True, exclude_defaults=True)
 
     def test_config_loading(self):
         with tempfile.NamedTemporaryFile(mode="w", delete=False) as f:
