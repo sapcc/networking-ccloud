@@ -178,6 +178,9 @@ query QueryDeviceList($region: String!, $role: String!) {
     tags {
       slug
     }
+    tenant {
+      slug
+    }
     primary_ip4 {
       address
     }
@@ -326,6 +329,9 @@ class NetboxDataSource:
                 continue
 
             if not self.has_any_tag(switch, list(self.pod_roles)):
+                continue
+
+            if switch.tenant.slug not in self.tenants:
                 continue
 
             if (switch_platform := getattr(switch.platform, 'slug', None)) not in c_const.PLATFORMS:
