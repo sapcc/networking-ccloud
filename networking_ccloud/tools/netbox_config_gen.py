@@ -244,6 +244,7 @@ class NetboxDataSource:
     pod_roles = {
         "cc-apod": SWITCHGROUP_ROLE_APOD,
         "cc-vpod": SWITCHGROUP_ROLE_VPOD,
+        "cc-cpod": SWITCHGROUP_ROLE_VPOD,
         "cc-stpod": SWITCHGROUP_ROLE_STPOD,
         "cc-netpod": SWITCHGROUP_ROLE_NETPOD,
         "cnd-net-evpn-bg": c_const.DEVICE_TYPE_BGW,
